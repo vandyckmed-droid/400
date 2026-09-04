@@ -33,7 +33,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -332,13 +332,19 @@ def month_end_dates(calendar: list[str], count: int) -> list[str]:
     return [by_month[m] for m in months[-count:]]
 
 
-def rank_block(legs: dict, meta: dict, basis: str) -> dict:
+def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None) -> dict:
     """Turn raw vol-adjusted legs into percentiles, a blended score and a rank.
 
     `basis` picks the cross-section each name is measured against: "whole" ranks
     it against every member of the universe, "sector" only against its own GICS
     sector. Sectors thinner than MIN_SECTOR are left unscored — a percentile
     across four names says nothing.
+
+    `outsiders` are names that were not members on this date but are published
+    today. They are scored against the member distribution as if inserted into
+    it — where they *would* have ranked — without disturbing the members' own
+    percentiles. That gives a recent joiner a full history chart while keeping
+    every historical cross-section point-in-time.
     """
     if basis == "whole":
         groups = {"*": set(legs)}
@@ -362,6 +368,20 @@ def rank_block(legs: dict, meta: dict, basis: str) -> dict:
                 "p12": round(p_long[symbol], 2),
                 "p6": round(p_mid[symbol], 2),
             }
+        if outsiders:
+            n = len(members)
+            long_sorted = sorted(legs[s][0] for s in members)
+            mid_sorted = sorted(legs[s][1] for s in members)
+            for symbol, leg in outsiders.items():
+                if basis == "sector" and meta.get(symbol, {}).get("sector", "") != sector:
+                    continue
+                p_l = 100.0 * bisect_left(long_sorted, leg[0]) / n
+                p_m = 100.0 * bisect_left(mid_sorted, leg[1]) / n
+                out[symbol] = {
+                    "s": round(WEIGHT_LONG * p_l + WEIGHT_MID * p_m, 2),
+                    "k": None, "n": n, "p12": round(p_l, 2), "p6": round(p_m, 2),
+                    "outside": True,
+                }
     return out
 
 
@@ -433,29 +453,39 @@ def main() -> None:
     log(f"extended universe today: {len(ext_at[as_of])} names "
         f"({len(core_at[as_of] & set(prices))} core + {len(ext_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
 
+    # --- today's cross-sections ---
+    legs_now = legs_at(ext_at[as_of], index_maps, as_of)
+    pools_now = {"core": core_at[as_of], "ext": ext_at[as_of]}
+    live = set(legs_now)                          # every name the site will publish
+    # Names whose history each peer set should carry: today's members of that
+    # universe. On dates before they joined they are scored as outsiders.
+    carry = {"core": pools_now["core"] & live, "ext": live}
+
     # --- history: one momentum pass per date, reused by all four peer sets ---
     def build_history(dates):
         history = {key: {} for key in PEER_SETS}
+        outside = {key: {} for key in PEER_SETS}
         kept = []
         for date in dates:
-            legs = legs_at(ext_at[date], index_maps, date)
-            if len(legs) < MIN_NAMES_PER_SNAPSHOT:
+            legs = legs_at(ext_at[date] | live, index_maps, date)
+            if sum(1 for s in legs if s in ext_at[date]) < MIN_NAMES_PER_SNAPSHOT:
                 continue
             kept.append(date)
             pools = {"core": core_at[date], "ext": ext_at[date]}
             for key, (universe, basis) in PEER_SETS.items():
-                subset = {s: v for s, v in legs.items() if s in pools[universe]}
-                for symbol, block in rank_block(subset, meta, basis).items():
+                members = {s: v for s, v in legs.items() if s in pools[universe]}
+                joiners = {s: v for s, v in legs.items()
+                           if s in carry[universe] and s not in pools[universe]}
+                for symbol, block in rank_block(members, meta, basis, joiners).items():
                     history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
-        return history, kept
+                    if block.get("outside"):
+                        outside[key].setdefault(symbol, set()).add(date)
+        return history, outside, kept
 
-    history, kept_dates = build_history(snapshot_dates)
-    weekly, kept_weeks = build_history(weekly_dates)
-    log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections")
-
-    # --- today's cross-sections ---
-    legs_now = legs_at(ext_at[as_of], index_maps, as_of)
-    pools_now = {"core": core_at[as_of], "ext": ext_at[as_of]}
+    history, history_outside, kept_dates = build_history(snapshot_dates)
+    weekly, weekly_outside, kept_weeks = build_history(weekly_dates)
+    log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections; "
+        f"{sum(len(v) for v in history_outside.values())} name/peer-set pairs carry pre-membership bars")
     blocks = {
         key: rank_block({s: v for s, v in legs_now.items() if s in pools_now[universe]}, meta, basis)
         for key, (universe, basis) in PEER_SETS.items()
@@ -523,15 +553,25 @@ def main() -> None:
     }
     write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
-    live = {r["symbol"] for r in rows}
-    for source, dates, suffix in ((history, kept_dates, ""), (weekly, kept_weeks, "w")):
+    published = {r["symbol"] for r in rows}
+    for source, outside, dates, suffix in (
+        (history, history_outside, kept_dates, ""),
+        (weekly, weekly_outside, kept_weeks, "w"),
+    ):
         for key in PEER_SETS:
             scores = {
                 symbol: [by_date.get(d) for d in dates]
                 for symbol, by_date in source[key].items()
-                if symbol in live
+                if symbol in published
             }
-            write_json(DATA / "history" / f"{key}{suffix}.json", {"dates": dates, "scores": scores})
+            # Bar indices scored as an outsider, only for names that have any.
+            pre = {
+                symbol: [i for i, d in enumerate(dates) if d in when]
+                for symbol, when in outside[key].items()
+                if symbol in published and when
+            }
+            write_json(DATA / "history" / f"{key}{suffix}.json",
+                       {"dates": dates, "scores": scores, "outside": pre})
 
 
 def write_json(path: Path, payload: object) -> None:

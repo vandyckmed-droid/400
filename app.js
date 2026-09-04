@@ -472,7 +472,7 @@
       const top = Math.min(y(p.value), base), bottom = Math.max(y(p.value), base);
       return `<rect data-i="${i}" x="${barX(i).toFixed(2)}" y="${top.toFixed(2)}" ` +
              `width="${barW.toFixed(2)}" height="${Math.max(1, bottom - top).toFixed(2)}" ` +
-             `rx="1" fill="${p.color}"/>`;
+             `rx="1" fill="${p.color}"${p.opacity != null ? ` fill-opacity="${p.opacity}"` : ''}/>`;
     }).join('');
 
     const guides = (cfg.guides || []).map((g) =>
@@ -550,10 +550,18 @@
   /* Per-ticker score history: fixed 0-100 domain, 50 marks the peer-set median. */
   function drawChart(host, history, r, key, grain) {
     const series = history && history.scores[r.symbol];
+    // Bars from before the name joined this universe: scored as an outsider
+    // against that day's members, so the chart still shows its trajectory.
+    const outside = new Set((history && history.outside && history.outside[r.symbol]) || []);
     const points = (series || [])
-      .map((value, i) => ({ value, date: history.dates[i] }))
+      .map((value, i) => ({ value, date: history.dates[i], pre: outside.has(i) }))
       .filter((p) => p.value != null)
-      .map((p) => ({ ...p, color: tone(p.value) }));
+      .map((p) => ({ ...p, color: tone(p.value), opacity: p.pre ? 0.38 : null }));
+    const joined = points.find((p) => !p.pre);
+    const joinedNote = joined && points.some((p) => p.pre)
+      ? ` Dimmed bars are from before ${r.symbol} joined ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}
+         (${fmtDate(joined.date)}) and show where it would have ranked against that day's members.`
+      : '';
     if (!points.length) {
       host.innerHTML = '<p class="legend">No score history for this name yet.</p>';
       return;
@@ -575,7 +583,8 @@
             `${grain === 'w' ? 'weeks' : 'months'}`,
       readout: (p, i) => [
         (grain === 'w' ? 'week ending ' : '') + fmtDate(p.date) +
-          (avg[i] == null ? '' : ` · ${MA}-${unit} avg ${avg[i].toFixed(1)}`),
+          (avg[i] == null ? '' : ` · ${MA}-${unit} avg ${avg[i].toFixed(1)}`) +
+          (p.pre ? ' · not yet a member' : ''),
         p.value.toFixed(1),
       ],
       note: `Each bar re-ranks ${r.symbol} against ${key[1] === 's'
@@ -583,7 +592,7 @@
                : `all of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`} at that
              ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
              Above the dashed line means the better half of that peer set. The line is the trailing
-             ${MA}-${grain === 'w' ? 'week' : 'month'} average.`,
+             ${MA}-${grain === 'w' ? 'week' : 'month'} average.${joinedNote}`,
     });
   }
 

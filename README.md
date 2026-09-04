@@ -23,7 +23,16 @@ ranked, so very recent index additions sit out until they season.
 The **history chart** re-runs the entire cross-section at each snapshot, so a bar shows where a name
 stood *against its peers on that date* — not a rescaling of today's numbers. A trailing 4-period
 average (4 weeks or 4 months, following the interval) is drawn over the bars: enough to smooth the
-week-to-week noise without lagging so far that a turn only shows after it's over. Two intervals are
+week-to-week noise without lagging so far that a turn only shows after it's over.
+
+**Recent joiners.** Membership is point-in-time, so a name that joined the index in April has only
+five month-ends as a member — and a five-bar chart for a five-year-old stock tells you nothing.
+On dates before it joined, the name is scored *as an outsider* against that day's members: inserted
+into their distribution to find where it would have ranked, without disturbing the members' own
+percentiles (which are byte-identical with or without it). Those bars are dimmed, the readout says
+"not yet a member", and the note gives the join date. At the time of writing 103 names in the 400
+and 178 in the 650 have at least one such bar. The backtest never uses these — it ranks members
+only. Two intervals are
 published and switchable on the chart: 36 month ends for the long shape, and 78 week ends (~18
 months) when the monthly bars are too coarse to see a turn. The weekly files are roughly three times
 the size, so they load only when that view is opened. The weekly axis keeps the in-progress week —
