@@ -260,7 +260,10 @@ def fetch_bars(symbol: str, start: str) -> list[tuple[str, float, float, float, 
         if r.get("adjOpen") is not None:
             o, h, l = r["adjOpen"], r["adjHigh"], r["adjLow"]
         elif r.get("open") is not None and r.get("close"):
-            # Unadjusted open/high/low: scale them by the factor the close got.
+            # A safety net, not the live path: this endpoint serves adjOpen /
+            # adjHigh / adjLow today. If it ever returns raw open/high/low
+            # instead, scale them by the factor the close got rather than
+            # drawing bars on a different basis from the close.
             f = close / float(r["close"])
             o, h, l = r["open"] * f, r["high"] * f, r["low"] * f
         else:

@@ -126,7 +126,9 @@ data/latest.json                 current ranking, all four peer sets + key stats
 data/spark/<key>.json            last 12 month-end scores; the strip in each list row, one per set
 data/history/<key>.json          score per month end (36), one file per peer set, lazy-loaded
 data/history/<key>w.json         score per week end (78 ~ 18 months), loaded only if asked for
-data/bars/<SYMBOL>.json          ~3 years of adjusted daily bars per ranked name, for the price chart
+data/bars/<SYMBOL>.json          756 adjusted daily bars (~3 years) per ranked name, ~28 KB each,
+                                 for the price chart; ~18 MB in all, and git stores each day's
+                                 rewrite as a delta of roughly 0.1 MB across the whole set
 chart.js                         the price chart: canvas bars, pan / pinch / axis-stretch gestures,
                                  and a 200-day linear regression channel
 data/universe.json               MidCap 400 constituents + change log; the offline fallback
@@ -188,9 +190,10 @@ served as static JSON.
 
 Automatic: `.github/workflows/refresh.yml` runs Tuesday to Saturday at 10:00 UTC — the morning
 after each weekday close, once the vendor's adjusted bars have settled — rebuilds the ranking, the
-backtest and the price bars, and commits `data/` if anything changed. A market holiday adds no bar,
-so that morning's run changes nothing. Use **Actions → Refresh momentum data → Run workflow** for
-an on-demand rebuild.
+backtest and the price bars, and commits `data/`. A market holiday adds no new bar, so the scores
+and bars come out identical; the run still commits, because every payload carries the timestamp of
+the run that produced it. That is deliberate: it is what keeps the staleness banner from tripping
+over a quiet week. Use **Actions → Refresh momentum data → Run workflow** for an on-demand rebuild.
 
 **One-time setup:** add the FMP key as a repository secret named `FMP_API_KEY`
 (*Settings → Secrets and variables → Actions*). Without it the scheduled job fails and the site
