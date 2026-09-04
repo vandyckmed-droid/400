@@ -38,6 +38,7 @@
     backtest: null,
     backtestPromise: null,
     horizon: '6',
+    folds: new Set(),
     basis: (() => {
       try { return localStorage.getItem(BASIS_KEY) === 'sector' ? 'sector' : 'whole'; }
       catch { return 'whole'; }
@@ -186,13 +187,13 @@
     el.hidden = false;
     el.innerHTML =
       `${equitySpark(v.curve)}` +
-      `<span class="perf-txt"><b>Top decile</b>` +
+      `<span class="perf-txt"><b>Top 10%</b>` +
       `<small>${sectorBasis() ? 'whole-universe ranking · ' : ''}backtested</small></span>` +
       `<span class="perf-num"><b class="${cls(v.cagr)}">${spct(v.cagr)}</b>` +
       `<small>a year · ${spct(v.excess)} vs universe</small></span>` +
       `<span class="perf-go" aria-hidden="true">›</span>`;
     el.setAttribute('aria-label',
-      `Top decile backtest: ${spct(v.cagr)} a year, ${spct(v.excess)} against the whole universe. ` +
+      `Top 10% backtest: ${spct(v.cagr)} a year, ${spct(v.excess)} against all ranked names. ` +
       'See the full record.');
   }
 
@@ -734,8 +735,8 @@
         ${dots}${labels}
       </svg></div>
       <div class="readout"><span class="ro-l"></span><b class="ro-r"></b></div>
-      <p class="legend key">${cfg.series.map((se) =>
-        `<i class="swatch ${se.cls}"></i>${se.label}`).join(' ')}</p>
+      ${cfg.legend === false ? '' : `<p class="legend key">${cfg.series.map((se) =>
+        `<i class="swatch ${se.cls}"></i>${se.label}`).join(' ')}</p>`}
       ${cfg.note ? `<p class="legend">${cfg.note}</p>` : ''}`;
 
     const svg = host.querySelector('svg');
@@ -846,7 +847,7 @@
     const el = $('evidence-view');
     if (!el.dataset.ready) {
       el.innerHTML = '<div class="dtop"><button class="back" id="eback">‹ Back</button>' +
-        '<span class="grow"><b>Does the score work?</b><small>loading…</small></span></div>';
+        '<span class="grow"><b>Top 10% vs all ranked</b><small>loading…</small></span></div>';
       el.querySelector('#eback').addEventListener('click', goBack);
     }
     Promise.all([loadBacktest(), loadPortfolio()]).then(([bt, pf]) => {
@@ -864,79 +865,42 @@
   const months = (h) => (h === '1' ? '1 month' : `${h} months`);
   const monthsAdj = (h) => `${h}-month`;              // adjectival: "6-month return"
 
+  /* The page is built for a sceptic. The chart and the two line definitions
+     come first; the construction — every parameter the pipeline actually ran
+     with, read from portfolio.json rather than retyped here — comes second and
+     stays visible; everything else is folded. Nothing on the page asks the
+     reader to infer a method from a label. */
+  const fold = (key, title, body) =>
+    `<details class="card fold" data-fold="${key}"${state.folds.has(key) ? ' open' : ''}>
+       <summary><h3>${title}</h3></summary><div class="fold-body">${body}</div></details>`;
+
   function renderEvidence(el, bt, pf) {
     const h = state.horizon;
     const H = bt.variants[state.adjust].horizons[h];
     const sp = H.spread;
-    const v = pf && pf.variants[perfKey()];
+    const v = pf && pf.method && pf.variants[perfKey()];
     el.dataset.ready = '1';
     el.innerHTML = `
       <div class="dtop">
         <button class="back" id="eback">‹ Back</button>
-        <span class="grow"><b>Does the score work?</b>
-          <small>${bt.rankingDates} month ends · ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</small></span>
+        <span class="grow"><b>${v ? 'Top 10% vs all ranked' : 'Forward returns by decile'}</b>
+          <small>${v
+            ? `${fmtDate(pf.from)} – ${fmtDate(pf.to)} · ${pf.rebalances} monthly rebalances`
+            : `${bt.rankingDates} month ends · ${fmtDate(bt.from)} – ${fmtDate(bt.to)}`}</small></span>
       </div>
-      <p class="scope">Ranked on <b>${RANKED_ON[state.adjust]}</b>, the setting you have on, across
-        the whole of <b>${UNIVERSE.label}</b> — the same universe and the same ranking the list is
-        showing you. The within-sector basis is a display option on the list; it is a different
-        signal and is not tested here.</p>
-      ${v ? portfolioCard(v, pf) : ''}
-      ${v ? concentrationCard(v) : ''}
-      <p class="sechead">Forward returns, ${bt.rankingDates} month ends,
-        ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</p>
-      <div class="hero">
-        <span class="big" style="color:${tone(sp.mean > 0 ? 82 : 18)}">${signed(sp.mean * 100, 1)}%</span>
-        <span class="lbl">top minus bottom decile<b>mean over ${months(h)}</b></span>
-      </div>
-      <div class="ctrl">
-        <div class="segmented" id="hsel" role="tablist" aria-label="Forward-return horizon">
-          ${['1', '3', '6'].map((k) => `<button role="tab" data-h="${k}"
-            class="${k === h ? 'on' : ''}" aria-selected="${k === h}">${months(k)}</button>`).join('')}
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Forward return by decile</h3>
-        <div id="decile-chart"></div>
-      </div>
-
-      <div class="card">
-        <h3>Top minus bottom, month by month</h3>
-        <dl class="stats trio">
-          <div><dt>Mean spread</dt><dd class="${cls(sp.mean)}">${signed(sp.mean * 100, 2)}%</dd></div>
-          <div><dt>Hit rate</dt><dd>${(sp.hitRate * 100).toFixed(0)}%</dd></div>
-          <div><dt>t-stat</dt><dd>${sp.tIndependent.toFixed(2)}</dd></div>
-        </dl>
-        <div id="spread-chart"></div>
-      </div>
-
-      <div class="card caution">
-        <h3>Read this before using it</h3>
-        <ul class="caveats">
-          <li><b>The obvious t-stat is wrong.</b> Sampling ${monthsAdj(h)} returns every month makes the
-            windows overlap. Naive t is ${sp.tNaive.toFixed(2)}; corrected it is
-            ${sp.tNeweyWest.toFixed(2)} (Newey–West), or ${sp.tIndependent.toFixed(2)} across the
-            ${sp.nIndependent} genuinely independent window${sp.nIndependent === 1 ? '' : 's'}.
-            The headline number above is a mean, not a proven edge.</li>
-          <li><b>One regime.</b> Three years of a mostly rising market. Every decile is positive at
-            six months, so the spread is the only figure carrying information here — and momentum is
-            known to work in trends and break at reversals. This sample contains no reversal.</li>
-          <li><b>It is decaying.</b> Spread by ranking-date year —
-            ${sp.byYear.map((y) => `${y.year} ${signed(y.mean * 100, 1)}%` +
-              (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.</li>
-          <li><b>Scope.</b> This table is one peer set only: the MidCap 400 against itself, ranked
-            on ${RANKED_ON[state.adjust]}. A sector-relative ranking is a different signal and would
-            need its own test. The curve at the top covers the universe you have selected.</li>
-          <li><b>What is and isn't corrected.</b> Index membership is reconstructed month by month,
-            so no name is ranked before it joined. Delisted names are held to their last price and
-            then treated as cash. Costs, spreads and taxes are not modelled.</li>
-        </ul>
-      </div>
-
+      ${v ? chartCard(v, pf) + methodCard(v, pf) + resultsCard(v, pf) : ''}
+      ${v ? fold('conc', 'Sector concentration of the top 10%', concentrationBody(v)) : ''}
+      ${fold('decile', 'A second test: forward returns by decile', decileBody(bt, sp, h))}
+      ${fold('caveats', 'Read this before using it', caveatsBody(sp, h))}
       <footer class="foot"><p>A percentile is a rank against peers, not a return forecast.
-        Past decile behaviour is not a prediction for any individual holding.</p></footer>`;
+        Past behaviour of a basket is not a prediction for any holding in it.</p></footer>`;
 
     el.querySelector('#eback').addEventListener('click', goBack);
+    for (const d of el.querySelectorAll('details[data-fold]')) {
+      d.addEventListener('toggle', () => {
+        if (d.open) state.folds.add(d.dataset.fold); else state.folds.delete(d.dataset.fold);
+      });
+    }
     el.querySelector('#hsel').addEventListener('click', (e) => {
       const tab = e.target.closest('button[data-h]');
       if (!tab || tab.dataset.h === state.horizon) return;
@@ -950,36 +914,163 @@
     drawSpread(el.querySelector('#spread-chart'), sp, h);
   }
 
-  /* What holding the top decile did, against the only benchmark that makes the
-     question fair: owning the same universe equally weighted. The comparison is
-     put next to every number rather than left for the reader to do, because on
-     this data the gap is small and a lone CAGR would flatter the ranking. */
-  function portfolioCard(v, pf) {
-    const t = v.topStats, a = v.allStats, b = v.bottomStats;
-    const years = ((Date.parse(pf.to) - Date.parse(pf.from)) / 3.15576e10);
+  const range = (r) => (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`);
+
+  /* The chart, and directly under it the one-line definition of each line.
+     Everything a reader needs to say what the two lines are, before any number. */
+  function chartCard(v, pf) {
+    const m = pf.method;
+    return `
+      <div class="card prime">
+        <div id="perf-chart"></div>
+        <ul class="lines">
+          <li><i class="swatch top"></i><b>Top 10%</b> — the ${range(m.held)} highest-scored names
+            at each month end, equal weight, held until the next month end.</li>
+          <li><i class="swatch all"></i><b>All ranked</b> — every name that was ranked that month
+            end (${range(m.ranked)}), equal weight, held the same way.</li>
+        </ul>
+      </div>`;
+  }
+
+  /* Every choice that decides the plotted values, in the order a reader would
+     need them to rebuild the lines. Numbers come from pf.method — what the run
+     used — not from this file. */
+  function methodCard(v, pf) {
+    const m = pf.method;
+    const vol = state.adjust === 'vol';
+    const w = m.weights;
+    const rows = [
+      ['Universe', `On each rebalance date: every S&amp;P MidCap 400 member that day, plus the
+        ${m.sizeTail} S&amp;P 500 members with the smallest market cap that day (latest cap on or
+        before the date). Membership is rebuilt from each index's change log.`],
+      ['Score', `From adjusted closes, two returns per name: from ${m.longDays} to ${m.skipDays}
+        trading days before the date (12–1) and from ${m.midDays} to ${m.skipDays} (6–1).${vol
+          ? ` Each is divided by the annualised standard deviation of the name's daily log returns
+              over that same window.` : ''}
+        Each is converted to a 0–100 percentile across all ranked names, ties sharing their average
+        rank. Score = ${w[0]} × 12–1 percentile + ${w[1]} × 6–1 percentile.
+        <span class="setting">Ranked on ${RANKED_ON[state.adjust]} — set in Settings.</span>`],
+      ['Who is ranked', `A name needs at least ${m.minObsLong} daily returns inside its 12–1 window
+        and ${m.minObsMid} inside its 6–1 window. Names that fall short are in neither line. Call
+        the number that qualify N: ${range(m.ranked)} here.`],
+      ['When', `The last trading day of each complete month, ${pf.rebalances} times:
+        ${fmtDate(m.firstRebalance)} to ${fmtDate(m.lastRebalance)}. Each basket is held until the
+        next rebalance; the last is held to ${fmtDate(pf.to)}.`],
+      ['Top 10% line', `The N ÷ ${m.deciles} highest scores, rounded down (${range(m.held)} names),
+        ties broken by ticker A–Z. Equal weight. Each name is bought at its last adjusted close on
+        or before the rebalance date and held untouched until the next one.`],
+      ['All ranked line', `All N ranked names that month, equal weight, bought and held the same
+        way.`],
+      ['Value', `100 on ${fmtDate(pf.from)}. On each trading day, the holdings summed at that
+        day's adjusted close. Adjusted closes carry dividends and splits, so dividends are
+        reinvested. No costs, spreads or tax.`],
+    ];
+    const edge = [
+      `A name that stops trading keeps its last value until the next rebalance, then drops out.`,
+      `A name with no bar on a day keeps the previous day's value.`,
+      `A name with no adjusted close on or before a rebalance date is left out of that basket;
+        the rest share its weight.`,
+      `A month with fewer than ${m.minScored} ranked names is skipped. ${m.skippedMonths === 0
+        ? 'None were.' : `${m.skippedMonths} were.`}`,
+      `A name needs at least ${m.minPriceBars} daily closes from the price vendor to be in the
+        universe at all. ${m.unpriced.length} former index members have none —
+        ${m.unpriced.join(', ')} — so they are absent at every date. Both lines therefore carry
+        survivorship bias; the data cannot say in which direction.`,
+      `The final holding period, ${fmtDate(m.lastRebalance)} to ${fmtDate(pf.to)}, is not a full
+        month.`,
+      `Plotted values are stored to 0.01. The statistics below use the unrounded series.`,
+      `Prices: ${esc(m.priceSource)}. Market caps: ${esc(m.capSource)}.`,
+    ];
+    return `
+      <div class="card">
+        <h3>How each line is built</h3>
+        <dl class="build">${rows.map(([k, t]) => `<dt>${k}</dt><dd>${t}</dd>`).join('')}</dl>
+        <details class="edge"${state.folds.has('edge') ? ' open' : ''} data-fold="edge">
+          <summary>Edge cases that affect the result</summary>
+          <ul>${edge.map((t) => `<li>${t}</li>`).join('')}</ul>
+        </details>
+      </div>`;
+  }
+
+  /* Secondary by design: the outcome, each figure beside the same figure for
+     the other line, and a sentence written from the numbers. */
+  function resultsCard(v, pf) {
+    const t = v.topStats, a = v.allStats;
     const tile = (label, mine, theirs, sign) => `
       <div><dt>${label}</dt>
         <dd class="${sign ? cls(mine) : ''}">${(sign ? spct : pct)(mine)}</dd>
-        <dd class="vs">all ${(sign ? spct : pct)(theirs)}</dd></div>`;
+        <dd class="vs">all ranked ${(sign ? spct : pct)(theirs)}</dd></div>`;
     return `
-      <div class="card">
-        <h3 class="row"><span>Holding the top decile</span>
-          <span class="span">${fmtDate(pf.from)} – ${fmtDate(pf.to)}</span></h3>
-        <div id="perf-chart"></div>
+      <div class="card secondary">
+        <h3>Result</h3>
         <dl class="stats trio compare">
-          ${tile('Return a year', t.cagr, a.cagr, true)}
+          ${tile('Growth per year', t.cagr, a.cagr, true)}
           ${tile('Volatility', t.vol, a.vol, false)}
-          ${tile('Worst fall', t.maxDrawdown, a.maxDrawdown, true)}
+          ${tile('Max drawdown', t.maxDrawdown, a.maxDrawdown, true)}
         </dl>
-        <table class="peers years">
-          <tr><th>Year</th><th>Top decile</th><th>Whole universe</th></tr>
-          ${t.byYear.map((row, i) => `<tr>
-            <td>${row.year}${row.n < 200 ? ' <i>part</i>' : ''}</td>
-            <td class="${cls(row.ret)}">${spct(row.ret)}</td>
-            <td>${spct(a.byYear[i].ret)}</td></tr>`).join('')}
-        </table>
-        <p class="legend">${verdict(v)}</p>
+        <p class="legend">Growth per year = compound annual growth rate of the line.
+          Volatility = standard deviation of daily changes × √${Math.round(pf.method.tradingDaysPerYear)}.
+          Max drawdown = largest fall from a previous high, on daily values.</p>
+        <p class="legend verdict">${verdict(v)}</p>
+        <details class="edge"${state.folds.has('years') ? ' open' : ''} data-fold="years">
+          <summary>Year by year</summary>
+          <table class="peers years">
+            <tr><th>Year</th><th>Top 10%</th><th>All ranked</th></tr>
+            ${t.byYear.map((row, i) => `<tr>
+              <td>${row.year}${row.n < 200 ? ' <i>part</i>' : ''}</td>
+              <td class="${cls(row.ret)}">${spct(row.ret)}</td>
+              <td>${spct(a.byYear[i].ret)}</td></tr>`).join('')}
+          </table>
+        </details>
       </div>`;
+  }
+
+  function decileBody(bt, sp, h) {
+    return `
+      <p class="legend">A different test from the chart above: at each of ${bt.rankingDates} month
+        ends (${fmtDate(bt.from)} – ${fmtDate(bt.to)}) every ranked name is put into one of ten
+        equal groups by score, and each group's mean return over the following
+        ${months(h)} is measured. Same universe and score as the chart.</p>
+      <div class="hero">
+        <span class="big" style="color:${tone(sp.mean > 0 ? 82 : 18)}">${signed(sp.mean * 100, 1)}%</span>
+        <span class="lbl">top 10% minus bottom 10%<b>mean over ${months(h)}</b></span>
+      </div>
+      <div class="ctrl">
+        <div class="segmented" id="hsel" role="tablist" aria-label="Forward-return horizon">
+          ${['1', '3', '6'].map((k) => `<button role="tab" data-h="${k}"
+            class="${k === h ? 'on' : ''}" aria-selected="${k === h}">${months(k)}</button>`).join('')}
+        </div>
+      </div>
+      <h4>Forward return by group</h4>
+      <div id="decile-chart"></div>
+      <h4>Top minus bottom, month by month</h4>
+      <dl class="stats trio">
+        <div><dt>Mean spread</dt><dd class="${cls(sp.mean)}">${signed(sp.mean * 100, 2)}%</dd></div>
+        <div><dt>Hit rate</dt><dd>${(sp.hitRate * 100).toFixed(0)}%</dd></div>
+        <div><dt>t-stat</dt><dd>${sp.tIndependent.toFixed(2)}</dd></div>
+      </dl>
+      <div id="spread-chart"></div>`;
+  }
+
+  function caveatsBody(sp, h) {
+    return `
+      <ul class="caveats">
+        <li><b>The obvious t-stat is wrong.</b> Sampling ${monthsAdj(h)} returns every month makes the
+          windows overlap. Naive t is ${sp.tNaive.toFixed(2)}; corrected it is
+          ${sp.tNeweyWest.toFixed(2)} (Newey–West), or ${sp.tIndependent.toFixed(2)} across the
+          ${sp.nIndependent} genuinely independent window${sp.nIndependent === 1 ? '' : 's'}.
+          A mean is not a proven edge.</li>
+        <li><b>One regime.</b> A few years of a mostly rising market. Momentum is known to work in
+          trends and break at reversals; this sample contains no reversal.</li>
+        <li><b>It is decaying.</b> Spread by ranking-date year —
+          ${sp.byYear.map((y) => `${y.year} ${signed(y.mean * 100, 1)}%` +
+            (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.</li>
+        <li><b>Scope.</b> Both tests rank across the whole universe on ${RANKED_ON[state.adjust]}.
+          The within-sector basis on the list is a different signal and is not tested.</li>
+        <li><b>Not modelled.</b> Costs, spreads, tax, and the price impact of trading
+          ${range((state.portfolio && state.portfolio.method || { held: { min: '?', max: '?' } }).held)}
+          names at once.</li>
+      </ul>`;
   }
 
   /* How many sectors the decile is really spread across, month by month.
@@ -989,15 +1080,14 @@
      single sector unwinding takes the whole thing down at once. Bars, not a
      line: each one is a reading taken on a rebalance date, the same thing
      every other bar chart in this app means. */
-  function concentrationCard(v) {
+  function concentrationBody(v) {
     const c = v.concentration, now = c.now, universe = c.nowAll;
     return `
-      <div class="card">
-        <h3 class="row"><span>How concentrated it gets</span>
-          <span class="span">${now.effective.toFixed(1)} effective sectors</span></h3>
+        <p class="legend">Sectors are today's GICS sector for each name, applied to every past
+          basket. Weight = share of the basket's names.</p>
         <div id="conc-chart"></div>
         <table class="peers years mix">
-          <tr><th>Today's decile</th><th>Names</th><th>Weight</th></tr>
+          <tr><th>Latest top 10%</th><th>Names</th><th>Weight</th></tr>
           ${now.weights.slice(0, 5).map((w) => `<tr>
             <td>${esc(w.sector)}</td>
             <td class="n">${Math.round(w.w * now.count)}</td>
@@ -1009,10 +1099,9 @@
         <p class="legend">Sector Herfindahl: square each sector's share of the basket and add them
           up, then invert it. ${pct(now.topWeight, 0)} of the decile sits in ${esc(now.top)}, which
           works out at <b>${now.effective.toFixed(1)} equally sized sectors</b> against
-          ${universe.effective.toFixed(1)} for the universe it was picked from. Concentration is not
-          a fault — it is the ranking finding something — but it is the number to look at before
-          deciding how much of a portfolio this sleeve should be.</p>
-      </div>`;
+          ${universe.effective.toFixed(1)} for all ranked names. Concentration is not a fault —
+          it is the ranking finding something — but it is the number to look at before deciding how
+          much of a portfolio this sleeve should be.</p>`;
   }
 
   function drawConcentration(host, v) {
@@ -1029,13 +1118,13 @@
       guides: [{ at: top, label: top.toFixed(0) }, { at: 1, label: '1' }],
       xLabel: (p, i, all) =>
         i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
-      aria: 'Effective number of sectors in the top decile at each monthly rebalance',
+      aria: 'Effective number of sectors in the top 10% at each monthly rebalance',
       readout: (p) => [
         `${fmtDate(p.date)} · ${pct(p.topWeight, 0)} ${esc(p.top)}`,
         `${p.effective.toFixed(1)} sectors`,
       ],
-      note: `Effective sectors in the decile at each rebalance. The line is the same measure for the
-             whole universe — the gap between them is the concentration the ranking itself adds.
+      note: `Effective sectors in the top 10% at each rebalance. The line is the same measure for
+             all ranked names — the gap between them is the concentration the ranking itself adds.
              Lower means fewer, bigger sector bets.`,
     });
   }
@@ -1047,51 +1136,44 @@
     const excess = t.cagr - a.cagr;
     const won = t.byYear.filter((y, i) => y.ret > a.byYear[i].ret).length;
     const lead = excess > 0
-      ? `The top decile beat an equal-weighted holding of the whole universe by
-         ${spct(excess, 1)} a year`
-      : `The top decile did not beat an equal-weighted holding of the whole universe:
-         ${spct(excess, 1)} a year`;
-    return `${lead}, and it ${t.vol > a.vol ? 'carried more risk doing it' : 'did so with less risk'}
-      — ${pct(t.vol)} volatility against ${pct(a.vol)}, worst fall ${spct(t.maxDrawdown)} against
-      ${spct(a.maxDrawdown)}. It was ahead in ${won} of the ${t.byYear.length} calendar years above,
-      so read that column before the average. The ordering shows more clearly at the two ends than
-      at the top: top decile minus bottom decile is ${spct(t.cagr - b.cagr, 1)} a year over the same
-      window. ${v.holds} names, rebalanced monthly, no costs or tax.`;
+      ? `The top 10% beat all ranked names, equally weighted, by ${spct(excess, 1)} a year`
+      : `The top 10% did not beat all ranked names, equally weighted: ${spct(excess, 1)} a year`;
+    return `${lead}, ${t.vol > a.vol ? 'with more risk' : 'with less risk'} —
+      ${pct(t.vol)} volatility against ${pct(a.vol)}, max drawdown ${spct(t.maxDrawdown)} against
+      ${spct(a.maxDrawdown)}. It was ahead in ${won} of ${t.byYear.length} calendar years. The
+      bottom 10%, built the same way, returned ${spct(b.cagr, 1)} a year.`;
   }
 
   function drawPortfolio(host, v, pf) {
-    // ~250 drawn points out of a daily series: past that the line is redrawing
-    // pixels it already owns. Every statistic above is computed on all of it.
-    const step = Math.max(1, Math.ceil(v.top.length / 250));
-    const idx = [];
-    for (let i = 0; i < v.top.length; i += step) idx.push(i);
-    if (idx[idx.length - 1] !== v.top.length - 1) idx.push(v.top.length - 1);
-    const dates = idx.map((i) => pf.dates[i]);
-    const pick = (arr) => idx.map((i) => arr[i]);
-    const top = pick(v.top), all = pick(v.all);
-    const hi = Math.max(...top, ...all);
-
+    // Every daily value is drawn. A decimated line would show a shallower
+    // drawdown than the statistic computed on the full series, and a reader
+    // checking a plotted value against the data should find exactly that value.
+    const dates = pf.dates.slice(0, v.top.length);
+    const top = v.top, all = v.all;
+    const hi = Math.max(...top, ...all), lo = Math.min(...top, ...all);
     const marks = [];
     dates.forEach((d, i) => {
       if (i && d.slice(0, 4) !== dates[i - 1].slice(0, 4)) marks.push({ at: i, text: d.slice(0, 4) });
     });
-
     lineChart(host, {
+      height: 200, legend: false,
       series: [
-        { values: top, cls: 'top', label: 'Top decile' },
-        { values: all, cls: 'all', label: 'Whole universe, equal weight' },
+        { values: top, cls: 'top', label: 'Top 10%' },
+        { values: all, cls: 'all', label: 'All ranked' },
       ],
-      guides: [{ at: 100, label: '100', dashed: true },
-               { at: hi, label: Math.round(hi).toString() }],
+      guides: [
+        { at: 100, label: '100', dashed: true },
+        ...[125, 150, 175, 200, 225, 250, 300].filter((t) => t > lo && t < hi - 6)
+          .map((t) => ({ at: t, label: String(t) })),
+        { at: hi, label: hi.toFixed(0) },
+        ...(lo < 95 ? [{ at: lo, label: lo.toFixed(0) }] : []),
+      ],
       xLabels: marks,
-      aria: 'Growth of 100 dollars in the top momentum decile against the equal-weighted universe',
+      aria: 'Value of 100 held in the top 10% by score against 100 held in all ranked names, daily',
       readout: (i) => [
-        `${fmtDate(dates[i])} · universe <b>${spct(all[i] / 100 - 1)}</b>`,
-        spct(top[i] / 100 - 1),
+        `${fmtDate(dates[i])}`,
+        `<i class="swatch top"></i>${top[i].toFixed(2)} <i class="swatch all"></i>${all[i].toFixed(2)}`,
       ],
-      note: `100 invested at the first rebalance, ${fmtDate(pf.from)}. Equal weights are set at each
-             month end and then left alone; a name that stops trading is held at its last price.
-             Dividends are in the prices. Costs, spreads and tax are not.`,
     });
   }
 

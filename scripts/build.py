@@ -235,8 +235,30 @@ def fetch_prices(symbol: str, start: str) -> list[tuple[str, float]]:
         (r["date"], float(r["adjClose"]))
         for r in rows
         if isinstance(r, dict) and r.get("adjClose") not in (None, 0)
+        and r["date"] != UNSETTLED_TODAY
     )
     return series if len(series) > LONG_DAYS else []
+
+
+# The vendor serves today's bar during the session as though it were a close.
+# Run before 21:00 UTC (the US close is 20:00) and a bar dated today is an
+# intraday print, which would otherwise become the last plotted value. The
+# scheduled run is on a Saturday and never sees one; this covers a manual run.
+_now = dt.datetime.now(dt.timezone.utc)
+UNSETTLED_TODAY = _now.date().isoformat() if _now.hour < 21 else None
+
+
+def trading_days(prices: dict[str, list[tuple[str, float]]]) -> list[str]:
+    """The calendar the whole universe trades on: dates with a bar for at least
+    half the priced names. A union of every series would let one stray bar —
+    a stale listing, a foreign holiday print — add a day on which everything
+    else merely carries its previous value."""
+    count: dict[str, int] = {}
+    for series in prices.values():
+        for d, _ in series:
+            count[d] = count.get(d, 0) + 1
+    floor = len(prices) / 2
+    return sorted(d for d, n in count.items() if n >= floor)
 
 
 def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
@@ -459,7 +481,7 @@ def main() -> None:
 
     prices = fetch_all_prices(sorted(ever))
     index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
-    calendar = sorted({d for series in prices.values() for d, _ in series})
+    calendar = trading_days(prices)
     as_of = calendar[-1]
     snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
     weekly_dates = week_end_dates(calendar, HISTORY_WEEKS)
