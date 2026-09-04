@@ -84,6 +84,13 @@ h1 span { color: var(--ink-3); font-weight: 600; }
 .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sel { display: block; position: relative; }
 .sel.wide { grid-column: 1 / -1; }
+.chip {
+  justify-self: start; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--bg-soft); color: var(--ink-2);
+}
+.chip::before { content: '○ '; color: var(--ink-3); }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.chip[aria-pressed="true"]::before { content: '● '; color: var(--accent); }
 .sel span {
   position: absolute; top: 4px; left: 10px;
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);

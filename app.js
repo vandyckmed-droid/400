@@ -6,20 +6,22 @@
   const $ = (id) => document.getElementById(id);
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
-  const PEER_KEY = 'sp400.peerset.v1';
+  const UNIVERSE_KEY = 'sp400.universe.v1';
+  const BASIS_KEY = 'sp400.basis.v1';
   const GRAIN_KEY = 'sp400.grain.v1';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  /* The four peer sets a name can be ranked against. `uni` picks the universe,
-     `basis` picks whether the cross-section is the whole thing or just the
-     name's own sector. Data for all four ships in latest.json. */
-  const PEERS = {
-    cw: { label: 'MidCap 400', short: '400', basis: 'whole' },
-    cs: { label: 'MidCap 400 · within sector', short: '400 · sector', basis: 'sector' },
-    ew: { label: 'Extended 650', short: '650', basis: 'whole' },
-    es: { label: 'Extended 650 · within sector', short: '650 · sector', basis: 'sector' },
+  /* Two independent axes, deliberately not merged into one control:
+     `universe` is a mode you set once and the whole app then lives in, while
+     `basis` is a way of looking at whichever universe you chose. Data for all
+     four combinations ships in latest.json, keyed c/e + w/s. */
+  const UNIVERSES = {
+    core: { label: 'MidCap 400', short: 'MidCap 400' },
+    ext: { label: 'Extended 650', short: 'extended 650' },
   };
+  const keyFor = (universe, basis) =>
+    (universe === 'core' ? 'c' : 'e') + (basis === 'sector' ? 's' : 'w');
 
   const state = {
     rows: [],
@@ -36,19 +38,25 @@
     backtest: null,
     backtestPromise: null,
     horizon: '6',
-    peer: (() => {
-      try { return PEERS[localStorage.getItem(PEER_KEY)] ? localStorage.getItem(PEER_KEY) : 'cw'; }
-      catch { return 'cw'; }
+    universe: (() => {
+      try { return localStorage.getItem(UNIVERSE_KEY) === 'ext' ? 'ext' : 'core'; }
+      catch { return 'core'; }
+    })(),
+    basis: (() => {
+      try { return localStorage.getItem(BASIS_KEY) === 'sector' ? 'sector' : 'whole'; }
+      catch { return 'whole'; }
     })(),
     grain: (() => {
       try { return localStorage.getItem(GRAIN_KEY) === 'w' ? 'w' : 'm'; } catch { return 'm'; }
     })(),
   };
 
+  const peerKey = () => keyFor(state.universe, state.basis);
+
   /* This row's placement in the active peer set, or undefined if it isn't a
-     member (an S&P 500 tail name while a MidCap 400 peer set is selected). */
-  const place = (r) => r.r[state.peer];
-  const sectorBasis = () => PEERS[state.peer].basis === 'sector';
+     member (an S&P 500 tail name while the MidCap 400 universe is selected). */
+  const place = (r) => r.r[peerKey()];
+  const sectorBasis = () => state.basis === 'sector';
 
   /* ---------- persistence ---------- */
   function loadWatch() {
@@ -90,7 +98,7 @@
     .then((payload) => {
       state.rows = payload.rows;
       state.meta = payload.meta;
-      $('peer').value = state.peer;
+      syncControls();
       $('asof').textContent = `prices through ${fmtDate(payload.meta.asOf)}`;
       $('gen').textContent = `Refreshed ${fmtDate(payload.meta.generatedAt.slice(0, 10))}. Source: Financial Modeling Prep.`;
       fillSectors();
@@ -113,6 +121,20 @@
     const sectors = [...new Set(state.rows.map((r) => r.sector).filter(Boolean))].sort();
     const sel = $('sector');
     for (const s of sectors) sel.append(new Option(s, s));
+  }
+
+  /* The universe is a mode, so it shows in the title rather than only in a
+     control: the app is either the 400 app or the 650 app. */
+  function syncControls() {
+    for (const b of document.querySelectorAll('#universe button')) {
+      const on = b.dataset.u === state.universe;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', String(on));
+    }
+    $('basis').setAttribute('aria-pressed', String(sectorBasis()));
+    $('title').innerHTML = state.universe === 'core'
+      ? 'MidCap&nbsp;400 <span>Momentum</span>'
+      : 'Extended&nbsp;650 <span>Momentum</span>';
   }
 
   const sortValue = (r, key) => {
@@ -144,7 +166,7 @@
     $('count').textContent = out.length
       ? `${out.length} of ${total} · ` + (sectorBasis()
           ? 'scored within each sector, so the number on the left is the position inside that sector'
-          : `ranked across the ${PEERS[state.peer].short === '650' ? 'extended 650' : 'MidCap 400'}`)
+          : 'ranked across the whole universe')
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -193,9 +215,18 @@
       const value = e.target.value;
       debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
     });
-    $('peer').addEventListener('change', (e) => {
-      state.peer = e.target.value;
-      try { localStorage.setItem(PEER_KEY, state.peer); } catch { /* private mode */ }
+    $('universe').addEventListener('click', (e) => {
+      const tab = e.target.closest('button[data-u]');
+      if (!tab || tab.dataset.u === state.universe) return;
+      state.universe = tab.dataset.u;
+      try { localStorage.setItem(UNIVERSE_KEY, state.universe); } catch { /* private mode */ }
+      syncControls();
+      applyFilters();
+    });
+    $('basis').addEventListener('click', () => {
+      state.basis = sectorBasis() ? 'whole' : 'sector';
+      try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
+      syncControls();
       applyFilters();
     });
     $('sector').addEventListener('change', (e) => { state.sector = e.target.value; applyFilters(); });
@@ -281,14 +312,13 @@
   };
 
   function showDetail(r) {
-    // A name reached by deep link may not belong to the peer set the list is
-    // on (an S&P 500 tail name while MidCap 400 is selected). Resolve one peer
-    // set for the whole page rather than letting the hero and the chart
-    // disagree about which cross-section they are showing.
-    const key = r.r[state.peer] ? state.peer
-      : PEERS[state.peer].basis === 'sector' ? 'es' : 'ew';
+    // A name reached by deep link may not belong to the chosen universe (an
+    // S&P 500 tail name while MidCap 400 is selected). Fall back to the
+    // extended universe for this page rather than showing nothing, keeping the
+    // basis the reader picked.
+    const key = r.r[peerKey()] ? peerKey() : keyFor('ext', state.basis);
     const p = r.r[key];
-    const borrowed = key !== state.peer;
+    const borrowed = key !== peerKey();
     if (!$('list-view').hidden) sessionStorage.setItem('sp400.scroll', String(scrollY));
     $('list-view').hidden = true;
     const el = $('detail-view');
@@ -305,10 +335,10 @@
       <div class="hero">
         <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
         <span class="lbl">blended score<b>${ordinal(p.k)} of ${p.n}${
-          PEERS[key].basis === 'sector' ? ` in ${esc(r.sector)}` : ''}</b></span>
+          key[1] === 's' ? ` in ${esc(r.sector)}` : ''}</b></span>
       </div>
-      ${borrowed ? `<p class="scope">${r.symbol} is not in the MidCap 400, so this page is scored
-        against <b>${PEERS[key].label}</b>. Switch the list to an extended peer set to rank it
+      ${borrowed ? `<p class="scope">${r.symbol} is not in the MidCap&nbsp;400, so this page is
+        scored against the <b>extended 650</b>. Switch the universe on the list to see it ranked
         alongside everything else.</p>` : ''}
       <div class="tags">
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
@@ -325,18 +355,20 @@
       </div>
 
       <div class="card">
-        <h3>Against every peer set</h3>
+        <h3>Against its peers</h3>
         <table class="peers">
-          <tbody>${Object.entries(PEERS).map(([k, cfg]) => {
-            const q = r.r[k];
-            return `<tr class="${k === key ? 'on' : ''}">
-              <td>${cfg.label.replace(' · within sector', ' <i>· sector</i>')}</td>
+          <tbody>${[['whole', `All of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`],
+                    ['sector', `Within ${esc(r.sector) || 'its sector'}`]].map(([b, label]) => {
+            const q = r.r[keyFor(key[0] === 'c' ? 'core' : 'ext', b)];
+            const active = (b === 'sector') === (key[1] === 's');
+            return `<tr class="${active ? 'on' : ''}">
+              <td>${label}</td>
               <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
-              <td class="k">${q ? `${q.k} / ${q.n}` : 'not a member'}</td></tr>`;
+              <td class="k">${q ? `${q.k} / ${q.n}` : '—'}</td></tr>`;
           }).join('')}</tbody>
         </table>
-        <p class="legend">A name can look ordinary against the whole index and strong against its own
-          sector, or the reverse. Switching the peer set on the list changes which row drives this page.</p>
+        <p class="legend">A name can look ordinary against the whole universe and strong against its
+          own sector, or the reverse.</p>
       </div>
 
       <div class="card">
@@ -491,11 +523,11 @@
       aria: `Blended momentum score for ${r.symbol} over ${points.length} ` +
             `${grain === 'w' ? 'weeks' : 'months'}`,
       readout: (p) => [(grain === 'w' ? 'week ending ' : '') + fmtDate(p.date), p.value.toFixed(1)],
-      note: `Each bar re-ranks ${r.symbol} against ${PEERS[key].basis === 'sector'
-               ? `other ${r.sector} names in the ${PEERS[key].short.split(' ')[0]}`
-               : `the whole ${PEERS[key].short}`} at that ${grain === 'w' ? 'week' : 'month'} end,
-             using the membership that was live on the day. Above the dashed line means the better
-             half of that peer set.`,
+      note: `Each bar re-ranks ${r.symbol} against ${key[1] === 's'
+               ? `other ${r.sector} names`
+               : `all of the ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].short}`} at that
+             ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
+             Above the dashed line means the better half of that peer set.`,
     });
   }
 

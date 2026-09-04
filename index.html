@@ -16,7 +16,7 @@
 <main id="list-view">
   <header class="topbar">
     <div class="titlerow">
-      <h1>MidCap&nbsp;400 <span>Momentum</span></h1>
+      <h1 id="title">MidCap&nbsp;400 <span>Momentum</span></h1>
       <button id="about-btn" class="ghost" aria-label="About the score">?</button>
     </div>
     <p class="asof" id="asof">Loading…</p>
@@ -27,15 +27,11 @@
         <button role="tab" data-scope="all" class="on" aria-selected="true">All</button>
         <button role="tab" data-scope="watch" aria-selected="false">Watchlist <span id="watch-count"></span></button>
       </div>
+      <div class="segmented" id="universe" role="tablist" aria-label="Universe">
+        <button role="tab" data-u="core" class="on" aria-selected="true">MidCap 400</button>
+        <button role="tab" data-u="ext" aria-selected="false">Extended 650</button>
+      </div>
       <div class="selects">
-        <label class="sel wide"><span>Ranked against</span>
-          <select id="peer">
-            <option value="cw">MidCap 400</option>
-            <option value="cs">MidCap 400 · within sector</option>
-            <option value="ew">Extended 650</option>
-            <option value="es">Extended 650 · within sector</option>
-          </select>
-        </label>
         <label class="sel"><span>Sector</span>
           <select id="sector"><option value="">All sectors</option></select>
         </label>
@@ -49,6 +45,7 @@
           </select>
         </label>
       </div>
+      <button id="basis" class="chip" aria-pressed="false">Score within sector</button>
     </div>
   </header>
 
@@ -75,13 +72,17 @@
     <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other name in the chosen peer set on the same day and mapped to 0–100.</li>
     <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
   </ol>
-  <h2 class="sub">Peer sets</h2>
-  <p class="fine"><b>MidCap 400</b> is the index itself. <b>Extended 650</b> adds the 250 smallest
-    S&amp;P 500 members by market cap, so a name is measured against everything of roughly its size
-    rather than against an index boundary. <b>Within sector</b> ranks a name only against its own
-    GICS sector, which strips out the sector bet the whole-universe ranking otherwise takes — useful
-    if you already control sector weights elsewhere. Both S&amp;P 500 membership and the market caps
+  <h2 class="sub">Universe</h2>
+  <p class="fine">Set once, at the top of the list; the whole app then runs on it.
+    <b>MidCap&nbsp;400</b> is the index itself. <b>Extended&nbsp;650</b> adds the 250 smallest
+    S&amp;P&nbsp;500 members by market cap, so a name is measured against everything of roughly its
+    size rather than against an index boundary. Both S&amp;P&nbsp;500 membership and the market caps
     that pick the tail are point-in-time, so a past bar reflects the universe as it stood that day.</p>
+  <h2 class="sub">Score within sector</h2>
+  <p class="fine">A separate switch, and a way of reading whichever universe you chose rather than a
+    different universe. It ranks a name only against its own GICS sector, which strips out the sector
+    bet the whole-universe ranking otherwise takes — useful if sector weights are already controlled
+    elsewhere. Sectors with fewer than five names are left unscored.</p>
   <p class="fine">The history chart re-runs the full cross-section at each month end, so a bar shows where the name stood against its peers <em>on that date</em>. The peer set is today's index membership throughout, which introduces some survivorship bias in older bars. Data: Financial Modeling Prep. Not investment advice.</p>
   <div class="dlg-actions">
     <a class="primary" href="#/evidence" id="about-evidence">Does it actually work? →</a>
