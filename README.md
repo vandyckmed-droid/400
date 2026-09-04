@@ -95,11 +95,22 @@ equally weighted, holds it untouched until the next month end, and repeats. Memb
 point-in-time, a name that stops trading is held at its last price, and there are no costs or tax —
 so every figure is better than the same strategy would have been in an account.
 
+It also records how concentrated each basket was. Equal weights make a sector's weight its share of
+the names, so the sector Herfindahl is the sum of those squared shares, and its reciprocal is the
+number of equally sized sectors that would be just as concentrated — the form worth reading. The
+same figure for the whole universe is recorded beside it, so the gap between them is the
+concentration the ranking itself introduces rather than the market's.
+
 The benchmark is the only fair one: the same universe, equally weighted, rebalanced the same way.
 Over the four years to Sep 2026 the top decile beat it by well under a point a year while carrying
 noticeably more risk, and most of that margin came from a single calendar year. The ordering is far
 more visible between the two ends — top decile minus bottom decile — than between the top decile and
 simply owning everything. The evidence view says all of this on the page rather than in this file.
+
+Concentration is the other thing to watch, and it has drifted the wrong way: the return-ranked
+MidCap 400 decile now sits at roughly 4.3 effective sectors against 7.7 for the universe it is drawn
+from, with over a third of it in one sector. Ranking on volatility-adjusted returns instead lands
+nearer 6.5 — the same screen, spread across visibly more of the market.
 
 ## Layout
 
@@ -117,7 +128,8 @@ scripts/universes.py             universe definitions + point-in-time membership
 scripts/backtest.py              point-in-time membership + forward-return test
 data/backtest.json               decile returns, spreads and the spread time series, both rankings
 scripts/portfolio.py             daily equal-weight top-decile curves, point-in-time
-data/portfolio.json              daily NAV for top decile / whole universe / bottom decile + stats
+data/portfolio.json              daily NAV for top decile / whole universe / bottom decile + stats,
+                                 and the sector mix at each rebalance
 data/portfolio-brief.json        the same headline numbers, small enough to load with the ranking
 ```
 

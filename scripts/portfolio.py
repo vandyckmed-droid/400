@@ -22,6 +22,14 @@ Construction, deliberately plain:
 Ranked both ways — on the return itself and on the return over its own
 volatility — because the app lets the reader choose, and the evidence should
 follow whichever they picked.
+
+Alongside the money it also records how concentrated each basket was, as a
+sector Herfindahl index and its reciprocal, the effective number of sectors.
+A momentum screen has no diversification constraint, so its top decile can
+quietly become a single-sector bet; that is the channel through which one
+sector unwinding takes the whole sleeve with it. The same figure for the
+whole universe is recorded beside it, so the reader can see how much of the
+concentration is the ranking's doing rather than the market's.
 """
 
 from __future__ import annotations
@@ -52,6 +60,34 @@ VARIANTS = {
     for universe in ("core", "ext")
     for adjust in ("raw", "vol")
 }
+
+
+def concentration(basket: set[str], sectors: dict) -> dict:
+    """Sector Herfindahl of an equally weighted basket, and what it implies.
+
+    Equal weights make a sector's weight its share of the names, so the index is
+    the sum of those squared shares: 1.0 is everything in one sector, and 1/k is
+    an even split across k of them. The reciprocal is the number of equally
+    sized sectors that would be just as concentrated, which is the form worth
+    reading — "4.8 sectors" says more than "0.21".
+    """
+    counts = defaultdict(int)
+    for symbol in basket:
+        counts[sectors.get(symbol) or "Unknown"] += 1
+    n = sum(counts.values())
+    if not n:
+        return {}
+    weights = sorted(((c / n, name) for name, c in counts.items()), reverse=True)
+    hhi = sum(w * w for w, _ in weights)
+    return {
+        "hhi": hhi,
+        "effective": 1 / hhi,
+        "count": n,
+        "sectors": len(weights),
+        "top": weights[0][1],
+        "topWeight": weights[0][0],
+        "weights": [{"sector": name, "w": w} for w, name in weights],
+    }
 
 
 def max_drawdown(nav: list[float]) -> float:
@@ -105,7 +141,11 @@ def hold(basket: set[str], index_maps: dict, start: str, days: list[str]) -> lis
     a stray missing bar and a series that has ended for good.
     """
     held = {}
-    for symbol in basket:
+    # Sorted, so the basket is summed in the same order every run: floating
+    # point addition is not associative, and a set's iteration order changes
+    # between processes. Without this the weekly job rewrites the file with
+    # differences in the sixteenth digit and commits a no-op diff.
+    for symbol in sorted(basket):
         dates, closes = index_maps[symbol]
         pos = bisect_right(dates, start) - 1
         if pos >= 0 and closes[pos] > 0:
@@ -134,6 +174,13 @@ def main() -> None:
     sp500_universe, sp500_changes = universes.load_sp500()
     core_now = {c["symbol"] for c in core_universe}
     sp500_now = {c["symbol"] for c in sp500_universe}
+    # Sectors are today's, applied to historical baskets: a name's GICS sector
+    # almost never changes, and a former member that has left both indices has
+    # no sector on file at all, so it lands in "Unknown" rather than distorting
+    # a real one.
+    sectors = {c["symbol"]: c.get("sector") for c in core_universe}
+    for c in sp500_universe:
+        sectors.setdefault(c["symbol"], c.get("sector"))
     log(f"universes: {len(core_now)} MidCap 400, {len(sp500_now)} S&P 500")
 
     window_start = (dt.date.today() - dt.timedelta(days=365 * 6)).isoformat()
@@ -166,6 +213,7 @@ def main() -> None:
 
     # --- baskets: one momentum pass per rebalance, shared by every variant ---
     baskets = {key: {} for key in VARIANTS}     # key -> date -> (top, bottom, all)
+    concentrations = {key: [] for key in VARIANTS}   # key -> per-rebalance sector mix
     used_dates = []
     for date in rebal_dates:
         legs = build.legs_at(pools["ext"][date], index_maps, date)
@@ -180,9 +228,15 @@ def main() -> None:
             p12 = build.percentiles({s: v[0][at] for s, v in members.items()})
             p6 = build.percentiles({s: v[1][at] for s, v in members.items()})
             blended = {s: build.WEIGHT_LONG * p12[s] + build.WEIGHT_MID * p6[s] for s in members}
-            order = sorted(blended, key=lambda s: -blended[s])
+            order = sorted(blended, key=lambda s: (-blended[s], s))   # ties: see rank_block
             size = len(order) // DECILES
-            baskets[key][date] = (set(order[:size]), set(order[-size:]), set(order))
+            top, whole = set(order[:size]), set(order)
+            baskets[key][date] = (top, set(order[-size:]), whole)
+            concentrations[key].append({
+                "date": date,
+                "top": concentration(top, sectors),
+                "all": concentration(whole, sectors),
+            })
     log(f"{len(used_dates)} usable rebalances; "
         f"top decile holds {len(baskets['ewr'][used_dates[-1]][0])} names in the 650")
 
@@ -225,10 +279,25 @@ def main() -> None:
         for slot, nav in curves.items():
             entry[slot] = [round(100 * v, 2) for v in nav]
             entry[slot + "Stats"] = summarise(nav, dates)
+        conc = concentrations[key]
+        entry["concentration"] = {
+            "series": [{"date": c["date"],
+                        "effective": round(c["top"]["effective"], 3),
+                        "all": round(c["all"]["effective"], 3),
+                        "top": c["top"]["top"],
+                        "topWeight": round(c["top"]["topWeight"], 4)}
+                       for c in conc],
+            "now": conc[-1]["top"],          # full sector breakdown, newest basket only
+            "nowAll": conc[-1]["all"],
+        }
         report["variants"][key] = entry
         s = entry["topStats"]
+        last = conc[-1]
         log(f"  {key}: CAGR {s['cagr']:+.2%}  vol {s['vol']:.1%}  "
             f"maxDD {s['maxDrawdown']:.1%}  vs universe {entry['allStats']['cagr']:+.2%}")
+        log(f"       {last['top']['effective']:.1f} effective sectors "
+            f"(universe {last['all']['effective']:.1f}); biggest "
+            f"{last['top']['topWeight']:.0%} {last['top']['top']}")
 
     if len(report["dates"]) > len(next(iter(report["variants"].values()))["top"]):
         report["dates"] = report["dates"][:len(next(iter(report["variants"].values()))["top"])]
@@ -243,10 +312,14 @@ def main() -> None:
         nav = entry["top"]
         step = max(1, len(nav) // STRIP_POINTS)
         s = entry["topStats"]
+        last = entry["concentration"]["now"]
         brief["variants"][key] = {
             "curve": [round(v, 1) for v in nav[::step]] + [round(nav[-1], 1)],
             "cagr": s["cagr"], "vol": s["vol"], "maxDrawdown": s["maxDrawdown"],
             "excess": s["cagr"] - entry["allStats"]["cagr"],
+            "effective": last["effective"],
+            "topSector": last["top"],
+            "topWeight": last["topWeight"],
         }
     (data / "portfolio-brief.json").write_text(json.dumps(brief, separators=(",", ":")) + "\n")
     log(f"wrote portfolio-brief.json  {(data / 'portfolio-brief.json').stat().st_size / 1024:.1f} KB")
