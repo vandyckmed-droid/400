@@ -6,8 +6,8 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="description" content="Momentum ranking of the S&P MidCap 400, with a point-in-time record of the top decile.">
-<title>MidCap 400 Momentum</title>
+<meta name="description" content="Momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500, with a point-in-time record of the top decile.">
+<title>MidCap 650 Momentum</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MidCap">
@@ -21,7 +21,7 @@
 <main id="list-view">
   <header class="topbar">
     <div class="titlerow">
-      <h1><button type="button" id="title" class="title"></button></h1>
+      <h1 class="title">MidCap<span class="pill">650</span></h1>
       <a id="settings-btn" class="ghost" href="#/settings" aria-label="Settings and how the score works"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
     </div>
     <p class="asof" id="asof">Loading…</p>
@@ -87,8 +87,8 @@
         return — the record below the list shows both.</small></span>
       <input type="checkbox" id="adjust" role="switch">
     </label>
-    <p class="legend">The universe — MidCap&nbsp;400 or MidCap&nbsp;650 — is switched by tapping the
-      title on the list. It isn't repeated here.</p>
+    <p class="legend">The universe is fixed: every name is ranked against all ~650 of them. Both
+      switches change how that one cross-section is read, not which names are in it.</p>
   </div>
 
   <div class="card">
@@ -105,14 +105,15 @@
 
   <div class="card">
     <h3>Universe</h3>
-    <p class="fine"><b>MidCap&nbsp;400</b> is the index itself. <b>MidCap&nbsp;650</b> adds the 250
-      smallest S&amp;P&nbsp;500 members by market cap — large-cap by index membership, mid-cap by
-      size — so a name is measured against everything of roughly its size rather than against an
-      index boundary. Those 250 are badged in the list.</p>
+    <p class="fine">The S&amp;P MidCap&nbsp;400, plus the 250 smallest S&amp;P&nbsp;500 members by
+      market cap — large-cap by index membership, mid-cap by size. Those 250 are badged in the list.
+      The line between the two indices is an index committee's decision rather than a size boundary,
+      so crossing it is the point: a name is measured against everything of roughly its size instead
+      of against whichever index happens to hold it.</p>
     <p class="fine">Membership is point-in-time: the history chart re-runs the full cross-section at
-      each month or week end using the index as it stood that day. A name that joined recently is
-      scored as an outsider on earlier dates — where it <em>would</em> have ranked — and those bars
-      are dimmed.</p>
+      each month or week end using the universe as it stood that day, with the S&amp;P&nbsp;500 tail
+      picked on that day's market caps. A name that joined recently is scored as an outsider on
+      earlier dates — where it <em>would</em> have ranked — and those bars are dimmed.</p>
   </div>
 
   <a class="card go" href="#/evidence"><b>Does the score actually work?</b>

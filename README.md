@@ -1,7 +1,8 @@
-# MidCap 400 Momentum
+# MidCap 650 Momentum
 
-A phone-first momentum ranking of the S&P MidCap 400, published as a static site on GitHub Pages,
-with a point-in-time record of what holding its top decile would have done.
+A phone-first momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500 — ~650
+names — published as a static site on GitHub Pages, with a point-in-time record of what holding its
+top decile would have done.
 
 **Live:** https://vandyckmed-droid.github.io/400/
 
@@ -48,22 +49,27 @@ Present-day rankings are unaffected.
 
 ## Universe, and how it's scored
 
-The score is a percentile, so it only means anything relative to a peer group. That group is set by
-two **independent** controls, deliberately not merged into one:
+The score is a percentile, so it only means anything relative to a peer group. **The universe is
+not a setting.** There is one: the S&P MidCap 400 as it stood on the day, plus the 250 smallest
+S&P 500 members by that day's market caps. Every name is always ranked against all ~650 of them.
 
-- **Universe** — `MidCap 400` or `MidCap 650`. A mode, and it *is* the title: tapping the number
-  switches it, and every ranking and chart then runs on it. It has no control of its own, because
-  naming the app after the universe already says which one is active and switching it is the same
-  tap. Not re-offered anywhere else.
-- **Score within sector** — a switch on the Settings page (the gear in the header), not a universe.
-  It ranks a name only against its own GICS sector inside whichever universe is active. It lives
-  in Settings rather than beside the filters because it's a preference you set once, not something
-  you change per visit — and keeping it out of the header leaves the header square.
+Two switches on the Settings page (the gear in the header) change how that one cross-section is
+read, never which names are in it:
+
+- **Score within sector** — rank a name only against its own GICS sector rather than the whole
+  universe. Strips out the sector bet the whole-universe ranking otherwise takes.
+- **Divide each leg by its volatility** — rank the return over the annualised standard deviation of
+  its own formation window rather than the return itself. Off by default.
 
 Both persist per device, and the four resulting combinations all ship in `latest.json` keyed
-`c`/`e` + `w`/`s`. Merging them into a single four-option control was the original design and it was
-wrong: it forced you to re-pick the universe every time you wanted to change how it was scored, and
-made the per-ticker card display both universes at once.
+`w`/`s` + `r`/`v`.
+
+The universe used to be a third axis, switched by tapping the title. Removing it took out more than
+a control. Every name is now a member of every peer set and every sector clears the five-name
+minimum, so a row's placement can never be missing — which deleted the "this name is outside the
+universe you picked" branch from the list, the watchlist empty state, the per-ticker page and the
+sector counts, halved `latest.json`, and let the backtest cover the universe the app actually ranks
+instead of carrying a standing caveat that it did not.
 
 **Why the extended universe.** The 400/500 boundary is an index-construction artefact, not an
 economic one: a $50B S&P 500 laggard and a $36B MidCap 400 leader are competing for the same
@@ -108,15 +114,15 @@ more visible between the two ends — top decile minus bottom decile — than be
 simply owning everything. The evidence view says all of this on the page rather than in this file.
 
 Concentration is the other thing to watch, and it has drifted the wrong way: the return-ranked
-MidCap 400 decile now sits at roughly 4.3 effective sectors against 7.7 for the universe it is drawn
-from, with over a third of it in one sector. Ranking on volatility-adjusted returns instead lands
-nearer 6.5 — the same screen, spread across visibly more of the market.
+decile now sits at roughly 5.4 effective sectors against 8.5 for the universe it is drawn from, with
+close to a third of it in one sector. Ranking on volatility-adjusted returns instead lands nearer
+6.2 — the same screen, spread across visibly more of the market.
 
 ## Layout
 
 ```
 index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
-data/latest.json                 current ranking, all eight peer sets + key stats  (~420 KB)
+data/latest.json                 current ranking, all four peer sets + key stats  (~330 KB)
 data/spark/<key>.json            last 12 month-end scores; the strip in each list row, one per set
 data/history/<key>.json          score per month end (36), one file per peer set, lazy-loaded
 data/history/<key>w.json         score per week end (78 ~ 18 months), loaded only if asked for
@@ -133,10 +139,10 @@ data/portfolio.json              daily NAV for top decile / whole universe / bot
 data/portfolio-brief.json        the same headline numbers, small enough to load with the ranking
 ```
 
-A peer-set key is three letters: universe (`c` = MidCap 400, `e` = 650), cross-section
-(`w` = whole universe, `s` = within sector), and what is ranked (`r` = the return,
-`v` = the return divided by its own volatility). So `ewr` is the 650 ranked as a whole
-on returns, and `csv` is the 400 ranked within sector on volatility-adjusted returns.
+A peer-set key is two letters: the cross-section (`w` = the whole universe, `s` = the name's own
+sector) and what is ranked (`r` = the return, `v` = the return divided by its own volatility). So
+`wr` is the whole universe ranked on returns, and `sv` is within-sector on volatility-adjusted
+returns.
 
 ```
 .github/workflows/refresh.yml    weekly rebuild + commit
@@ -208,12 +214,13 @@ instant.
 
 ## Does the score actually predict anything?
 
-**Scope: the MidCap 400 ranked as a whole.** The extended universe and the within-sector bases are
-display options, not tested — a sector-relative ranking is a different signal and would need its
-own test. `scripts/backtest.py` answers the question honestly for the peer set it does cover. It rebuilds month-by-month index membership by
-walking Wikipedia's *Selected changes* table backwards from today's list (399–402 members at every
-month end, ~3.4 additions/month), re-ranks only the names alive on each date, and measures forward
-returns. It imports `build.py` for the momentum maths, so the test and the site cannot diverge.
+**Scope: the universe ranked as a whole, both ways.** The within-sector basis is a display option
+and is not tested — it is a different signal and would need its own test. `scripts/backtest.py`
+rebuilds month-by-month membership the same way the site does — Wikipedia's *Selected changes*
+table walked backwards from today's list, plus the S&P 500 tail picked on each date's market caps
+(~649 members at every month end) — re-ranks only the names alive on each date, and measures
+forward returns on both the return-ranked and volatility-adjusted blends. It imports `build.py` for
+the momentum maths, so the test and the site cannot diverge.
 
 The results are in the app too, at `#/evidence` — reachable from the Settings page, the footer,
 and a decile tag on every ticker page. Settings (`#/settings`) also carries the methodology, the

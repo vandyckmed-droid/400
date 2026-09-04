@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Universe definitions and point-in-time membership reconstruction.
+"""Universe definition and point-in-time membership reconstruction.
 
-Two universes:
+One universe, assembled from two sources:
 
-* **core** — the S&P MidCap 400. Current members come from Wikipedia (no FMP
-  plan tier exposes a MidCap 400 constituent endpoint); history comes from
-  Wikipedia's "Selected changes" table, walked backwards from today.
-* **extended** — core plus the smallest `SIZE_TAIL` members of the S&P 500 by
-  market capitalisation, giving a ~650-name mid-cap-and-down universe. Both the
-  S&P 500 membership and the market caps used to pick that tail are themselves
+* the **S&P MidCap 400**. Current members come from Wikipedia (no FMP plan tier
+  exposes a MidCap 400 constituent endpoint); history comes from Wikipedia's
+  "Selected changes" table, walked backwards from today.
+* plus the smallest `SIZE_TAIL` members of the **S&P 500** by market
+  capitalisation, giving a ~650-name mid-cap-and-down universe. Both the S&P 500
+  membership and the market caps used to pick that tail are themselves
   point-in-time, so the cut is made with the caps that were true on the day.
 
-Shared by build.py (the live ranking) and backtest.py.
+The boundary between the two is an index committee's, not a size boundary, so
+crossing it is what the tail is for: a name is measured against everything of
+roughly its size rather than against which index happens to hold it.
+
+Shared by build.py (the live ranking), backtest.py and portfolio.py.
 """
 
 from __future__ import annotations

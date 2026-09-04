@@ -1,4 +1,4 @@
-/* MidCap 400 Momentum — vanilla, no dependencies.
+/* MidCap 650 Momentum — vanilla, no dependencies.
    Data is pre-computed by scripts/build.py and served as static JSON. */
 (() => {
   'use strict';
@@ -6,26 +6,22 @@
   const $ = (id) => document.getElementById(id);
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
-  const UNIVERSE_KEY = 'sp400.universe.v1';
   const BASIS_KEY = 'sp400.basis.v1';
   const ADJUST_KEY = 'sp400.adjust.v1';
   const GRAIN_KEY = 'sp400.grain.v1';
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  /* Three independent axes, deliberately not merged into one control:
-     `universe` is a mode you set once and the whole app then lives in, while
-     `basis` (whole or sector) and `adjust` (the return, or the return over its
-     own volatility) are ways of looking at whichever universe you chose. Data
-     for all eight combinations ships in latest.json, keyed c/e + w/s + r/v. */
-  const UNIVERSES = {
-    core: { label: 'MidCap 400', size: '400' },
-    ext: { label: 'MidCap 650', size: '650' },
-  };
-  const keyFor = (universe, basis, adjust) =>
-    (universe === 'core' ? 'c' : 'e') +
-    (basis === 'sector' ? 's' : 'w') +
-    (adjust === 'vol' ? 'v' : 'r');
+  /* One universe: the MidCap 400 plus the smallest 250 of the S&P 500 by market
+     cap, ~650 names. It is not a setting — a name is measured against
+     everything of roughly its size, and which index committee happens to hold
+     it is not a fact about the name. What remains are two ways of looking at
+     that one universe: `basis` (against all of it, or against the name's own
+     sector) and `adjust` (the return, or the return over its own volatility).
+     All four combinations ship in latest.json, keyed w/s + r/v. */
+  const UNIVERSE = { label: 'MidCap 650', size: '650' };
+  const keyFor = (basis, adjust) =>
+    (basis === 'sector' ? 's' : 'w') + (adjust === 'vol' ? 'v' : 'r');
 
   const state = {
     rows: [],
@@ -42,10 +38,6 @@
     backtest: null,
     backtestPromise: null,
     horizon: '6',
-    universe: (() => {
-      try { return localStorage.getItem(UNIVERSE_KEY) === 'ext' ? 'ext' : 'core'; }
-      catch { return 'core'; }
-    })(),
     basis: (() => {
       try { return localStorage.getItem(BASIS_KEY) === 'sector' ? 'sector' : 'whole'; }
       catch { return 'whole'; }
@@ -61,14 +53,15 @@
     })(),
   };
 
-  const peerKey = () => keyFor(state.universe, state.basis, state.adjust);
+  const peerKey = () => keyFor(state.basis, state.adjust);
   /* The portfolio curves cover whole-universe rankings only, so a reader on the
      within-sector basis still sees the whole-universe record, labelled. */
-  const perfKey = () => keyFor(state.universe, 'whole', state.adjust);
+  const perfKey = () => keyFor('whole', state.adjust);
   const volAdjusted = () => state.adjust === 'vol';
 
-  /* This row's placement in the active peer set, or undefined if it isn't a
-     member (an S&P 500 tail name while the MidCap 400 universe is selected). */
+  /* This row's placement in the active peer set. Every published name is a
+     member of the universe and every sector clears MIN_SECTOR, so unlike when
+     the universe was a choice, this never comes back undefined. */
   const place = (r) => r.r[peerKey()];
   const sectorBasis = () => state.basis === 'sector';
 
@@ -219,31 +212,20 @@
 
   /* Sectors are ordered by how many names they hold, biggest first, because
      the size of the pool is what tells you whether a sector filter leaves you
-     a ranking or a handful of names. The counts move with the universe and
-     with the scoring basis (a sector too small to score drops out), so this
-     rebuilds on both rather than filling once at boot. */
+     a ranking or a handful of names. They do not move with any setting — the
+     universe is fixed and every sector clears the minimum — so this fills once
+     at boot. */
   function fillSectors() {
-    const members = state.rows.filter(place);
     const counts = new Map();
-    for (const r of members) if (r.sector) counts.set(r.sector, (counts.get(r.sector) || 0) + 1);
+    for (const r of state.rows) if (r.sector) counts.set(r.sector, (counts.get(r.sector) || 0) + 1);
     const ordered = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const sel = $('sector');
-    sel.replaceChildren(new Option(`All sectors (${members.length})`, ''));
+    sel.replaceChildren(new Option(`All sectors (${state.rows.length})`, ''));
     for (const [name, n] of ordered) sel.append(new Option(`${name} (${n})`, name));
-    // A sector can vanish when the universe shrinks; fall back to all sectors.
-    if (state.sector && !counts.has(state.sector)) state.sector = '';
     sel.value = state.sector;
   }
 
-  /* The universe is the title. It needs no control of its own: naming the
-     app after it says which one is active and switching it is the same tap. */
-  const other = () => (state.universe === 'core' ? 'ext' : 'core');
-
   function syncControls() {
-    const here = UNIVERSES[state.universe], there = UNIVERSES[other()];
-    $('title').innerHTML = `MidCap<span class="pill">${here.size} <i aria-hidden="true">⇄</i></span>`;
-    $('title').setAttribute('aria-label', `Universe: ${here.label}. Switch to ${there.label}.`);
-    document.title = `${here.label} Momentum`;
     $('basis').checked = sectorBasis();
     $('adjust').checked = volAdjusted();
   }
@@ -268,8 +250,8 @@
     $('data-stats').innerHTML = [
       ['Prices through', fmtDate(m.asOf)],
       ['Last refresh', fmtDate(m.generatedAt.slice(0, 10))],
-      ['MidCap 400 ranked', m.core],
-      ['MidCap 650 ranked', m.ext],
+      ['Names ranked', m.members],
+      ['From the MidCap 400', `${m.fromCore} + ${m.members - m.fromCore} tail`],
       ['History', `${m.params.historyMonths} months · ${m.params.historyWeeks} weeks`],
       ['Blend', `${m.params.weights[0] * 100}/${m.params.weights[1] * 100} · skip ${m.params.skipDays}d`],
     ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
@@ -299,7 +281,7 @@
   /* ---------- list ---------- */
   function applyFilters() {
     const q = state.query.trim().toLowerCase();
-    let out = state.rows.filter(place);
+    let out = state.rows;
     if (state.scope === 'watch') out = out.filter((r) => state.watch.has(r.symbol));
     if (state.sector) out = out.filter((r) => r.sector === state.sector);
     if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
@@ -318,23 +300,16 @@
     state.view = out;
     state.shown = 0;
     $('rows').replaceChildren();
-    const total = state.rows.filter(place).length;
 
-    // Watched names outside the active universe are still watched; say where they went.
     const watching = state.scope === 'watch';
-    const elsewhere = watching
-      ? [...state.watch].filter((sym) => { const r = state.bySymbol.get(sym); return !r || !place(r); }).length
-      : 0;
     $('empty').hidden = out.length > 0;
     $('empty').textContent = !watching ? 'No matches.'
       : state.watch.size === 0 ? 'Tap ☆ on any name to keep it here.'
-      : state.query || state.sector ? 'No watched names match.'
-      : `Your ${elsewhere} watched name${elsewhere === 1 ? ' is' : 's are'} outside ${UNIVERSES[state.universe].label}. Tap the title to switch.`;
+      : 'No watched names match.';
     $('count').textContent = out.length
-      ? `${out.length} of ${total} · ` + (sectorBasis()
+      ? `${out.length} of ${state.rows.length} · ` + (sectorBasis()
           ? 'scored within each sector, so the number on the left is the position inside that sector'
           : 'ranked across the whole universe')
-        + (elsewhere ? ` · ${elsewhere} more outside ${UNIVERSES[state.universe].label}` : '')
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -409,11 +384,6 @@
       clearTimeout(debounce);
       const value = e.target.value;
       debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
-    });
-    $('title').addEventListener('click', () => {
-      state.universe = other();
-      try { localStorage.setItem(UNIVERSE_KEY, state.universe); } catch { /* private mode */ }
-      peerSetChanged();
     });
     $('basis').addEventListener('change', (e) => {
       state.basis = e.target.checked ? 'sector' : 'whole';
@@ -500,13 +470,8 @@
   };
 
   function showDetail(r) {
-    // A name reached by deep link may not belong to the chosen universe (an
-    // S&P 500 tail name while MidCap 400 is selected). Fall back to the
-    // extended universe for this page rather than showing nothing, keeping the
-    // basis the reader picked.
-    const key = r.r[peerKey()] ? peerKey() : keyFor('ext', state.basis, state.adjust);
+    const key = peerKey();
     const p = r.r[key];
-    const borrowed = key !== peerKey();
     if (!$('list-view').hidden) sessionStorage.setItem('sp400.scroll', String(scrollY));
     $('list-view').hidden = true;
     const el = $('detail-view');
@@ -523,11 +488,8 @@
       <div class="hero">
         <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
         <span class="lbl">blended score<b>${ordinal(p.k)} of ${p.n}${
-          key[1] === 's' ? ` in ${esc(r.sector)}` : ''}</b></span>
+          key[0] === 's' ? ` in ${esc(r.sector)}` : ''}</b></span>
       </div>
-      ${borrowed ? `<p class="scope">${r.symbol} is not in the MidCap&nbsp;400, so this page is
-        scored against <b>MidCap&nbsp;650</b>. Tap the title on the list to switch universe and see
-        it ranked alongside everything else.</p>` : ''}
       <div class="tags">
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
@@ -545,10 +507,10 @@
       <div class="card">
         <h3>Against its peers</h3>
         <table class="peers">
-          <tbody>${[['whole', `All of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`],
+          <tbody>${[['whole', `All of ${UNIVERSE.label}`],
                     ['sector', `Within ${esc(r.sector) || 'its sector'}`]].map(([b, label]) => {
-            const q = r.r[keyFor(key[0] === 'c' ? 'core' : 'ext', b, state.adjust)];
-            const active = (b === 'sector') === (key[1] === 's');
+            const q = r.r[keyFor(b, state.adjust)];
+            const active = (b === 'sector') === (key[0] === 's');
             return `<tr class="${active ? 'on' : ''}">
               <td>${label}</td>
               <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
@@ -791,7 +753,7 @@
       .map((p) => ({ ...p, color: tone(p.value), opacity: p.pre ? 0.38 : null }));
     const joined = points.find((p) => !p.pre);
     const joinedNote = joined && points.some((p) => p.pre)
-      ? ` Dimmed bars are from before ${r.symbol} joined ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}
+      ? ` Dimmed bars are from before ${r.symbol} joined ${UNIVERSE.label}
          (${fmtDate(joined.date)}) and show where it would have ranked against that day's members.`
       : '';
     if (!points.length) {
@@ -819,9 +781,9 @@
           (p.pre ? ' · not yet a member' : ''),
         p.value.toFixed(1),
       ],
-      note: `Each bar re-ranks ${r.symbol} against ${key[1] === 's'
+      note: `Each bar re-ranks ${r.symbol} against ${key[0] === 's'
                ? `other ${r.sector} names`
-               : `all of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`} at that
+               : `all of ${UNIVERSE.label}`} at that
              ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
              Above the dashed line means the better half of that peer set. The line is the trailing
              ${MA}-${grain === 'w' ? 'week' : 'month'} average.${joinedNote}`,
@@ -876,10 +838,10 @@
         <span class="grow"><b>Does the score work?</b>
           <small>${bt.rankingDates} month ends · ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</small></span>
       </div>
-      <p class="scope">Ranked on <b>${RANKED_ON[state.adjust]}</b>, the setting you have on.
-        The curve below covers the <b>${UNIVERSES[state.universe].label} as a whole</b>; the decile
-        table under it is the MidCap&nbsp;400 only. The within-sector basis is a display option on
-        the list — it is not tested here.</p>
+      <p class="scope">Ranked on <b>${RANKED_ON[state.adjust]}</b>, the setting you have on, across
+        the whole of <b>${UNIVERSE.label}</b> — the same universe and the same ranking the list is
+        showing you. The within-sector basis is a display option on the list; it is a different
+        signal and is not tested here.</p>
       ${v ? portfolioCard(v, pf) : ''}
       ${v ? concentrationCard(v) : ''}
       <p class="sechead">Forward returns, ${bt.rankingDates} month ends,
