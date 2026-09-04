@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Build the S&P MidCap 400 momentum ranking data files.
+"""Build the momentum ranking data files.
 
 Pipeline
 --------
-1. Resolve the current S&P MidCap 400 universe (Wikipedia, with a committed
-   snapshot as fallback).
-2. Pull ~5 years of dividend/split-adjusted daily closes per ticker from FMP.
-3. At each month-end snapshot, compute volatility-adjusted 12-1 and 6-1
-   momentum, convert each leg to a cross-sectional 0-100 percentile, and blend
-   the two 50/50.
-4. Emit data/latest.json (current ranking + key stats) and data/history.json
-   (blended score through time, shared date axis).
+1. Resolve both universes with point-in-time membership (universes.py): the
+   MidCap 400, and the 400 plus the 250 smallest S&P 500 names by market cap.
+   Each source falls back to a committed snapshot if it is down.
+2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
+3. At each month end and week end, compute volatility-adjusted 12-1 and 6-1
+   momentum once per name, then rank it four ways: against the whole of either
+   universe, or only against its own sector within either.
+4. Refuse to publish if the result looks degraded (guard()), else emit
+   data/latest.json and data/history/{cw,cs,ew,es}[w].json.
 
 Only the standard library is used, so the refresh job needs no dependencies.
 """
@@ -152,24 +153,33 @@ def strip_tags(fragment: str) -> str:
     return html.unescape(text).replace(" ", " ").strip()
 
 
-def load_universe() -> list[dict]:
-    snapshot = DATA / "universe.json"
+def snapshot(name: str, fetch, describe: str) -> dict:
+    """Fetch fresh and persist to data/<name>.json, or fall back to the committed
+    copy if the source is down. A vendor or Wikipedia outage then degrades the
+    weekly refresh to last week's membership instead of failing it outright."""
+    path = DATA / f"{name}.json"
     try:
-        universe = scrape_universe()
-        log(f"universe: {len(universe)} constituents from Wikipedia")
-        snapshot.write_text(
-            json.dumps(
-                {"asOf": dt.date.today().isoformat(), "constituents": universe},
-                indent=1,
-            )
-            + "\n"
-        )
-        return universe
+        payload = fetch()
+        path.write_text(json.dumps({"asOf": dt.date.today().isoformat(), **payload}, indent=1) + "\n")
+        return payload
     except Exception as exc:  # noqa: BLE001 - degrade to the committed snapshot
-        if not snapshot.exists():
+        if not path.exists():
             raise
-        log(f"universe: scrape failed ({exc}); using committed snapshot")
-        return json.loads(snapshot.read_text())["constituents"]
+        log(f"{describe}: fetch failed ({exc}); using committed snapshot")
+        return json.loads(path.read_text())
+
+
+def load_universe() -> list[dict]:
+    """Current MidCap 400 constituents. Kept for backtest.py's import."""
+    import universes
+    return universes.load_core()[0]
+
+
+def guard(condition: bool, message: str) -> None:
+    """Refuse to publish a degraded ranking. A partial vendor outage that drops
+    a chunk of names would otherwise commit a quietly wrong cross-section."""
+    if not condition:
+        sys.exit(f"refusing to publish: {message}")
 
 
 # --- 2. Prices ----------------------------------------------------------------
@@ -381,9 +391,10 @@ def main() -> None:
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / "history").mkdir(exist_ok=True)
 
-    core_universe = load_universe()
-    sp500_universe = universes.sp500_constituents()
-    log(f"S&P 500: {len(sp500_universe)} constituents")
+    core_universe, core_changes = universes.load_core()
+    sp500_universe, sp500_changes = universes.load_sp500()
+    log(f"universes: {len(core_universe)} MidCap 400, {len(sp500_universe)} S&P 500; "
+        f"change logs {len(core_changes)} / {len(sp500_changes)}")
 
     meta = {c["symbol"]: c for c in core_universe}
     for c in sp500_universe:
@@ -391,11 +402,7 @@ def main() -> None:
     core_now = {c["symbol"] for c in core_universe}
     sp500_now = {c["symbol"] for c in sp500_universe}
 
-    core_changes = universes.core_changes()
-    sp500_changes = universes.sp500_changes()
-    log(f"change logs: {len(core_changes)} MidCap 400, {len(sp500_changes)} S&P 500")
-
-    window_start = dt.date.today() - dt.timedelta(days=365 * 4)
+    window_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
     ever = set(core_now) | set(sp500_now)
     for change in core_changes + sp500_changes:
         if change["date"] >= window_start and change["removed"]:
@@ -486,6 +493,15 @@ def main() -> None:
             }
         )
     log(f"ranked {len(rows)} names as of {as_of}")
+
+    core_priced = len(core_at[as_of] & set(prices))
+    guard(core_priced >= 380, f"only {core_priced} of the MidCap 400 priced")
+    guard(len(ext_at[as_of]) >= 620, f"extended universe is only {len(ext_at[as_of])} names")
+    previous = DATA / "latest.json"
+    if previous.exists():
+        before = len(json.loads(previous.read_text())["rows"])
+        guard(len(rows) >= 0.95 * before, f"ranked {len(rows)} names, down from {before} last run")
+    guard(len(kept_dates) >= HISTORY_MONTHS - 1, f"only {len(kept_dates)} monthly cross-sections")
 
     counts = {key: sum(1 for r in rows if key in r["r"]) for key in PEER_SETS}
     meta_block = {

@@ -58,6 +58,28 @@ def valid(symbol: str) -> bool:
     return bool(VALID.fullmatch(symbol))
 
 
+# --- Loaders: fresh if possible, committed snapshot if not --------------------
+
+def load_core() -> tuple[list[dict], list[dict]]:
+    """MidCap 400 constituents and change log, from Wikipedia or data/universe.json."""
+    payload = build.snapshot(
+        "universe",
+        lambda: {"constituents": build.scrape_universe(), "changes": core_changes()},
+        "MidCap 400 universe",
+    )
+    return payload["constituents"], payload.get("changes", [])
+
+
+def load_sp500() -> tuple[list[dict], list[dict]]:
+    """S&P 500 constituents and change log, from FMP or data/sp500.json."""
+    payload = build.snapshot(
+        "sp500",
+        lambda: {"constituents": sp500_constituents(), "changes": sp500_changes()},
+        "S&P 500 universe",
+    )
+    return payload["constituents"], payload.get("changes", [])
+
+
 # --- Current membership -------------------------------------------------------
 
 def sp500_constituents() -> list[dict]:
@@ -93,7 +115,7 @@ def core_changes() -> list[dict]:
             if len(cells) < 5:
                 continue
             try:
-                when = dt.datetime.strptime(cells[0], "%B %d, %Y").date()
+                when = dt.datetime.strptime(cells[0], "%B %d, %Y").date().isoformat()
             except ValueError:
                 continue
             added, removed = build.normalise(cells[1]), build.normalise(cells[3])
@@ -117,7 +139,7 @@ def sp500_changes() -> list[dict]:
         if not raw:
             continue
         try:
-            when = dt.date.fromisoformat(raw[:10])
+            when = dt.date.fromisoformat(raw[:10]).isoformat()
         except ValueError:
             continue
         added = build.normalise(r.get("symbol") or "")
@@ -134,13 +156,13 @@ def sp500_changes() -> list[dict]:
 
 
 def membership_history(current: set[str], changes: list[dict], dates: list[str]) -> dict[str, set[str]]:
-    """Membership at each date in `dates`, by undoing changes newer than it."""
+    """Membership at each date in `dates`, by undoing changes newer than it.
+    Dates are ISO strings throughout, which compare correctly as text."""
     out: dict[str, set[str]] = {}
     members = set(current)
     cursor = 0
     for date in sorted(dates, reverse=True):
-        target = dt.date.fromisoformat(date)
-        while cursor < len(changes) and changes[cursor]["date"] > target:
+        while cursor < len(changes) and changes[cursor]["date"] > date:
             change = changes[cursor]
             if change["added"]:
                 members.discard(change["added"])

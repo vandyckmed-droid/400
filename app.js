@@ -80,15 +80,20 @@
     for (const [size, suffix] of units) if (v >= size) return '$' + (v / size).toFixed(v / size >= 100 ? 0 : 1) + suffix;
     return '$' + v.toLocaleString();
   }
-  /* Score colour ramp: cold (0) → neutral (50) → hot (100). */
+  /* Score colour ramp: cold (0) → neutral (50) → hot (100). The scheme is
+     read once and refreshed on change rather than queried per bar; a theme
+     flip mid-session (auto dark mode at dusk) re-renders the open view. */
+  const scheme = matchMedia('(prefers-color-scheme: dark)');
+  let dark = scheme.matches;
+  scheme.addEventListener('change', (e) => { dark = e.matches; if (state.rows.length) route(); });
+
   function tone(score) {
     const t = Math.max(0, Math.min(100, score)) / 100;
     // Piecewise so that 50 lands on a genuinely neutral amber rather than a
     // greenish midpoint: 0 = red, 0.5 = amber, 1 = green.
     const hue = t < 0.5 ? 4 + (t / 0.5) * 38 : 42 + ((t - 0.5) / 0.5) * 103;
     const sat = 62 + Math.abs(t - 0.5) * 30;
-    const light = matchMedia('(prefers-color-scheme: dark)').matches ? 57 : 41;
-    return `hsl(${hue.toFixed(0)} ${sat.toFixed(0)}% ${light}%)`;
+    return `hsl(${hue.toFixed(0)} ${sat.toFixed(0)}% ${dark ? 57 : 41}%)`;
   }
   const cls = (v) => v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : '';
 
@@ -98,8 +103,17 @@
     .then((payload) => {
       state.rows = payload.rows;
       state.meta = payload.meta;
+      state.bySymbol = new Map(payload.rows.map((r) => [r.symbol, r]));
       syncControls();
       $('asof').textContent = `prices through ${fmtDate(payload.meta.asOf)}`;
+      // The refresh job is weekly and silent; stale data is its worst failure
+      // mode, so say so rather than let an old ranking pass for a fresh one.
+      const ageDays = (Date.now() - Date.parse(payload.meta.generatedAt)) / 864e5;
+      if (ageDays > 10) {
+        $('stale').hidden = false;
+        $('stale').textContent = `This ranking is ${Math.floor(ageDays)} days old — the weekly refresh `
+          + 'may have failed. Treat it as a snapshot, not a live read.';
+      }
       $('gen').textContent = `Refreshed ${fmtDate(payload.meta.generatedAt.slice(0, 10))}. Source: Financial Modeling Prep.`;
       fillSectors();
       wire();
@@ -159,12 +173,23 @@
     state.view = out;
     state.shown = 0;
     $('rows').replaceChildren();
-    $('empty').hidden = out.length > 0;
     const total = state.rows.filter(place).length;
+
+    // Watched names outside the active universe are still watched; say where they went.
+    const watching = state.scope === 'watch';
+    const elsewhere = watching
+      ? [...state.watch].filter((sym) => { const r = state.bySymbol.get(sym); return !r || !place(r); }).length
+      : 0;
+    $('empty').hidden = out.length > 0;
+    $('empty').textContent = !watching ? 'No matches.'
+      : state.watch.size === 0 ? 'Tap ☆ on any name to keep it here.'
+      : state.query || state.sector ? 'No watched names match.'
+      : `Your ${elsewhere} watched name${elsewhere === 1 ? ' is' : 's are'} outside ${UNIVERSES[state.universe].label}. Tap the title to switch.`;
     $('count').textContent = out.length
       ? `${out.length} of ${total} · ` + (sectorBasis()
           ? 'scored within each sector, so the number on the left is the position inside that sector'
           : 'ranked across the whole universe')
+        + (elsewhere ? ` · ${elsewhere} more outside ${UNIVERSES[state.universe].label}` : '')
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -243,6 +268,9 @@
     $('rows').addEventListener('click', (e) => {
       const star = e.target.closest('.star');
       if (star) { toggleWatch(star.closest('.row').dataset.symbol, star); return; }
+      if (e.target.closest('a.who')) return;          // the link handles itself
+      const row = e.target.closest('.row');
+      if (row) location.hash = `#/t/${row.dataset.symbol}`;
     });
 
     new IntersectionObserver((entries) => {
@@ -282,7 +310,11 @@
     if (location.hash === '#/evidence') return showEvidence();
     showView('list-view');
     if (!state.view.length) applyFilters();
-    scrollTo(0, Number(sessionStorage.getItem('sp400.scroll') || 0));
+    const y = Number(sessionStorage.getItem('sp400.scroll') || 0);
+    while (state.shown < state.view.length && document.documentElement.scrollHeight < y + innerHeight) {
+      appendChunk();
+    }
+    scrollTo(0, y);
   }
 
   function loadJSON(file, key) {
@@ -449,6 +481,15 @@
       `<text x="${PAD_L - 4}" y="${(y(g.at) + 3).toFixed(1)}" text-anchor="end">${g.label}</text>`
     ).join('');
 
+    // Optional smoothed line over the bars, one value per bar (null = gap).
+    const ov = cfg.overlay && cfg.overlay.values;
+    const cx = (i) => barX(i) + barW / 2;
+    const line = ov && ov.some((v) => v != null)
+      ? `<polyline class="ma" fill="none" points="${ov.map((v, i) =>
+          v == null ? null : `${cx(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(' ')}"/>
+         <circle class="ma-dot" r="3" opacity="0"/>`
+      : '';
+
     const labels = pts.map((p, i) => {
       const text = cfg.xLabel ? cfg.xLabel(p, i, pts) : '';
       if (!text) return '';
@@ -458,7 +499,7 @@
 
     host.innerHTML =
       `<div class="chartwrap"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${cfg.aria}">
-        ${guides}${bars}${labels}
+        ${guides}${bars}${line}${labels}
         <rect class="cursor" x="0" y="${PAD_T}" width="${barW.toFixed(2)}" height="${plotH}"
               fill="currentColor" opacity="0" pointer-events="none"/>
       </svg></div>
@@ -470,6 +511,7 @@
     const left = host.querySelector('.ro-l');
     const right = host.querySelector('.ro-r');
 
+    const dot = host.querySelector('.ma-dot');
     const select = (i) => {
       const [l, r, colour] = cfg.readout(pts[i], i);
       left.textContent = l;
@@ -477,6 +519,11 @@
       right.style.color = colour || pts[i].color;
       cursor.setAttribute('x', barX(i).toFixed(2));
       cursor.setAttribute('opacity', '0.12');
+      if (dot) {
+        const v = ov[i];
+        dot.setAttribute('opacity', v == null ? '0' : '1');
+        if (v != null) { dot.setAttribute('cx', cx(i).toFixed(1)); dot.setAttribute('cy', y(v).toFixed(1)); }
+      }
     };
     select(cfg.initial ?? pts.length - 1);
 
@@ -511,19 +558,32 @@
       host.innerHTML = '<p class="legend">No score history for this name yet.</p>';
       return;
     }
+    // Trailing 4-period simple average: 4 weeks or 4 months depending on the
+    // interval. Smooths the week-to-week noise without lagging so far that a
+    // turn only shows up after it's over.
+    const MA = 4;
+    const avg = points.map((_, i) => i < MA - 1 ? null
+      : points.slice(i - MA + 1, i + 1).reduce((t, p) => t + p.value, 0) / MA);
+    const unit = grain === 'w' ? 'wk' : 'mo';
     barChart(host, {
       points, min: 0, max: 100, baseline: 0,
+      overlay: { values: avg },
       guides: [{ at: 100, label: '100' }, { at: 50, label: '50', dashed: true }, { at: 0, label: '0' }],
       xLabel: grain === 'w' ? weeklyLabel : (p, i, all) =>
         i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
       aria: `Blended momentum score for ${r.symbol} over ${points.length} ` +
             `${grain === 'w' ? 'weeks' : 'months'}`,
-      readout: (p) => [(grain === 'w' ? 'week ending ' : '') + fmtDate(p.date), p.value.toFixed(1)],
+      readout: (p, i) => [
+        (grain === 'w' ? 'week ending ' : '') + fmtDate(p.date) +
+          (avg[i] == null ? '' : ` · ${MA}-${unit} avg ${avg[i].toFixed(1)}`),
+        p.value.toFixed(1),
+      ],
       note: `Each bar re-ranks ${r.symbol} against ${key[1] === 's'
                ? `other ${r.sector} names`
                : `all of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`} at that
              ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
-             Above the dashed line means the better half of that peer set.`,
+             Above the dashed line means the better half of that peer set. The line is the trailing
+             ${MA}-${grain === 'w' ? 'week' : 'month'} average.`,
     });
   }
 

@@ -21,7 +21,9 @@ A name needs a full 12-month window (≥ 180 daily returns) and a full 6-month w
 ranked, so very recent index additions sit out until they season.
 
 The **history chart** re-runs the entire cross-section at each snapshot, so a bar shows where a name
-stood *against its peers on that date* — not a rescaling of today's numbers. Two intervals are
+stood *against its peers on that date* — not a rescaling of today's numbers. A trailing 4-period
+average (4 weeks or 4 months, following the interval) is drawn over the bars: enough to smooth the
+week-to-week noise without lagging so far that a turn only shows after it's over. Two intervals are
 published and switchable on the chart: 36 month ends for the long shape, and 78 week ends (~18
 months) when the monthly bars are too coarse to see a turn. The weekly files are roughly three times
 the size, so they load only when that view is opened. The weekly axis keeps the in-progress week —
@@ -82,7 +84,9 @@ index.html  styles.css  app.js   the site (vanilla JS, no build step, no depende
 data/latest.json                 current ranking, all four peer sets + key stats  (~300 KB)
 data/history/{cw,cs,ew,es}.json  score per month end (36), one file per peer set, lazy-loaded
 data/history/{...}w.json         score per week end (78 ~ 18 months), loaded only if asked for
-data/universe.json               MidCap 400 snapshot, also the offline fallback
+data/universe.json               MidCap 400 constituents + change log; the offline fallback
+data/sp500.json                  S&P 500 constituents + change log; the offline fallback
+manifest.webmanifest  icon-*.png   home-screen install
 scripts/build.py                 the whole pipeline, standard library only
 scripts/universes.py             universe definitions + point-in-time membership
 scripts/backtest.py              point-in-time membership + forward-return test
@@ -106,10 +110,25 @@ served as static JSON.
   ~1,100 symbols (both indices plus former members still inside the history window).
 - **Quotes** — FMP `stable/batch-quote` for market cap, 52-week range and last change.
 
+## What the app does when things go wrong
+
+- **Stale data.** The refresh is weekly and silent, so a failed job would leave an old ranking
+  looking fresh. If the published data is more than ten days old the list shows an amber banner
+  saying so.
+- **Sources down.** Each membership source (Wikipedia for the 400, FMP for the 500 and its change
+  log) persists to a committed snapshot on success and falls back to it on failure, so an outage
+  degrades the refresh to last week's membership rather than failing it.
+- **Degraded output.** `build.py` refuses to publish if fewer than 380 of the 400 priced, the
+  extended universe is under 620 names, the ranked count fell more than 5% from the last run, or
+  a monthly cross-section went missing — the vendor throttles in alphabetical blocks, and a partial
+  outage would otherwise commit a quietly wrong ranking.
+- **Home screen.** Ships a manifest and icons; "Add to Home Screen" on iOS gives a standalone app
+  with safe-area padding.
+
 ## Refreshing
 
-Automatic: `.github/workflows/refresh.yml` runs Saturdays at 12:00 UTC and commits `data/` if
-anything changed. Momentum on 12- and 6-month windows barely moves intraday, so weekly is the right
+Automatic: `.github/workflows/refresh.yml` runs Saturdays at 12:00 UTC, rebuilds the ranking and
+the backtest, and commits `data/` if anything changed. Momentum on 12- and 6-month windows barely moves intraday, so weekly is the right
 cadence; use **Actions → Refresh momentum data → Run workflow** for an on-demand rebuild.
 
 **One-time setup:** add the FMP key as a repository secret named `FMP_API_KEY`

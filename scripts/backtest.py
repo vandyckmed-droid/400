@@ -94,14 +94,13 @@ def add_months(iso: str, months: int) -> str:
 # --- Main ---------------------------------------------------------------------
 
 def main() -> None:
-    universe = build.load_universe()
+    universe, changes = universes.load_core()
     current = {c["symbol"] for c in universe}
-    changes = universes.core_changes()
     log = build.log
     log(f"changes table: {len(changes)} add/remove events, newest {changes[0]['date']}")
 
     # Every symbol that was a member at any point in the window we care about.
-    horizon_start = dt.date.today() - dt.timedelta(days=365 * 4)
+    horizon_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
     ever = set(current)
     for change in changes:
         if change["date"] >= horizon_start and change["removed"]:
