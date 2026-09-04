@@ -93,6 +93,7 @@ its own sector.
 ```
 index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
 data/latest.json                 current ranking, all four peer sets + key stats  (~300 KB)
+data/spark.json                  last 12 month-end scores, all four peer sets; the strip in each list row
 data/history/{cw,cs,ew,es}.json  score per month end (36), one file per peer set, lazy-loaded
 data/history/{...}w.json         score per week end (78 ~ 18 months), loaded only if asked for
 data/universe.json               MidCap 400 constituents + change log; the offline fallback
