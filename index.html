@@ -8,6 +8,11 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="description" content="Volatility-adjusted momentum ranking of the S&P MidCap 400.">
 <title>MidCap 400 Momentum</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MidCap">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b0d12%22/%3E%3Crect x=%226%22 y=%2218%22 width=%224%22 height=%228%22 fill=%22%23cf6b2f%22/%3E%3Crect x=%2212%22 y=%2213%22 width=%224%22 height=%2213%22 fill=%22%23c9b02f%22/%3E%3Crect x=%2218%22 y=%229%22 width=%224%22 height=%2217%22 fill=%22%2358c04a%22/%3E%3Crect x=%2224%22 y=%225%22 width=%224%22 height=%2221%22 fill=%22%2335c46a%22/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -20,6 +25,7 @@
       <button id="about-btn" class="ghost" aria-label="About the score">?</button>
     </div>
     <p class="asof" id="asof">Loading…</p>
+    <p class="stale" id="stale" hidden></p>
     <div class="controls">
       <input id="search" type="search" inputmode="search" placeholder="Search ticker or name"
              autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search">
