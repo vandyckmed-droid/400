@@ -189,7 +189,7 @@
       `<span class="perf-txt"><b>Top decile</b>` +
       `<small>${sectorBasis() ? 'whole-universe ranking · ' : ''}backtested</small></span>` +
       `<span class="perf-num"><b class="${cls(v.cagr)}">${spct(v.cagr)}</b>` +
-      `<small>a year · ${spct(v.excess)} vs all</small></span>` +
+      `<small>a year · ${spct(v.excess)} vs universe</small></span>` +
       `<span class="perf-go" aria-hidden="true">›</span>`;
     el.setAttribute('aria-label',
       `Top decile backtest: ${spct(v.cagr)} a year, ${spct(v.excess)} against the whole universe. ` +
@@ -251,8 +251,9 @@
       ['Prices through', fmtDate(m.asOf)],
       ['Last refresh', fmtDate(m.generatedAt.slice(0, 10))],
       ['Names ranked', m.members],
-      ['From the MidCap 400', `${m.fromCore} + ${m.members - m.fromCore} tail`],
-      ['History', `${m.params.historyMonths} months · ${m.params.historyWeeks} weeks`],
+      ['Chart history', `${m.params.historyMonths} months or ${m.params.historyWeeks} weeks`],
+      ['From the MidCap 400', m.fromCore],
+      ['From the S&P 500 tail', m.members - m.fromCore],
       ['Blend', `${m.params.weights[0] * 100}/${m.params.weights[1] * 100} · skip ${m.params.skipDays}d`],
     ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 
@@ -278,6 +279,31 @@
     return key === 'score' ? p.s : key === 'p12' ? p.p12 : p.p6;
   };
 
+  /* What the two numbers on a row mean. They always describe whatever the list
+     is ordered by: showing a blended rank and a blended score while the list is
+     ordered by something else made the column read 1, 297, 2, 14 and the score
+     beside it run 99.8, 53.8, 98.7, with nothing on screen explaining why.
+     Ticker A-Z is the exception — it is a lookup order, not a ranking, so the
+     rows keep the standing they have in the ranking proper. */
+  const SORTS = {
+    score: { label: 'blended score', value: (r) => place(r).s.toFixed(1) },
+    p12: { label: '12–1 percentile', value: (r) => place(r).p12.toFixed(1) },
+    p6: { label: '6–1 percentile', value: (r) => place(r).p6.toFixed(1) },
+    mktCap: { label: 'market cap', value: (r) => cap(r.mktCap) },
+    symbol: { label: 'ticker', value: (r) => place(r).s.toFixed(1) },
+  };
+
+  /* Rank on the active metric, over the whole universe rather than the filtered
+     view: with a sector chosen, "8th" should still mean eighth of 649, which is
+     the more useful fact and what the list has always shown. */
+  function rankOn(key) {
+    if (key === 'score' || key === 'symbol') return null;   // place().k already is it
+    const ordered = state.rows.slice().sort(
+      (a, b) => ((sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity))
+                || a.symbol.localeCompare(b.symbol));
+    return new Map(ordered.map((r, i) => [r.symbol, i + 1]));
+  }
+
   /* ---------- list ---------- */
   function applyFilters() {
     const q = state.query.trim().toLowerCase();
@@ -287,6 +313,7 @@
     if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
 
     const key = state.sort;
+    state.ranks = rankOn(key);
     // Scores ship rounded to 2dp, so names can tie on the value the list sorts
     // by while the pipeline ranked them on the unrounded one. Break ties on
     // rank so the number in the left column never runs 3, 2, 4.
@@ -306,10 +333,21 @@
     $('empty').textContent = !watching ? 'No matches.'
       : state.watch.size === 0 ? 'Tap ☆ on any name to keep it here.'
       : 'No watched names match.';
+    /* One line, naming whatever actually decides the order on screen. Two
+       things had to agree with the rows and did not: saying "ranked across the
+       whole universe" beside a list ordered by market cap described two
+       different orderings at once, and the within-sector wording claimed the
+       left column was a position inside the sector, which stops being true the
+       moment another metric decides the order. */
+    const ordered = key !== 'score' && key !== 'symbol';
+    const metric = SORTS[key].label
+      + (sectorBasis() && (key === 'p12' || key === 'p6') ? ', within sector' : '');
     $('count').textContent = out.length
-      ? `${out.length} of ${state.rows.length} · ` + (sectorBasis()
-          ? 'scored within each sector, so the number on the left is the position inside that sector'
-          : 'ranked across the whole universe')
+      ? `${out.length} of ${state.rows.length} · ` + (
+          ordered ? `ordered by ${metric}`
+          : sectorBasis()
+            ? 'scored within each sector, so the number on the left is the position inside that sector'
+            : 'ranked across the whole universe')
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -329,11 +367,11 @@
     li.className = 'row';
     li.dataset.symbol = r.symbol;
     li.innerHTML =
-      `<span class="rk">${p.k}</span>` +
+      `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : p.k}</span>` +
       `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
       `<small>${r.idx === '500' ? '<i class="badge">S&amp;P 500</i> ' : ''}${esc(r.name)}</small></a>` +
       sparkline(r.symbol) +
-      `<span class="sc"><b>${p.s.toFixed(1)}</b></span>` +
+      `<span class="sc"><b>${SORTS[state.sort].value(r)}</b></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
       `${state.watch.has(r.symbol) ? '★' : '☆'}</button>`;
     return li;
