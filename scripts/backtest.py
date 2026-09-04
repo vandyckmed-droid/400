@@ -155,7 +155,7 @@ def main() -> None:
             p12 = build.percentiles({s: v[0][at] for s, v in scored.items()})
             p6 = build.percentiles({s: v[1][at] for s, v in scored.items()})
             blended = {s: 0.5 * p12[s] + 0.5 * p6[s] for s in scored}
-            order = sorted(blended, key=lambda s: -blended[s])
+            order = sorted(blended, key=lambda s: (-blended[s], s))   # ties: see rank_block
             size = len(order) // DECILES
 
             for h in HORIZONS:

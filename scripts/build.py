@@ -376,7 +376,12 @@ def rank_block(legs: dict, meta: dict, basis: str, adjust: str,
         p_long = percentiles({s: long_of(s) for s in members})
         p_mid = percentiles({s: mid_of(s) for s in members})
         blended = {s: WEIGHT_LONG * p_long[s] + WEIGHT_MID * p_mid[s] for s in members}
-        for rank, symbol in enumerate(sorted(members, key=lambda s: -blended[s]), 1):
+        # Ties are common — two names sharing both leg ranks blend to the same
+        # score — and `members` is a set, whose iteration order changes between
+        # processes. Without the symbol as a second key the rank a tied name
+        # gets, and which side of a decile boundary it lands on, would differ
+        # from run to run on identical inputs.
+        for rank, symbol in enumerate(sorted(members, key=lambda s: (-blended[s], s)), 1):
             out[symbol] = {
                 "s": round(blended[symbol], 2),
                 "k": rank,
@@ -408,7 +413,11 @@ def legs_at(members, index_maps, date: str) -> dict:
     the return or on the volatility-adjusted return without recomputing.
     """
     out = {}
-    for symbol in members:
+    # Sorted, so this dict — and everything downstream that inherits its
+    # insertion order, including the key order of the history files — is the
+    # same on every run. `members` is a set, and a set of strings iterates in a
+    # different order in every process.
+    for symbol in sorted(members):
         entry = index_maps.get(symbol)
         if not entry:
             continue

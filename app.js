@@ -881,6 +881,7 @@
         table under it is the MidCap&nbsp;400 only. The within-sector basis is a display option on
         the list — it is not tested here.</p>
       ${v ? portfolioCard(v, pf) : ''}
+      ${v ? concentrationCard(v) : ''}
       <p class="sechead">Forward returns, ${bt.rankingDates} month ends,
         ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</p>
       <div class="hero">
@@ -944,6 +945,7 @@
     });
 
     if (v) drawPortfolio(el.querySelector('#perf-chart'), v, pf);
+    if (v) drawConcentration(el.querySelector('#conc-chart'), v);
     drawDeciles(el.querySelector('#decile-chart'), H, h);
     drawSpread(el.querySelector('#spread-chart'), sp, h);
   }
@@ -978,6 +980,64 @@
         </table>
         <p class="legend">${verdict(v)}</p>
       </div>`;
+  }
+
+  /* How many sectors the decile is really spread across, month by month.
+     A momentum screen has no diversification rule, so its top decile drifts
+     toward whatever is working; when that drift goes far enough the sleeve
+     stops being a momentum bet and becomes a sector bet, which is the way a
+     single sector unwinding takes the whole thing down at once. Bars, not a
+     line: each one is a reading taken on a rebalance date, the same thing
+     every other bar chart in this app means. */
+  function concentrationCard(v) {
+    const c = v.concentration, now = c.now, universe = c.nowAll;
+    return `
+      <div class="card">
+        <h3 class="row"><span>How concentrated it gets</span>
+          <span class="span">${now.effective.toFixed(1)} effective sectors</span></h3>
+        <div id="conc-chart"></div>
+        <table class="peers years mix">
+          <tr><th>Today's decile</th><th>Names</th><th>Weight</th></tr>
+          ${now.weights.slice(0, 5).map((w) => `<tr>
+            <td>${esc(w.sector)}</td>
+            <td class="n">${Math.round(w.w * now.count)}</td>
+            <td>${pct(w.w, 0)}</td></tr>`).join('')}
+          ${now.weights.length > 5 ? `<tr class="rest"><td>${now.weights.length - 5} smaller
+            sector${now.weights.length - 5 === 1 ? '' : 's'}</td><td class="n">—</td>
+            <td>${pct(now.weights.slice(5).reduce((t, w) => t + w.w, 0), 0)}</td></tr>` : ''}
+        </table>
+        <p class="legend">Sector Herfindahl: square each sector's share of the basket and add them
+          up, then invert it. ${pct(now.topWeight, 0)} of the decile sits in ${esc(now.top)}, which
+          works out at <b>${now.effective.toFixed(1)} equally sized sectors</b> against
+          ${universe.effective.toFixed(1)} for the universe it was picked from. Concentration is not
+          a fault — it is the ranking finding something — but it is the number to look at before
+          deciding how much of a portfolio this sleeve should be.</p>
+      </div>`;
+  }
+
+  function drawConcentration(host, v) {
+    const rows = v.concentration.series;
+    const ceiling = v.concentration.nowAll.sectors;
+    const points = rows.map((r) => ({
+      ...r, value: r.effective, color: tone((r.effective / ceiling) * 100),
+    }));
+    const universe = rows.map((r) => r.all);
+    const top = Math.max(...points.map((p) => p.value), ...universe) * 1.08;
+    barChart(host, {
+      points, min: 0, max: top, baseline: 0, barRatio: 0.7, padLeft: 22, height: 140,
+      overlay: { values: universe },
+      guides: [{ at: top, label: top.toFixed(0) }, { at: 1, label: '1' }],
+      xLabel: (p, i, all) =>
+        i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
+      aria: 'Effective number of sectors in the top decile at each monthly rebalance',
+      readout: (p) => [
+        `${fmtDate(p.date)} · ${pct(p.topWeight, 0)} ${esc(p.top)}`,
+        `${p.effective.toFixed(1)} sectors`,
+      ],
+      note: `Effective sectors in the decile at each rebalance. The line is the same measure for the
+             whole universe — the gap between them is the concentration the ranking itself adds.
+             Lower means fewer, bigger sector bets.`,
+    });
   }
 
   /* Written from the numbers rather than fixed in the markup, so a refresh that
