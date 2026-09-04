@@ -39,7 +39,6 @@ data/history.json                blended score per month end, shared date axis  
 data/universe.json               constituent snapshot, also the offline fallback
 scripts/build.py                 the whole pipeline, standard library only
 .github/workflows/refresh.yml    weekly rebuild + commit
-.github/workflows/pages.yml      publishes the repo root to Pages on every push to main
 ```
 
 The API key never reaches the browser: everything is computed server-side in the refresh job and
@@ -65,9 +64,16 @@ keeps serving the last committed data.
 
 ## Publishing
 
-`.github/workflows/pages.yml` uploads the repository root to GitHub Pages on every push to `main`.
-It passes `enablement: true` to `actions/configure-pages`, so the first run turns Pages on by
-itself — there is no Settings toggle to flip — and each weekly data commit redeploys the site.
+The site is plain static files at the repository root, so Pages serves it directly from the branch —
+no deploy workflow, no build step.
+
+**One-time setup:** *Settings → Pages → Build and deployment* → source **Deploy from a branch**,
+branch **`main`**, folder **`/ (root)`**. GitHub's built-in `pages-build-deployment` then republishes
+on every push to `main`, including the weekly data commit.
+
+This toggle cannot be set from CI: `POST /repos/{owner}/{repo}/pages` requires a token with the
+`pages` scope, and neither the Actions `GITHUB_TOKEN` (`Resource not accessible by integration`) nor
+an automation environment can create the site. It is a one-time click.
 
 Locally:
 
