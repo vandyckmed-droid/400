@@ -146,7 +146,22 @@
     $('title').innerHTML = `MidCap<span class="pill">${here.size} <i aria-hidden="true">⇄</i></span>`;
     $('title').setAttribute('aria-label', `Universe: ${here.label}. Switch to ${there.label}.`);
     document.title = `${here.label} Momentum`;
-    $('basis').setAttribute('aria-pressed', String(sectorBasis()));
+    $('basis').checked = sectorBasis();
+  }
+
+  /* ---------- settings ---------- */
+  function showSettings() {
+    showView('settings-view');
+    scrollTo(0, 0);
+    const m = state.meta;
+    $('data-stats').innerHTML = [
+      ['Prices through', fmtDate(m.asOf)],
+      ['Last refresh', fmtDate(m.generatedAt.slice(0, 10))],
+      ['MidCap 400 ranked', m.core],
+      ['MidCap 650 ranked', m.ext],
+      ['History', `${m.params.historyMonths} months · ${m.params.historyWeeks} weeks`],
+      ['Blend', `${m.params.weights[0] * 100}/${m.params.weights[1] * 100} · skip ${m.params.skipDays}d`],
+    ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
   }
 
   const sortValue = (r, key) => {
@@ -164,10 +179,14 @@
     if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
 
     const key = state.sort;
+    // Scores ship rounded to 2dp, so names can tie on the value the list sorts
+    // by while the pipeline ranked them on the unrounded one. Break ties on
+    // rank so the number in the left column never runs 3, 2, 4.
     out = out.slice().sort(
       key === 'symbol'
         ? (a, b) => a.symbol.localeCompare(b.symbol)
-        : (a, b) => (sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity)
+        : (a, b) => ((sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity))
+                    || (place(a).k - place(b).k)
     );
 
     state.view = out;
@@ -244,12 +263,12 @@
       syncControls();
       applyFilters();
     });
-    $('basis').addEventListener('click', () => {
-      state.basis = sectorBasis() ? 'whole' : 'sector';
+    $('basis').addEventListener('change', (e) => {
+      state.basis = e.target.checked ? 'sector' : 'whole';
       try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
-      syncControls();
       applyFilters();
     });
+    $('sback').addEventListener('click', goBack);
     $('sector').addEventListener('change', (e) => { state.sector = e.target.value; applyFilters(); });
     $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyFilters(); });
 
@@ -277,14 +296,11 @@
       if (entries[0].isIntersecting && state.shown < state.view.length) appendChunk();
     }, { rootMargin: '600px' }).observe($('sentinel'));
 
-    $('about-btn').addEventListener('click', () => $('about').showModal());
-    $('about-close').addEventListener('click', () => $('about').close());
-    $('about-evidence').addEventListener('click', () => $('about').close());
     addEventListener('hashchange', route);
   }
 
   /* ---------- routing ---------- */
-  const VIEWS = ['list-view', 'detail-view', 'evidence-view'];
+  const VIEWS = ['list-view', 'detail-view', 'evidence-view', 'settings-view'];
   /* Whether the list is behind us in history. It isn't when the page was
      opened straight on a ticker or the evidence view from a shared link, and
      calling history.back() there would leave the site instead of going to the
@@ -308,6 +324,7 @@
       return;
     }
     if (location.hash === '#/evidence') return showEvidence();
+    if (location.hash === '#/settings') return showSettings();
     showView('list-view');
     if (!state.view.length) applyFilters();
     const y = Number(sessionStorage.getItem('sp400.scroll') || 0);
