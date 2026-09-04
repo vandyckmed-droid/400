@@ -7,6 +7,9 @@
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
   const PEER_KEY = 'sp400.peerset.v1';
+  const GRAIN_KEY = 'sp400.grain.v1';
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   /* The four peer sets a name can be ranked against. `uni` picks the universe,
      `basis` picks whether the cross-section is the whole thing or just the
@@ -36,6 +39,9 @@
     peer: (() => {
       try { return PEERS[localStorage.getItem(PEER_KEY)] ? localStorage.getItem(PEER_KEY) : 'cw'; }
       catch { return 'cw'; }
+    })(),
+    grain: (() => {
+      try { return localStorage.getItem(GRAIN_KEY) === 'w' ? 'w' : 'm'; } catch { return 'm'; }
     })(),
   };
 
@@ -224,9 +230,16 @@
 
   /* ---------- routing ---------- */
   const VIEWS = ['list-view', 'detail-view', 'evidence-view'];
+  /* Whether the list is behind us in history. It isn't when the page was
+     opened straight on a ticker or the evidence view from a shared link, and
+     calling history.back() there would leave the site instead of going to the
+     list. */
+  let listBehind = false;
+
   function showView(id) {
     if (id !== 'list-view' && !$('list-view').hidden) {
       sessionStorage.setItem('sp400.scroll', String(scrollY));
+      listBehind = true;
     }
     for (const v of VIEWS) $(v).hidden = v !== id;
   }
@@ -255,7 +268,10 @@
     }
     return state[cached];
   }
-  const loadHistory = (key) => loadJSON(`data/history/${key}.json`, `hist_${key}`);
+  /* Monthly and weekly ship as separate files; the weekly one is three times
+     the size and most visits never open it, so it loads only when asked for. */
+  const loadHistory = (key, grain) =>
+    loadJSON(`data/history/${key}${grain === 'w' ? 'w' : ''}.json`, `hist_${key}${grain}`);
   const loadBacktest = () => loadJSON('data/backtest.json', 'backtest');
 
   /* ---------- detail ---------- */
@@ -336,17 +352,32 @@
       </div>
 
       <div class="card">
-        <h3>Blended score through time</h3>
+        <h3 class="row">Score through time
+          <span class="segmented mini" id="grain" role="tablist" aria-label="Chart interval">
+            ${[['m', 'Monthly'], ['w', 'Weekly']].map(([g, label]) =>
+              `<button role="tab" data-g="${g}" class="${g === state.grain ? 'on' : ''}"
+                 aria-selected="${g === state.grain}">${label}</button>`).join('')}
+          </span>
+        </h3>
         <div id="chart"><p class="legend">Loading history…</p></div>
       </div>`;
 
-    $('back').addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = ''));
+    $('back').addEventListener('click', goBack);
     $('dstar').addEventListener('click', (e) => toggleWatch(r.symbol, e.currentTarget));
     scrollTo(0, 0);
-    loadHistory(key).then((h) => {
-      if (location.hash !== `#/t/${r.symbol}`) return;
-      drawChart($('chart'), h, r, key);
+    el.querySelector('#grain').addEventListener('click', (e) => {
+      const tab = e.target.closest('button[data-g]');
+      if (!tab || tab.dataset.g === state.grain) return;
+      state.grain = tab.dataset.g;
+      try { localStorage.setItem(GRAIN_KEY, state.grain); } catch { /* private mode */ }
+      for (const b of el.querySelectorAll('#grain button')) {
+        const on = b === tab;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-selected', String(on));
+      }
+      renderTickerChart(r, key);
     });
+    renderTickerChart(r, key);
   }
 
   /* One momentum leg: percentile, raw return, and the vol-adjusted ratio. */
@@ -431,8 +462,18 @@
     svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') pick(e); });
   }
 
-  /* Per-ticker score history: fixed 0-100 domain, 50 marks the index median. */
-  function drawChart(host, history, r, key) {
+  function renderTickerChart(r, key) {
+    const host = $('chart');
+    const grain = state.grain;
+    host.innerHTML = '<p class="legend">Loading history…</p>';
+    loadHistory(key, grain).then((h) => {
+      if (location.hash !== `#/t/${r.symbol}` || state.grain !== grain) return;
+      drawChart(host, h, r, key, grain);
+    });
+  }
+
+  /* Per-ticker score history: fixed 0-100 domain, 50 marks the peer-set median. */
+  function drawChart(host, history, r, key, grain) {
     const series = history && history.scores[r.symbol];
     const points = (series || [])
       .map((value, i) => ({ value, date: history.dates[i] }))
@@ -445,15 +486,28 @@
     barChart(host, {
       points, min: 0, max: 100, baseline: 0,
       guides: [{ at: 100, label: '100' }, { at: 50, label: '50', dashed: true }, { at: 0, label: '0' }],
-      xLabel: (p, i, all) =>
+      xLabel: grain === 'w' ? weeklyLabel : (p, i, all) =>
         i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
-      aria: `Blended momentum score for ${r.symbol} over ${points.length} months`,
-      readout: (p) => [fmtDate(p.date), p.value.toFixed(1)],
+      aria: `Blended momentum score for ${r.symbol} over ${points.length} ` +
+            `${grain === 'w' ? 'weeks' : 'months'}`,
+      readout: (p) => [(grain === 'w' ? 'week ending ' : '') + fmtDate(p.date), p.value.toFixed(1)],
       note: `Each bar re-ranks ${r.symbol} against ${PEERS[key].basis === 'sector'
                ? `other ${r.sector} names in the ${PEERS[key].short.split(' ')[0]}`
-               : `the whole ${PEERS[key].short}`} at that month end, using the membership that was
-             live on the day. Above the dashed line means the better half of that peer set.`,
+               : `the whole ${PEERS[key].short}`} at that ${grain === 'w' ? 'week' : 'month'} end,
+             using the membership that was live on the day. Above the dashed line means the better
+             half of that peer set.`,
     });
+  }
+
+  /* 78 weekly bars is too many to label every month: mark each quarter, and the
+     year where it turns over. */
+  function weeklyLabel(p, i, all) {
+    if (i === 0) return p.date.slice(0, 4);
+    if (i < 6) return '';                       // don't crowd the origin label
+    const prev = all[i - 1].date;
+    if (p.date.slice(0, 4) !== prev.slice(0, 4)) return p.date.slice(0, 4);
+    const month = +p.date.slice(5, 7);
+    return month !== +prev.slice(5, 7) && (month - 1) % 3 === 0 ? MONTHS[month - 1] : '';
   }
 
   /* ---------- evidence ---------- */
@@ -477,7 +531,7 @@
   }
 
   const decileOf = (rank, n) => Math.min(10, Math.floor((rank - 1) / (n / 10)) + 1);
-  const goBack = () => (history.length > 1 ? history.back() : (location.hash = ''));
+  const goBack = () => (listBehind ? history.back() : (location.hash = ''));
   const months = (h) => (h === '1' ? '1 month' : `${h} months`);
   const monthsAdj = (h) => `${h}-month`;              // adjectival: "6-month return"
 

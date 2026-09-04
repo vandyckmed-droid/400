@@ -20,8 +20,13 @@ For every constituent, on every ranking date:
 A name needs a full 12-month window (≥ 180 daily returns) and a full 6-month window (≥ 90) to be
 ranked, so very recent index additions sit out until they season.
 
-The **history chart** re-runs the entire cross-section at each of the last 36 month ends, so a bar
-shows where a name stood *against its peers on that date* — not a rescaling of today's numbers.
+The **history chart** re-runs the entire cross-section at each snapshot, so a bar shows where a name
+stood *against its peers on that date* — not a rescaling of today's numbers. Two intervals are
+published and switchable on the chart: 36 month ends for the long shape, and 78 week ends (~18
+months) when the monthly bars are too coarse to see a turn. The weekly files are roughly three times
+the size, so they load only when that view is opened. The weekly axis keeps the in-progress week —
+a bar is a cross-section taken on a date, not a return over a period, so a partial week still reads
+correctly and the last bar stays close to today.
 
 ### Known limitation
 
@@ -69,7 +74,8 @@ its own sector.
 ```
 index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
 data/latest.json                 current ranking, all four peer sets + key stats  (~300 KB)
-data/history/{cw,cs,ew,es}.json  score per month end, one file per peer set, lazy-loaded
+data/history/{cw,cs,ew,es}.json  score per month end (36), one file per peer set, lazy-loaded
+data/history/{...}w.json         score per week end (78 ~ 18 months), loaded only if asked for
 data/universe.json               MidCap 400 snapshot, also the offline fallback
 scripts/build.py                 the whole pipeline, standard library only
 scripts/universes.py             universe definitions + point-in-time membership
