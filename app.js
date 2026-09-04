@@ -19,6 +19,9 @@
     query: '',
     view: [],
     shown: 0,
+    backtest: null,
+    backtestPromise: null,
+    horizon: '6',
   };
 
   /* ---------- persistence ---------- */
@@ -179,33 +182,45 @@
 
     $('about-btn').addEventListener('click', () => $('about').showModal());
     $('about-close').addEventListener('click', () => $('about').close());
+    $('about-evidence').addEventListener('click', () => $('about').close());
     addEventListener('hashchange', route);
   }
 
   /* ---------- routing ---------- */
+  const VIEWS = ['list-view', 'detail-view', 'evidence-view'];
+  function showView(id) {
+    if (id !== 'list-view' && !$('list-view').hidden) {
+      sessionStorage.setItem('sp400.scroll', String(scrollY));
+    }
+    for (const v of VIEWS) $(v).hidden = v !== id;
+  }
+
   function route() {
-    const match = /^#\/t\/([A-Za-z0-9.\-]+)$/.exec(location.hash);
-    if (match) {
-      const row = state.rows.find((r) => r.symbol === match[1].toUpperCase());
+    const ticker = /^#\/t\/([A-Za-z0-9.\-]+)$/.exec(location.hash);
+    if (ticker) {
+      const row = state.rows.find((r) => r.symbol === ticker[1].toUpperCase());
       if (row) return showDetail(row);
       location.hash = '';
       return;
     }
-    $('detail-view').hidden = true;
-    $('list-view').hidden = false;
+    if (location.hash === '#/evidence') return showEvidence();
+    showView('list-view');
     if (!state.view.length) applyFilters();
     scrollTo(0, Number(sessionStorage.getItem('sp400.scroll') || 0));
   }
 
-  function loadHistory() {
-    if (!state.historyPromise) {
-      state.historyPromise = fetch('data/history.json', { cache: 'no-cache' })
-        .then((r) => r.json())
-        .then((h) => { state.history = h; return h; })
+  function loadJSON(file, key) {
+    const cached = key + 'Promise';
+    if (!state[cached]) {
+      state[cached] = fetch(file, { cache: 'no-cache' })
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then((d) => { state[key] = d; return d; })
         .catch(() => null);
     }
-    return state.historyPromise;
+    return state[cached];
   }
+  const loadHistory = () => loadJSON('data/history.json', 'history');
+  const loadBacktest = () => loadJSON('data/backtest.json', 'backtest');
 
   /* ---------- detail ---------- */
   function showDetail(r) {
@@ -230,6 +245,7 @@
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
         <span class="tag">${cap(r.mktCap)}</span>
+        <a class="tag link" href="#/evidence">Decile ${decileOf(r.rank)} · how it tested →</a>
       </div>
 
       <div class="card">
@@ -252,7 +268,7 @@
 
       <div class="card">
         <h3>Blended score through time</h3>
-        <div id="chart" class="chartwrap"><p class="legend">Loading history…</p></div>
+        <div id="chart"><p class="legend">Loading history…</p></div>
       </div>`;
 
     $('back').addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = ''));
@@ -276,76 +292,238 @@
     </div>`;
   }
 
-  /* ---------- bar chart ---------- */
-  function drawChart(host, history, r) {
-    const series = history && history.scores[r.symbol];
-    if (!series) { host.innerHTML = '<p class="legend">No score history for this name yet.</p>'; return; }
-
-    const points = series
-      .map((value, i) => ({ value, date: history.dates[i] }))
-      .filter((p) => p.value != null);
-    if (!points.length) { host.innerHTML = '<p class="legend">No score history for this name yet.</p>'; return; }
-
-    const W = 340, H = 150, PAD_L = 22, PAD_B = 16, PAD_T = 6;
+  /* ---------- bar chart ----------
+     Every chart in the app is bars rising from a baseline with a tap-and-drag
+     readout, so they all come through this one primitive: the score history,
+     the decile returns, and the spread series only differ in their scale,
+     colours and labels. */
+  function barChart(host, cfg) {
+    const W = 340, H = cfg.height || 150, PAD_L = cfg.padLeft || 26, PAD_B = 16, PAD_T = 6;
     const plotW = W - PAD_L - 4, plotH = H - PAD_B - PAD_T;
-    const step = plotW / points.length;
-    const barW = Math.max(2, step * 0.68);
-    const y = (v) => PAD_T + plotH * (1 - v / 100);
+    const pts = cfg.points;
+    const step = plotW / pts.length;
+    const barW = Math.max(2, step * (cfg.barRatio || 0.68));
+    const span = (cfg.max - cfg.min) || 1;
+    const y = (v) => PAD_T + plotH * (1 - (v - cfg.min) / span);
+    const base = y(cfg.baseline ?? cfg.min);
+    const barX = (i) => PAD_L + i * step + (step - barW) / 2;
 
-    const bars = points.map((p, i) => {
-      const x = PAD_L + i * step + (step - barW) / 2;
-      const h = Math.max(1, plotH * p.value / 100);
-      return `<rect data-i="${i}" x="${x.toFixed(2)}" y="${(PAD_T + plotH - h).toFixed(2)}" ` +
-             `width="${barW.toFixed(2)}" height="${h.toFixed(2)}" rx="1" fill="${tone(p.value)}"/>`;
+    const bars = pts.map((p, i) => {
+      const top = Math.min(y(p.value), base), bottom = Math.max(y(p.value), base);
+      return `<rect data-i="${i}" x="${barX(i).toFixed(2)}" y="${top.toFixed(2)}" ` +
+             `width="${barW.toFixed(2)}" height="${Math.max(1, bottom - top).toFixed(2)}" ` +
+             `rx="1" fill="${p.color}"/>`;
     }).join('');
 
-    // One x label per calendar year change, plus the last point.
-    const labels = points.map((p, i) => {
-      const isNewYear = i === 0 || p.date.slice(0, 4) !== points[i - 1].date.slice(0, 4);
-      if (!isNewYear) return '';
-      const x = PAD_L + i * step + step / 2;
-      return `<text x="${x.toFixed(1)}" y="${H - 4}" text-anchor="middle">${p.date.slice(0, 4)}</text>`;
+    const guides = (cfg.guides || []).map((g) =>
+      `<line class="${g.dashed ? 'mid' : 'grid'}" x1="${PAD_L}" y1="${y(g.at).toFixed(1)}" ` +
+      `x2="${W - 4}" y2="${y(g.at).toFixed(1)}"/>` +
+      `<text x="${PAD_L - 4}" y="${(y(g.at) + 3).toFixed(1)}" text-anchor="end">${g.label}</text>`
+    ).join('');
+
+    const labels = pts.map((p, i) => {
+      const text = cfg.xLabel ? cfg.xLabel(p, i, pts) : '';
+      if (!text) return '';
+      return `<text x="${(PAD_L + i * step + step / 2).toFixed(1)}" y="${H - 4}" ` +
+             `text-anchor="middle">${text}</text>`;
     }).join('');
 
     host.innerHTML =
-      `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
-            aria-label="Blended momentum score for ${r.symbol} over ${points.length} months">
-        <line class="grid" x1="${PAD_L}" y1="${y(100)}" x2="${W - 4}" y2="${y(100)}"/>
-        <line class="mid"  x1="${PAD_L}" y1="${y(50)}"  x2="${W - 4}" y2="${y(50)}"/>
-        <line class="grid" x1="${PAD_L}" y1="${y(0)}"   x2="${W - 4}" y2="${y(0)}"/>
-        <text x="${PAD_L - 4}" y="${y(100) + 3}" text-anchor="end">100</text>
-        <text x="${PAD_L - 4}" y="${y(50) + 3}" text-anchor="end">50</text>
-        <text x="${PAD_L - 4}" y="${y(0) + 3}" text-anchor="end">0</text>
-        ${bars}${labels}
-        <rect id="cursor" x="0" y="${PAD_T}" width="${barW.toFixed(2)}" height="${plotH}"
+      `<div class="chartwrap"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${cfg.aria}">
+        ${guides}${bars}${labels}
+        <rect class="cursor" x="0" y="${PAD_T}" width="${barW.toFixed(2)}" height="${plotH}"
               fill="currentColor" opacity="0" pointer-events="none"/>
-      </svg>
-      <div class="readout"><span id="ro-date"></span><b id="ro-val"></b></div>
-      <p class="legend">Each bar re-ranks ${r.symbol} against the whole index at that month end.
-        Above the dashed line means top half of the MidCap 400.</p>`;
+      </svg></div>
+      <div class="readout"><span class="ro-l"></span><b class="ro-r"></b></div>
+      ${cfg.note ? `<p class="legend">${cfg.note}</p>` : ''}`;
 
     const svg = host.querySelector('svg');
-    const cursor = host.querySelector('#cursor');
-    const roDate = host.querySelector('#ro-date');
-    const roVal = host.querySelector('#ro-val');
+    const cursor = host.querySelector('.cursor');
+    const left = host.querySelector('.ro-l');
+    const right = host.querySelector('.ro-r');
 
     const select = (i) => {
-      const p = points[i];
-      roDate.textContent = fmtDate(p.date);
-      roVal.textContent = p.value.toFixed(1);
-      roVal.style.color = tone(p.value);
-      cursor.setAttribute('x', (PAD_L + i * step + (step - barW) / 2).toFixed(2));
+      const [l, r, colour] = cfg.readout(pts[i], i);
+      left.textContent = l;
+      right.textContent = r;
+      right.style.color = colour || pts[i].color;
+      cursor.setAttribute('x', barX(i).toFixed(2));
       cursor.setAttribute('opacity', '0.12');
     };
-    select(points.length - 1);
+    select(cfg.initial ?? pts.length - 1);
 
     const pick = (event) => {
       const box = svg.getBoundingClientRect();
-      const x = ((event.touches ? event.touches[0].clientX : event.clientX) - box.left) / box.width * W;
+      const x = (event.clientX - box.left) / box.width * W;
       const i = Math.round((x - PAD_L - step / 2) / step);
-      if (i >= 0 && i < points.length) select(i);
+      if (i >= 0 && i < pts.length) select(i);
     };
     svg.addEventListener('pointerdown', pick);
     svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') pick(e); });
+  }
+
+  /* Per-ticker score history: fixed 0-100 domain, 50 marks the index median. */
+  function drawChart(host, history, r) {
+    const series = history && history.scores[r.symbol];
+    const points = (series || [])
+      .map((value, i) => ({ value, date: history.dates[i] }))
+      .filter((p) => p.value != null)
+      .map((p) => ({ ...p, color: tone(p.value) }));
+    if (!points.length) {
+      host.innerHTML = '<p class="legend">No score history for this name yet.</p>';
+      return;
+    }
+    barChart(host, {
+      points, min: 0, max: 100, baseline: 0,
+      guides: [{ at: 100, label: '100' }, { at: 50, label: '50', dashed: true }, { at: 0, label: '0' }],
+      xLabel: (p, i, all) =>
+        i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
+      aria: `Blended momentum score for ${r.symbol} over ${points.length} months`,
+      readout: (p) => [fmtDate(p.date), p.value.toFixed(1)],
+      note: `Each bar re-ranks ${r.symbol} against the whole index at that month end.
+             Above the dashed line means top half of the MidCap 400.`,
+    });
+  }
+
+  /* ---------- evidence ---------- */
+  function showEvidence() {
+    showView('evidence-view');
+    scrollTo(0, 0);
+    const el = $('evidence-view');
+    if (!el.dataset.ready) {
+      el.innerHTML = '<div class="dtop"><button class="back" id="eback">‹ Back</button>' +
+        '<span class="grow"><b>Does the score work?</b><small>loading…</small></span></div>';
+      el.querySelector('#eback').addEventListener('click', goBack);
+    }
+    loadBacktest().then((bt) => {
+      if (location.hash !== '#/evidence') return;
+      if (!bt) {
+        el.querySelector('.grow small').textContent = 'backtest data unavailable';
+        return;
+      }
+      renderEvidence(el, bt);
+    });
+  }
+
+  const decileOf = (rank) => Math.min(10, Math.floor((rank - 1) / (state.meta.ranked / 10)) + 1);
+  const goBack = () => (history.length > 1 ? history.back() : (location.hash = ''));
+  const months = (h) => (h === '1' ? '1 month' : `${h} months`);
+  const monthsAdj = (h) => `${h}-month`;              // adjectival: "6-month return"
+
+  function renderEvidence(el, bt) {
+    const h = state.horizon;
+    const H = bt.horizons[h];
+    const sp = H.spread;
+    el.dataset.ready = '1';
+    el.innerHTML = `
+      <div class="dtop">
+        <button class="back" id="eback">‹ Back</button>
+        <span class="grow"><b>Does the score work?</b>
+          <small>${bt.rankingDates} month ends · ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</small></span>
+      </div>
+      <div class="hero">
+        <span class="big" style="color:${tone(sp.mean > 0 ? 82 : 18)}">${signed(sp.mean * 100, 1)}%</span>
+        <span class="lbl">top minus bottom decile<b>mean over ${months(h)}</b></span>
+      </div>
+      <div class="ctrl">
+        <div class="segmented" id="hsel" role="tablist" aria-label="Forward-return horizon">
+          ${['1', '3', '6'].map((k) => `<button role="tab" data-h="${k}"
+            class="${k === h ? 'on' : ''}" aria-selected="${k === h}">${months(k)}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Forward return by decile</h3>
+        <div id="decile-chart"></div>
+      </div>
+
+      <div class="card">
+        <h3>Top minus bottom, month by month</h3>
+        <dl class="stats trio">
+          <div><dt>Mean spread</dt><dd class="${cls(sp.mean)}">${signed(sp.mean * 100, 2)}%</dd></div>
+          <div><dt>Hit rate</dt><dd>${(sp.hitRate * 100).toFixed(0)}%</dd></div>
+          <div><dt>t-stat</dt><dd>${sp.tIndependent.toFixed(2)}</dd></div>
+        </dl>
+        <div id="spread-chart"></div>
+      </div>
+
+      <div class="card caution">
+        <h3>Read this before using it</h3>
+        <ul class="caveats">
+          <li><b>The obvious t-stat is wrong.</b> Sampling ${monthsAdj(h)} returns every month makes the
+            windows overlap. Naive t is ${sp.tNaive.toFixed(2)}; corrected it is
+            ${sp.tNeweyWest.toFixed(2)} (Newey–West), or ${sp.tIndependent.toFixed(2)} across the
+            ${sp.nIndependent} genuinely independent window${sp.nIndependent === 1 ? '' : 's'}.
+            The headline number above is a mean, not a proven edge.</li>
+          <li><b>One regime.</b> Three years of a mostly rising market. Every decile is positive at
+            six months, so the spread is the only figure carrying information here — and momentum is
+            known to work in trends and break at reversals. This sample contains no reversal.</li>
+          <li><b>It is decaying.</b> Spread by ranking-date year —
+            ${sp.byYear.map((y) => `${y.year} ${signed(y.mean * 100, 1)}%` +
+              (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.</li>
+          <li><b>What is and isn't corrected.</b> Index membership is reconstructed month by month,
+            so no name is ranked before it joined. Delisted names are held to their last price and
+            then treated as cash. Costs, spreads and taxes are not modelled.</li>
+        </ul>
+      </div>
+
+      <footer class="foot"><p>A percentile is a rank against peers, not a return forecast.
+        Past decile behaviour is not a prediction for any individual holding.</p></footer>`;
+
+    el.querySelector('#eback').addEventListener('click', goBack);
+    el.querySelector('#hsel').addEventListener('click', (e) => {
+      const tab = e.target.closest('button[data-h]');
+      if (!tab || tab.dataset.h === state.horizon) return;
+      state.horizon = tab.dataset.h;
+      renderEvidence(el, bt);
+    });
+
+    drawDeciles(el.querySelector('#decile-chart'), H, h);
+    drawSpread(el.querySelector('#spread-chart'), sp, h);
+  }
+
+  /* Deciles keep the list's colour ramp: D1 wears the same green as a 100 score. */
+  function drawDeciles(host, H, h) {
+    const points = H.deciles.map((d, i) => ({
+      ...d, value: d.mean, color: tone(100 - (i * 100) / 9),
+    }));
+    const values = points.map((p) => p.value);
+    const top = Math.max(...values, 0) * 1.1;
+    barChart(host, {
+      points, min: Math.min(...values, 0) * 1.15, max: top, baseline: 0, barRatio: 0.74, padLeft: 30,
+      guides: [{ at: 0, label: '0%' }, { at: top, label: (top * 100).toFixed(0) + '%' }],
+      xLabel: (p, i) => (i === 0 ? 'D1' : i === 9 ? 'D10' : ''),
+      aria: `Mean ${monthsAdj(h)} forward return for each momentum decile`,
+      readout: (p, i) => [
+        `D${p.decile}${i === 0 ? ' (top)' : i === 9 ? ' (bottom)' : ''} · positive in ` +
+        `${(p.winRate * 100).toFixed(0)}% of months`,
+        signed(p.mean * 100, 2) + '%',
+      ],
+      initial: 0,
+      note: `Mean ${monthsAdj(h)} return of an equal-weighted basket of each decile, rebalanced at
+             every month end. The ordering matters more than any single bar.`,
+    });
+  }
+
+  function drawSpread(host, sp, h) {
+    const points = sp.series.map((p) => ({
+      ...p, value: p.spread, color: tone(p.spread > 0 ? 82 : 18),
+    }));
+    const values = points.map((p) => p.value);
+    const hi = Math.max(...values, 0), lo = Math.min(...values, 0);
+    barChart(host, {
+      points, min: lo * 1.1, max: hi * 1.1, baseline: 0, padLeft: 30,
+      guides: [
+        { at: hi, label: (hi * 100).toFixed(0) + '%' },
+        { at: 0, label: '0', dashed: true },
+        { at: lo, label: (lo * 100).toFixed(0) + '%' },
+      ],
+      xLabel: (p, i, all) =>
+        i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
+      aria: `Top-minus-bottom decile spread over ${monthsAdj(h)} windows, by ranking date`,
+      readout: (p) => [`ranked ${fmtDate(p.date)}`, signed(p.spread * 100, 1) + '%'],
+      note: `Each bar is one ranking date: what the top decile made minus the bottom decile over the
+             following ${months(h)}. Bars below the line are months the ranking got it backwards.`,
+    });
   }
 })();
