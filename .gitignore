@@ -1,8 +1,2 @@
 .cache/
 __pycache__/
-
-# impeccable-hook-ignore-start
-.impeccable/hook.cache.json
-.impeccable/hook.pending.json
-.impeccable/config.local.json
-# impeccable-hook-ignore-end
