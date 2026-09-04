@@ -55,8 +55,10 @@ two **independent** controls, deliberately not merged into one:
   switches it, and every ranking and chart then runs on it. It has no control of its own, because
   naming the app after the universe already says which one is active and switching it is the same
   tap. Not re-offered anywhere else.
-- **Score within sector** — a switch, not a universe. It ranks a name only against its own GICS
-  sector inside whichever universe is active.
+- **Score within sector** — a switch on the Settings page (the gear in the header), not a universe.
+  It ranks a name only against its own GICS sector inside whichever universe is active. It lives
+  in Settings rather than beside the filters because it's a preference you set once, not something
+  you change per visit — and keeping it out of the header leaves the header square.
 
 Both persist per device, and the four resulting combinations all ship in `latest.json` keyed
 `c`/`e` + `w`/`s`. Merging them into a single four-option control was the original design and it was
@@ -176,8 +178,9 @@ walking Wikipedia's *Selected changes* table backwards from today's list (399–
 month end, ~3.4 additions/month), re-ranks only the names alive on each date, and measures forward
 returns. It imports `build.py` for the momentum maths, so the test and the site cannot diverge.
 
-The results are in the app too, at `#/evidence` — reachable from the methodology dialog, the
-footer, and a decile tag on every ticker page. Over 36 month ends (Mar 2023 – Feb 2026),
+The results are in the app too, at `#/evidence` — reachable from the Settings page, the footer,
+and a decile tag on every ticker page. Settings (`#/settings`) also carries the methodology, the
+universe definitions, and a data card showing the as-of date, last refresh, and universe sizes. Over 36 month ends (Mar 2023 – Feb 2026),
 equal-weighted:
 
 | Horizon | Top decile | Bottom decile | Spread | Hit rate | Non-overlapping t |

@@ -22,7 +22,7 @@
   <header class="topbar">
     <div class="titlerow">
       <h1><button type="button" id="title" class="title"></button></h1>
-      <button id="about-btn" class="ghost" aria-label="About the score">?</button>
+      <a id="settings-btn" class="ghost" href="#/settings" aria-label="Settings and how the score works"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
     </div>
     <p class="asof" id="asof">Loading…</p>
     <p class="stale" id="stale" hidden></p>
@@ -47,7 +47,6 @@
           </select>
         </label>
       </div>
-      <button id="basis" class="chip" aria-pressed="false">Score within sector</button>
     </div>
   </header>
 
@@ -64,34 +63,63 @@
 
 <section id="detail-view" hidden></section>
 <section id="evidence-view" hidden></section>
-
-<dialog id="about">
-  <h2>How the score works</h2>
-  <ol class="method">
-    <li><b>12–1 momentum.</b> Total return on dividend- and split-adjusted closes over the 12 months ending one month ago. The most recent month is skipped to sidestep short-term reversal.</li>
-    <li><b>6–1 momentum.</b> Same idea over the trailing 6 months, again ending one month ago.</li>
-    <li><b>Volatility adjustment.</b> Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one.</li>
-    <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other name in the chosen peer set on the same day and mapped to 0–100.</li>
-    <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
-  </ol>
-  <h2 class="sub">Universe</h2>
-  <p class="fine">Tap the title to switch; the whole app then runs on it.
-    <b>MidCap&nbsp;400</b> is the index itself. <b>MidCap&nbsp;650</b> adds the 250 smallest
-    S&amp;P&nbsp;500 members by market cap — large-cap by index membership, mid-cap by size — so a
-    name is measured against everything of roughly its size rather than against an index boundary.
-    Those 250 are badged in the list. Both S&amp;P&nbsp;500 membership and the market caps that pick
-    the tail are point-in-time, so a past bar reflects the universe as it stood that day.</p>
-  <h2 class="sub">Score within sector</h2>
-  <p class="fine">A separate switch, and a way of reading whichever universe you chose rather than a
-    different universe. It ranks a name only against its own GICS sector, which strips out the sector
-    bet the whole-universe ranking otherwise takes — useful if sector weights are already controlled
-    elsewhere. Sectors with fewer than five names are left unscored.</p>
-  <p class="fine">The history chart re-runs the full cross-section at each month end, so a bar shows where the name stood against its peers <em>on that date</em>. The peer set is today's index membership throughout, which introduces some survivorship bias in older bars. Data: Financial Modeling Prep. Not investment advice.</p>
-  <div class="dlg-actions">
-    <a class="primary" href="#/evidence" id="about-evidence">Does it actually work? →</a>
-    <button id="about-close">Close</button>
+<section id="settings-view" hidden>
+  <div class="dtop">
+    <button class="back" id="sback">‹ Back</button>
+    <span class="grow"><b>Settings</b><small>and how the score works</small></span>
   </div>
-</dialog>
+
+  <div class="card">
+    <h3>Ranking</h3>
+    <label class="switch">
+      <span class="grow"><b>Score within sector</b>
+        <small>Rank each name only against its own GICS sector instead of the whole universe. Strips
+        out the sector bet the whole-universe ranking otherwise takes — useful if sector weights are
+        already controlled elsewhere. Sectors with fewer than five names are left unscored.</small></span>
+      <input type="checkbox" id="basis" role="switch">
+    </label>
+    <p class="legend">The universe — MidCap&nbsp;400 or MidCap&nbsp;650 — is switched by tapping the
+      title on the list. It isn't repeated here.</p>
+  </div>
+
+  <div class="card">
+    <h3>Data</h3>
+    <dl class="stats" id="data-stats"></dl>
+    <p class="legend">Refreshed weekly on Saturdays from Financial Modeling Prep. If it goes more than
+      ten days without a refresh the list says so.</p>
+  </div>
+
+  <div class="card">
+    <h3>How the score works</h3>
+    <ol class="method">
+      <li><b>12–1 momentum.</b> Total return on dividend- and split-adjusted closes over the 12 months ending one month ago. The most recent month is skipped to sidestep short-term reversal.</li>
+      <li><b>6–1 momentum.</b> Same idea over the trailing 6 months, again ending one month ago.</li>
+      <li><b>Volatility adjustment.</b> Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one.</li>
+      <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other name in the peer set on the same day and mapped to 0–100.</li>
+      <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Universe</h3>
+    <p class="fine"><b>MidCap&nbsp;400</b> is the index itself. <b>MidCap&nbsp;650</b> adds the 250
+      smallest S&amp;P&nbsp;500 members by market cap — large-cap by index membership, mid-cap by
+      size — so a name is measured against everything of roughly its size rather than against an
+      index boundary. Those 250 are badged in the list.</p>
+    <p class="fine">Membership is point-in-time: the history chart re-runs the full cross-section at
+      each month or week end using the index as it stood that day. A name that joined recently is
+      scored as an outsider on earlier dates — where it <em>would</em> have ranked — and those bars
+      are dimmed.</p>
+  </div>
+
+  <a class="card go" href="#/evidence"><b>Does the score actually work?</b>
+    <small>Point-in-time backtest: forward returns by decile, spread, hit rate, and the caveats.</small></a>
+
+  <footer class="foot"><p>Data: Financial Modeling Prep. A percentile is a rank against peers, not a
+    return forecast. Not investment advice.</p></footer>
+</section>
+
+
 
 <script src="app.js"></script>
 </body>

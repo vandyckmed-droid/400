@@ -77,10 +77,12 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
   background: color-mix(in srgb, var(--mid) 14%, transparent); border: 1px solid var(--mid); color: var(--ink);
 }
 .ghost {
-  width: 30px; height: 30px; flex: 0 0 auto;
+  width: 32px; height: 32px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: 50%;
-  background: var(--bg-soft); color: var(--ink-2); font-weight: 700; font-size: 14px;
+  background: var(--bg-soft); color: var(--ink-2);
 }
+.ghost:active { background: var(--line); }
 
 .controls { display: grid; gap: 8px; }
 #search {
@@ -102,13 +104,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sel { display: block; position: relative; }
 .sel.wide { grid-column: 1 / -1; }
-.chip {
-  justify-self: start; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
-  border: 1px solid var(--line); background: var(--bg-soft); color: var(--ink-2);
-}
-.chip::before { content: '○ '; color: var(--ink-3); }
-.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-.chip[aria-pressed="true"]::before { content: '● '; color: var(--accent); }
 .sel span {
   position: absolute; top: 4px; left: 10px;
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
@@ -225,6 +220,32 @@ dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
 .caveats li:last-child { margin-bottom: 0; }
 .caveats b { color: var(--ink); }
 .foot a { color: var(--accent); white-space: nowrap; }
+
+/* Settings: a labelled switch row, and a card that is itself a link. */
+.switch { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+.switch .grow b { display: block; font-size: 14px; }
+.switch .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
+.switch input {
+  appearance: none; -webkit-appearance: none; flex: 0 0 auto; margin: 0;
+  width: 46px; height: 28px; border-radius: 14px; background: var(--track); position: relative;
+  transition: background .15s; cursor: pointer;
+}
+.switch input::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s;
+}
+.switch input:checked { background: var(--hot); }
+.switch input:checked::after { transform: translateX(18px); }
+.card.go { display: block; }
+.card.go b { display: block; font-size: 15px; color: var(--accent); }
+.card.go small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 3px; line-height: 1.45; }
+.card.go:active { background: var(--bg-soft); }
+.method { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
+.method li { margin-bottom: 9px; }
+.method li:last-child { margin-bottom: 0; }
+.method b { color: var(--ink); }
+.fine { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0 0 10px; }
+.fine:last-child { margin-bottom: 0; }
 
 .dlg-actions { display: grid; gap: 8px; }
 .dlg-actions .primary {
