@@ -112,7 +112,7 @@ def main() -> None:
 
     prices = build.fetch_all_prices(sorted(ever))
     index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
-    calendar = sorted({d for series in prices.values() for d, _ in series})
+    calendar = build.trading_days(prices)
 
     # Month ends we can both rank at and measure a 6-month forward return from.
     all_month_ends = build.month_end_dates(calendar, 96)

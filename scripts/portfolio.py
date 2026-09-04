@@ -187,8 +187,9 @@ def main() -> None:
     log(f"pricing {len(ever)} symbols")
 
     prices = build.fetch_all_prices(sorted(ever))
+    unpriced = sorted(ever - set(prices))
     index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
-    calendar = sorted({d for series in prices.values() for d, _ in series})
+    calendar = build.trading_days(prices)
 
     # Rebalance on complete months only, so the final holding period is a full
     # one and the curve never ends mid-month on a partial cross-section.
@@ -209,6 +210,7 @@ def main() -> None:
     # --- baskets: one momentum pass per rebalance, shared by every variant ---
     baskets = {key: {} for key in VARIANTS}     # key -> date -> (top, bottom, all)
     concentrations = {key: [] for key in VARIANTS}   # key -> per-rebalance sector mix
+    sizes = {key: [] for key in VARIANTS}            # key -> (ranked, held) per rebalance
     used_dates = []
     for date in rebal_dates:
         legs = build.legs_at(members_at[date], index_maps, date)
@@ -224,6 +226,7 @@ def main() -> None:
             size = len(order) // DECILES
             top, whole = set(order[:size]), set(order)
             baskets[key][date] = (top, set(order[-size:]), whole)
+            sizes[key].append((len(whole), size))
             concentrations[key].append({
                 "date": date,
                 "top": concentration(top, sectors),
@@ -240,6 +243,28 @@ def main() -> None:
         "to": days[-1],
         "rebalances": len(used_dates),
         "dates": [start] + days,
+        "method": {
+            "firstRebalance": used_dates[0],
+            "lastRebalance": used_dates[-1],
+            "rebalance": "last trading day of each complete month",
+            "longDays": build.LONG_DAYS,
+            "midDays": build.MID_DAYS,
+            "skipDays": build.SKIP_DAYS,
+            "minObsLong": build.MIN_OBS_LONG,
+            "minObsMid": build.MIN_OBS_MID,
+            "weights": [build.WEIGHT_LONG, build.WEIGHT_MID],
+            "deciles": DECILES,
+            "sizeTail": universes.SIZE_TAIL,
+            "minScored": MIN_SCORED,
+            "minPriceBars": build.LONG_DAYS + 1,
+            "tradingDaysPerYear": TRADING_DAYS,
+            "priceSource": "FMP historical-price-eod/dividend-adjusted, adjClose",
+            "capSource": "FMP historical-market-capitalization",
+            "unpriced": unpriced,
+            "ranked": {"min": min(n for n, _ in sizes["wr"]), "max": max(n for n, _ in sizes["wr"])},
+            "held": {"min": min(h for _, h in sizes["wr"]), "max": max(h for _, h in sizes["wr"])},
+            "skippedMonths": len(rebal_dates) - len(used_dates),
+        },
         "variants": {},
     }
     for key, adjust in VARIANTS.items():
