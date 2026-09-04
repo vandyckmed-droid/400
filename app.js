@@ -6,6 +6,7 @@
   const $ = (id) => document.getElementById(id);
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
+  const SECTORS_KEY = 'sp400.sectors.v1';
   const BASIS_KEY = 'sp400.basis.v1';
   const ADJUST_KEY = 'sp400.adjust.v1';
   const GRAIN_KEY = 'sp400.grain.v1';
@@ -30,7 +31,7 @@
     historyPromise: null,
     watch: loadWatch(),
     scope: 'all',
-    sector: '',
+    sectors: loadSectors(),
     sort: 'score',
     query: '',
     view: [],
@@ -75,6 +76,15 @@
   }
   function saveWatch() {
     try { localStorage.setItem(WATCH_KEY, JSON.stringify([...state.watch])); } catch { /* private mode */ }
+  }
+  function loadSectors() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SECTORS_KEY));
+      return new Set(Array.isArray(raw) ? raw : []);
+    } catch { return new Set(); }
+  }
+  function saveSectors() {
+    try { localStorage.setItem(SECTORS_KEY, JSON.stringify([...state.sectors])); } catch { /* private mode */ }
   }
 
   /* ---------- formatting ---------- */
@@ -221,10 +231,56 @@
     const counts = new Map();
     for (const r of state.rows) if (r.sector) counts.set(r.sector, (counts.get(r.sector) || 0) + 1);
     const ordered = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const sel = $('sector');
-    sel.replaceChildren(new Option(`All sectors (${state.rows.length})`, ''));
-    for (const [name, n] of ordered) sel.append(new Option(`${name} (${n})`, name));
-    sel.value = state.sector;
+    state.sectorList = ordered;
+    // A saved sector that no longer exists (a rare data-shape change) is
+    // dropped rather than trusted; anything else round-trips untouched.
+    for (const name of [...state.sectors]) if (!counts.has(name)) state.sectors.delete(name);
+    renderSectorList();
+    updateSectorLabel();
+  }
+
+  /* One row per sector, tapped to toggle membership in state.sectors. Built
+     once per data load (or basis/universe change, same as before); after that,
+     toggling a row updates its own class in place rather than rebuilding the
+     list, so the sheet doesn't flash or lose scroll position while in use. */
+  function renderSectorList() {
+    $('sector-list').innerHTML = state.sectorList.map(([name, n]) => `
+      <li><button type="button" class="sheet-row${state.sectors.has(name) ? ' on' : ''}"
+        data-sector="${esc(name)}"><span>${esc(name)}</span><small>${n}</small>
+        <i aria-hidden="true">✓</i></button></li>`).join('');
+  }
+
+  /* What the closed trigger says: the one honest sentence for however many
+     sectors are checked, so the button never has to be opened to know the
+     filter's current state. */
+  function updateSectorLabel() {
+    const n = state.sectors.size;
+    $('sector-value').textContent = n === 0 ? 'All sectors'
+      : n === 1 ? [...state.sectors][0]
+      : `${n} sectors`;
+    $('sector-clear').hidden = n === 0;
+  }
+
+  function toggleSector(name) {
+    if (state.sectors.has(name)) state.sectors.delete(name); else state.sectors.add(name);
+    saveSectors();
+    updateSectorLabel();
+    $(`sector-list`).querySelector(`[data-sector="${CSS.escape(name)}"]`).classList.toggle('on', state.sectors.has(name));
+    applyFilters();
+  }
+
+  function openSectorSheet() {
+    $('sector-backdrop').hidden = false;
+    $('sector-sheet').hidden = false;
+    $('sector-btn').setAttribute('aria-expanded', 'true');
+    requestAnimationFrame(() => { $('sector-sheet').classList.add('open'); $('sector-backdrop').classList.add('open'); });
+  }
+
+  function closeSectorSheet() {
+    $('sector-sheet').classList.remove('open');
+    $('sector-backdrop').classList.remove('open');
+    $('sector-btn').setAttribute('aria-expanded', 'false');
+    setTimeout(() => { $('sector-backdrop').hidden = true; $('sector-sheet').hidden = true; }, 200);
   }
 
   function syncControls() {
@@ -311,7 +367,7 @@
     const q = state.query.trim().toLowerCase();
     let out = state.rows;
     if (state.scope === 'watch') out = out.filter((r) => state.watch.has(r.symbol));
-    if (state.sector) out = out.filter((r) => r.sector === state.sector);
+    if (state.sectors.size) out = out.filter((r) => state.sectors.has(r.sector));
     if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
 
     const key = state.sort;
@@ -437,7 +493,23 @@
       showSettings();                       // the method text below it changes too
     });
     $('sback').addEventListener('click', goBack);
-    $('sector').addEventListener('change', (e) => { state.sector = e.target.value; applyFilters(); });
+    $('sector-btn').addEventListener('click', openSectorSheet);
+    $('sector-done').addEventListener('click', closeSectorSheet);
+    $('sector-backdrop').addEventListener('click', closeSectorSheet);
+    $('sector-clear').addEventListener('click', () => {
+      state.sectors.clear();
+      saveSectors();
+      renderSectorList();
+      updateSectorLabel();
+      applyFilters();
+    });
+    $('sector-list').addEventListener('click', (e) => {
+      const row = e.target.closest('[data-sector]');
+      if (row) toggleSector(row.dataset.sector);
+    });
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !$('sector-sheet').hidden) closeSectorSheet();
+    });
     $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyFilters(); });
 
     for (const tab of document.querySelectorAll('.segmented button')) {

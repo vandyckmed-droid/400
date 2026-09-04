@@ -34,9 +34,11 @@
         <button role="tab" data-scope="watch" aria-selected="false">Watchlist <span id="watch-count"></span></button>
       </div>
       <div class="selects">
-        <label class="sel"><span>Sector</span>
-          <select id="sector"><option value="">All sectors</option></select>
-        </label>
+        <div class="sel"><span>Sector</span>
+          <button type="button" id="sector-btn" class="sel-btn" aria-haspopup="dialog" aria-expanded="false">
+            <span id="sector-value">All sectors</span>
+          </button>
+        </div>
         <label class="sel"><span>Sort</span>
           <select id="sort">
             <option value="score">Blended score</option>
@@ -126,6 +128,17 @@
 </section>
 
 
+
+<div class="sheet-backdrop" id="sector-backdrop" hidden></div>
+<div class="sheet" id="sector-sheet" role="dialog" aria-modal="true" aria-label="Filter by sector" hidden>
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <h2>Sector</h2>
+    <button type="button" class="sheet-clear" id="sector-clear">Clear</button>
+  </div>
+  <ul class="sheet-list" id="sector-list"></ul>
+  <button type="button" class="sheet-done" id="sector-done">Done</button>
+</div>
 
 <script src="chart.js"></script>
 <script src="app.js"></script>
