@@ -1,7 +1,7 @@
 # MidCap 400 Momentum
 
-A phone-first ranking of the S&P MidCap 400 by **volatility-adjusted momentum**, published as a
-static site on GitHub Pages.
+A phone-first momentum ranking of the S&P MidCap 400, published as a static site on GitHub Pages,
+with a point-in-time record of what holding its top decile would have done.
 
 **Live:** https://vandyckmed-droid.github.io/400/
 
@@ -13,7 +13,7 @@ For every constituent, on every ranking date:
 | --- | --- |
 | 12–1 momentum | Total return on dividend- and split-adjusted closes over the 12 months ending **one month ago** (252 → 21 trading days back). The last month is skipped to avoid short-term reversal. |
 | 6–1 momentum | The same over the trailing 6 months (126 → 21 trading days back). |
-| Volatility adjustment | Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window. A steady climb outranks an equally large but erratic one. |
+| Volatility adjustment *(optional)* | Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one. **Off by default**; a switch in Settings turns it on, and every ranking, history and backtest ships both ways. Historically it has cut the portfolio's volatility and drawdown far more than it changed its return. |
 | Cross-sectional percentile | Each leg is ranked against every other name in the chosen **peer set** on that date and mapped to 0–100 (average ranks, so ties share a percentile). |
 | Blend | **Final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.** |
 
@@ -88,21 +88,45 @@ One taxonomy note: FMP labels S&P 500 sectors with the Yahoo/Morningstar scheme
 it the extended universe would rank each name against others from its own *data source* rather than
 its own sector.
 
+## What the top decile actually did
+
+`portfolio.py` chains a real portfolio out of the rankings: at each month end it buys the top decile
+equally weighted, holds it untouched until the next month end, and repeats. Membership is
+point-in-time, a name that stops trading is held at its last price, and there are no costs or tax —
+so every figure is better than the same strategy would have been in an account.
+
+The benchmark is the only fair one: the same universe, equally weighted, rebalanced the same way.
+Over the four years to Sep 2026 the top decile beat it by well under a point a year while carrying
+noticeably more risk, and most of that margin came from a single calendar year. The ordering is far
+more visible between the two ends — top decile minus bottom decile — than between the top decile and
+simply owning everything. The evidence view says all of this on the page rather than in this file.
+
 ## Layout
 
 ```
 index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
-data/latest.json                 current ranking, all four peer sets + key stats  (~300 KB)
-data/spark.json                  last 12 month-end scores, all four peer sets; the strip in each list row
-data/history/{cw,cs,ew,es}.json  score per month end (36), one file per peer set, lazy-loaded
-data/history/{...}w.json         score per week end (78 ~ 18 months), loaded only if asked for
+data/latest.json                 current ranking, all eight peer sets + key stats  (~420 KB)
+data/spark/<key>.json            last 12 month-end scores; the strip in each list row, one per set
+data/history/<key>.json          score per month end (36), one file per peer set, lazy-loaded
+data/history/<key>w.json         score per week end (78 ~ 18 months), loaded only if asked for
 data/universe.json               MidCap 400 constituents + change log; the offline fallback
 data/sp500.json                  S&P 500 constituents + change log; the offline fallback
 manifest.webmanifest  icon-*.png   home-screen install
 scripts/build.py                 the whole pipeline, standard library only
 scripts/universes.py             universe definitions + point-in-time membership
 scripts/backtest.py              point-in-time membership + forward-return test
-data/backtest.json               decile returns, spreads and the spread time series
+data/backtest.json               decile returns, spreads and the spread time series, both rankings
+scripts/portfolio.py             daily equal-weight top-decile curves, point-in-time
+data/portfolio.json              daily NAV for top decile / whole universe / bottom decile + stats
+data/portfolio-brief.json        the same headline numbers, small enough to load with the ranking
+```
+
+A peer-set key is three letters: universe (`c` = MidCap 400, `e` = 650), cross-section
+(`w` = whole universe, `s` = within sector), and what is ranked (`r` = the return,
+`v` = the return divided by its own volatility). So `ewr` is the 650 ranked as a whole
+on returns, and `csv` is the 400 ranked within sector on volatility-adjusted returns.
+
+```
 .github/workflows/refresh.yml    weekly rebuild + commit
 ```
 

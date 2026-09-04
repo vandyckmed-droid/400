@@ -124,6 +124,24 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 
 .count { margin: 10px 14px 6px; font-size: 12px; color: var(--ink-3); }
 
+/* The record strip above the list: a whole card's worth of answer in one row. */
+.perf {
+  display: grid; grid-template-columns: auto 1fr auto 10px;
+  align-items: center; gap: 10px;
+  margin: 12px 12px 2px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
+}
+.perf:active { background: var(--line-soft); }
+.perf-txt { min-width: 0; }
+.perf-txt b { display: block; font-size: 13px; }
+.perf-txt small, .perf-num small { display: block; font-size: 10.5px; color: var(--ink-3); }
+.perf-num { text-align: right; }
+.perf-num b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.perf-go { color: var(--ink-3); font-size: 16px; line-height: 1; }
+.eqspark { display: block; }
+.eqspark polyline { fill: none; stroke: var(--hot); stroke-width: 1.6; stroke-linejoin: round; }
+.eqspark polygon { fill: var(--hot); opacity: .13; stroke: none; }
+
 /* ---------- list ---------- */
 .rows { list-style: none; margin: 0; padding: 0 8px; }
 .row {
@@ -228,6 +246,9 @@ dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
 
 /* Settings: a labelled switch row, and a card that is itself a link. */
 .switch { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+/* Two settings in one card need a line between them, or the second one's
+   description reads as more of the first one's. */
+.switch + .switch { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
 .switch .grow b { display: block; font-size: 14px; }
 .switch .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
 .switch input {
@@ -266,6 +287,36 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart .cur { fill: var(--ink); font-size: 11px; font-weight: 700; }
 .chart .ma { stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; opacity: .95; }
 .chart .ma-dot { fill: var(--accent); stroke: var(--card); stroke-width: 1.5; }
+/* Money charts: two lines sharing a cursor. The benchmark is deliberately the
+   quieter of the two — it is the thing being beaten, not the subject. */
+.chart .ln { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.chart .ln.top { stroke: var(--hot); }
+.chart .ln.all { stroke: var(--ink-3); stroke-width: 1.4; opacity: .85; }
+.chart .vcursor { stroke: var(--ink-3); stroke-width: 1; }
+.chart .ln-dot { stroke: var(--card); stroke-width: 1.5; opacity: 0; }
+.chart .ln-dot.top { fill: var(--hot); }
+.chart .ln-dot.all { fill: var(--ink-3); }
+.legend.key { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.swatch { display: inline-block; width: 11px; height: 3px; border-radius: 2px; margin-right: 5px;
+          vertical-align: middle; }
+.swatch.top { background: var(--hot); }
+.swatch.all { background: var(--ink-3); }
+/* A stat and what it is being compared against, stacked so the pair reads as one. */
+.stats.compare dd.vs { font-size: 11px; font-weight: 500; color: var(--ink-3); margin-top: 1px;
+                       letter-spacing: 0; }
+/* A section rule between the two halves of the evidence: the curve above is a
+   portfolio, everything below it is a cross-section. */
+.sechead { margin: 22px 16px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+           color: var(--ink-3); font-weight: 700; }
+.card h3 .span { font-size: 10px; letter-spacing: .03em; text-transform: none; font-weight: 600;
+                 color: var(--ink-3); }
+.peers.years { margin-top: 12px; }
+.peers.years th { padding: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+                  color: var(--ink-3); font-weight: 700; text-align: right; }
+.peers.years th:first-child { text-align: left; }
+.peers.years td { font-variant-numeric: tabular-nums; text-align: right; }
+.peers.years td:first-child { text-align: left; color: var(--ink); font-weight: 600; }
+.peers.years i { font-style: normal; font-size: 10px; color: var(--ink-3); font-weight: 500; }
 .readout { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 2px 0; font-size: 12px; color: var(--ink-3); }
 .readout b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .legend { margin: 10px 2px 0; font-size: 11px; color: var(--ink-3); line-height: 1.4; }

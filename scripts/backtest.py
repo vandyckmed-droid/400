@@ -36,6 +36,7 @@ WIKI = build.WIKI
 HORIZONS = (1, 3, 6)      # forward-return horizons, in months
 DECILES = 10
 MIN_MEMBERS = 200         # skip a month end whose reconstructed index looks broken
+ADJUSTS = ("raw", "vol")  # rank the return itself, or the return over its own vol
 
 
 # --- Returns ------------------------------------------------------------------
@@ -119,8 +120,9 @@ def main() -> None:
 
     members_at = universes.membership_history(current, changes, ranking_dates)
 
-    rows_by_h = {h: defaultdict(list) for h in HORIZONS}   # horizon -> decile -> returns
-    spreads = {h: [] for h in HORIZONS}
+    # adjust -> horizon -> decile -> per-month mean returns
+    rows_by_h = {a: {h: defaultdict(list) for h in HORIZONS} for a in ADJUSTS}
+    spreads = {a: {h: [] for h in HORIZONS} for a in ADJUSTS}
     coverage, skipped = [], 0
 
     for date in ranking_dates:
@@ -136,33 +138,40 @@ def main() -> None:
             long_leg = build.vol_adjusted_momentum(closes, pos, build.LONG_DAYS, build.MIN_OBS_LONG)
             mid_leg = build.vol_adjusted_momentum(closes, pos, build.MID_DAYS, build.MIN_OBS_MID)
             if long_leg and mid_leg:
-                scored[symbol] = (long_leg[2], mid_leg[2])
+                scored[symbol] = (long_leg, mid_leg)
 
         if len(scored) < MIN_MEMBERS:
             skipped += 1
             continue
         coverage.append((len(members), len(scored)))
 
-        p12 = build.percentiles({s: v[0] for s, v in scored.items()})
-        p6 = build.percentiles({s: v[1] for s, v in scored.items()})
-        blended = {s: 0.5 * p12[s] + 0.5 * p6[s] for s in scored}
-        order = sorted(blended, key=lambda s: -blended[s])
-        size = len(order) // DECILES
+        # One forward-return lookup per name serves every decile of every
+        # variant, so cache it rather than re-walking the price series.
+        fwd = {h: {s: forward_return(prices[s], index_maps[s], date, h) for s in scored}
+               for h in HORIZONS}
 
-        for h in HORIZONS:
-            means = []
-            for d in range(DECILES):
-                bucket = order[d * size : (d + 1) * size] if d < DECILES - 1 else order[d * size :]
-                rets = [r for r in (forward_return(prices[s], index_maps[s], date, h) for s in bucket)
-                        if r is not None]
-                if not rets:
-                    means.append(None)
-                    continue
-                mean = st.mean(rets)
-                rows_by_h[h][d].append(mean)
-                means.append(mean)
-            if means[0] is not None and means[-1] is not None:
-                spreads[h].append((date, means[0] - means[-1]))
+        for adjust in ADJUSTS:
+            at = build.LEG_VALUE[adjust]
+            p12 = build.percentiles({s: v[0][at] for s, v in scored.items()})
+            p6 = build.percentiles({s: v[1][at] for s, v in scored.items()})
+            blended = {s: 0.5 * p12[s] + 0.5 * p6[s] for s in scored}
+            order = sorted(blended, key=lambda s: -blended[s])
+            size = len(order) // DECILES
+
+            for h in HORIZONS:
+                means = []
+                for d in range(DECILES):
+                    bucket = (order[d * size : (d + 1) * size] if d < DECILES - 1
+                              else order[d * size :])
+                    rets = [r for r in (fwd[h][s] for s in bucket) if r is not None]
+                    if not rets:
+                        means.append(None)
+                        continue
+                    mean = st.mean(rets)
+                    rows_by_h[adjust][h][d].append(mean)
+                    means.append(mean)
+                if means[0] is not None and means[-1] is not None:
+                    spreads[adjust][h].append((date, means[0] - means[-1]))
 
     log(f"used {len(coverage)} month ends (skipped {skipped}); "
         f"median members {st.median(m for m, _ in coverage):.0f}, "
@@ -172,54 +181,61 @@ def main() -> None:
         "rankingDates": len(coverage),
         "from": ranking_dates[0],
         "to": ranking_dates[-1],
-        "horizons": {},
+        "variants": {},
     }
-    print()
-    for h in HORIZONS:
-        print(f"=== {h}-MONTH FORWARD RETURNS, equal-weighted, {len(spreads[h])} month ends ===")
-        print("  decile   mean     median     win rate   n")
-        decile_stats = []
-        for d in range(DECILES):
-            v = rows_by_h[h][d]
-            row = {
-                "decile": d + 1,
-                "mean": st.mean(v),
-                "median": st.median(v),
-                "winRate": sum(1 for x in v if x > 0) / len(v),
-                "n": len(v),
+    for adjust in ADJUSTS:
+        variant = {}
+        label = "return" if adjust == "raw" else "return / volatility"
+        print()
+        print(f"########## RANKED ON {label.upper()} ##########")
+        for h in HORIZONS:
+            sp = [s for _, s in spreads[adjust][h]]
+            print()
+            print(f"=== {h}-MONTH FORWARD RETURNS, equal-weighted, {len(sp)} month ends ===")
+            print("  decile   mean     median     win rate   n")
+            decile_stats = []
+            for d in range(DECILES):
+                v = rows_by_h[adjust][h][d]
+                row = {
+                    "decile": d + 1,
+                    "mean": st.mean(v),
+                    "median": st.median(v),
+                    "winRate": sum(1 for x in v if x > 0) / len(v),
+                    "n": len(v),
+                }
+                decile_stats.append(row)
+                name = "D1 (top)" if d == 0 else "D10 (bot)" if d == 9 else f"D{d + 1}"
+                print(f"  {name:>9} {row['mean']:+7.2%}  {row['median']:+7.2%}   "
+                      f"{row['winRate']:6.0%}   {row['n']}")
+            hit = sum(1 for x in sp if x > 0) / len(sp)
+            # Sampling h-month returns every month makes windows overlap, which
+            # inflates a plain t-stat. Report both corrections instead.
+            independent = sp[::h]
+            by_year = defaultdict(list)
+            for date, spread in spreads[adjust][h]:
+                by_year[date[:4]].append(spread)
+            print(f"  TOP-MINUS-BOTTOM  mean {st.mean(sp):+.2%}  median {st.median(sp):+.2%}  "
+                  f"hit rate {hit:.0%}")
+            print(f"  t: naive {plain_t(sp):.2f} | Newey-West {newey_west_t(sp, max(1, h - 1)):.2f} | "
+                  f"non-overlapping {plain_t(independent):.2f} (n={len(independent)})")
+            print(f"  best {max(sp):+.1%}  worst {min(sp):+.1%}")
+            variant[h] = {
+                "deciles": decile_stats,
+                "spread": {
+                    "mean": st.mean(sp), "median": st.median(sp), "hitRate": hit,
+                    "tNaive": plain_t(sp),
+                    "tNeweyWest": newey_west_t(sp, max(1, h - 1)),
+                    "tIndependent": plain_t(independent),
+                    "nIndependent": len(independent),
+                    "best": max(sp), "worst": min(sp),
+                    "byYear": [{"year": y, "mean": st.mean(v), "n": len(v),
+                                "hitRate": sum(1 for x in v if x > 0) / len(v)}
+                               for y, v in sorted(by_year.items())],
+                    "series": [{"date": d, "spread": x} for d, x in spreads[adjust][h]],
+                },
             }
-            decile_stats.append(row)
-            label = "D1 (top)" if d == 0 else "D10 (bot)" if d == 9 else f"D{d + 1}"
-            print(f"  {label:>9} {row['mean']:+7.2%}  {row['median']:+7.2%}   "
-                  f"{row['winRate']:6.0%}   {row['n']}")
-        sp = [s for _, s in spreads[h]]
-        hit = sum(1 for s in sp if s > 0) / len(sp)
-        # Sampling h-month returns every month makes windows overlap, which
-        # inflates a plain t-stat. Report both corrections instead.
-        independent = sp[::h]
-        by_year = defaultdict(list)
-        for date, spread in spreads[h]:
-            by_year[date[:4]].append(spread)
-        print(f"  TOP-MINUS-BOTTOM  mean {st.mean(sp):+.2%}  median {st.median(sp):+.2%}  "
-              f"hit rate {hit:.0%}")
-        print(f"  t: naive {plain_t(sp):.2f} | Newey-West {newey_west_t(sp, max(1, h - 1)):.2f} | "
-              f"non-overlapping {plain_t(independent):.2f} (n={len(independent)})")
-        print(f"  best {max(sp):+.1%}  worst {min(sp):+.1%}\n")
-        report["horizons"][h] = {
-            "deciles": decile_stats,
-            "spread": {
-                "mean": st.mean(sp), "median": st.median(sp), "hitRate": hit,
-                "tNaive": plain_t(sp),
-                "tNeweyWest": newey_west_t(sp, max(1, h - 1)),
-                "tIndependent": plain_t(independent),
-                "nIndependent": len(independent),
-                "best": max(sp), "worst": min(sp),
-                "byYear": [{"year": y, "mean": st.mean(v), "n": len(v),
-                            "hitRate": sum(1 for x in v if x > 0) / len(v)}
-                           for y, v in sorted(by_year.items())],
-                "series": [{"date": d, "spread": s} for d, s in spreads[h]],
-            },
-        }
+        report["variants"][adjust] = {"horizons": variant}
+    print()
 
     out = Path(__file__).resolve().parent.parent / "data" / "backtest.json"
     out.write_text(json.dumps(report, separators=(",", ":")) + "\n")
