@@ -12,6 +12,8 @@ Pipeline
    volatility, each against the whole universe or against the name's sector.
 4. Refuse to publish if the result looks degraded (guard()), else emit
    data/latest.json and data/history/{wr,wv,sr,sv}[w].json.
+5. Write data/bars/<SYMBOL>.json for every published name: the adjusted daily
+   bars the price chart draws, taken from the same payload as step 2.
 
 Only the standard library is used, so the refresh job needs no dependencies.
 """
@@ -54,6 +56,7 @@ HISTORY_MONTHS = 36     # month-end snapshots to publish
 SPARK_MONTHS = 12       # months of score strip drawn inline in each list row
 HISTORY_WEEKS = 78      # week-end snapshots (18 months) for the finer-grained view
 YEARS_OF_PRICES = 6     # history depth to request from FMP
+BARS_DAYS = 756         # ~3 trading years of daily bars per name for the price chart
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
 WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
@@ -161,7 +164,7 @@ def strip_tags(fragment: str) -> str:
 def snapshot(name: str, fetch, describe: str) -> dict:
     """Fetch fresh and persist to data/<name>.json, or fall back to the committed
     copy if the source is down. A vendor or Wikipedia outage then degrades the
-    weekly refresh to last week's membership instead of failing it outright."""
+    refresh to the last successful run's membership instead of failing it outright."""
     path = DATA / f"{name}.json"
     try:
         payload = fetch()
@@ -240,10 +243,42 @@ def fetch_prices(symbol: str, start: str) -> list[tuple[str, float]]:
     return series if len(series) > LONG_DAYS else []
 
 
+def fetch_bars(symbol: str, start: str) -> list[tuple[str, float, float, float, float]]:
+    """Adjusted daily bars (date, open, high, low, close), oldest first, for the
+    price chart. Reads the payload fetch_prices already cached for this symbol,
+    so the chart costs no extra vendor calls."""
+    rows = cached_fmp(
+        f"px-{symbol}", "historical-price-eod/dividend-adjusted",
+        symbol=symbol, **{"from": start},
+    )
+    bars = []
+    for r in rows:
+        if (not isinstance(r, dict) or r.get("adjClose") in (None, 0)
+                or r["date"] == UNSETTLED_TODAY):
+            continue
+        close = float(r["adjClose"])
+        if r.get("adjOpen") is not None:
+            o, h, l = r["adjOpen"], r["adjHigh"], r["adjLow"]
+        elif r.get("open") is not None and r.get("close"):
+            # A safety net, not the live path: this endpoint serves adjOpen /
+            # adjHigh / adjLow today. If it ever returns raw open/high/low
+            # instead, scale them by the factor the close got rather than
+            # drawing bars on a different basis from the close.
+            f = close / float(r["close"])
+            o, h, l = r["open"] * f, r["high"] * f, r["low"] * f
+        else:
+            o = h = l = close
+        bars.append((r["date"], round(float(o), 2), round(float(h), 2),
+                     round(float(l), 2), round(close, 2)))
+    bars.sort()
+    return bars[-BARS_DAYS:]
+
+
 # The vendor serves today's bar during the session as though it were a close.
 # Run before 21:00 UTC (the US close is 20:00) and a bar dated today is an
 # intraday print, which would otherwise become the last plotted value. The
-# scheduled run is on a Saturday and never sees one; this covers a manual run.
+# scheduled run is at 10:00 UTC, hours before any session opens, so it never
+# sees one; this covers a manual run during the day.
 _now = dt.datetime.now(dt.timezone.utc)
 UNSETTLED_TODAY = _now.date().isoformat() if _now.hour < 21 else None
 
@@ -261,9 +296,42 @@ def trading_days(prices: dict[str, list[tuple[str, float]]]) -> list[str]:
     return sorted(d for d, n in count.items() if n >= floor)
 
 
+def price_start() -> str:
+    return (dt.date.today() - dt.timedelta(days=int(365.25 * YEARS_OF_PRICES))).isoformat()
+
+
 def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
-    start = (dt.date.today() - dt.timedelta(days=int(365.25 * YEARS_OF_PRICES))).isoformat()
+    start = price_start()
     return gather(symbols, lambda s: fetch_prices(s, start), "prices")
+
+
+def write_bars(symbols: list[str]) -> None:
+    """One compact file of daily bars per published name, columnar so the chart
+    can index straight into it. Rewritten whole on every run; git stores the
+    rewrite as a delta against the previous version, so a day's growth is a
+    few hundred bytes per name, not a fresh copy."""
+    folder = DATA / "bars"
+    folder.mkdir(exist_ok=True)
+    start = price_start()
+    bars = gather(symbols, lambda s: fetch_bars(s, start), "bars")
+    for symbol, series in bars.items():
+        payload = {
+            "symbol": symbol,
+            "asOf": series[-1][0],
+            "adjusted": "dividends and splits",
+            "dates": [b[0] for b in series],
+            "o": [b[1] for b in series],
+            "h": [b[2] for b in series],
+            "l": [b[3] for b in series],
+            "c": [b[4] for b in series],
+        }
+        (folder / f"{symbol}.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
+    # A name that left the published set leaves the chart too.
+    for stale in folder.glob("*.json"):
+        if stale.stem not in bars:
+            stale.unlink()
+    size = sum(f.stat().st_size for f in folder.glob("*.json"))
+    log(f"  data/bars/  {len(bars)} files  {size / 1024 / 1024:.1f} MB")
 
 
 def fetch_quotes(symbols: list[str]) -> dict[str, dict]:
@@ -645,6 +713,8 @@ def main() -> None:
                 if symbol in published and any(d in when for d in strip)
             },
         })
+
+    write_bars(sorted(published))
 
 
 def write_json(path: Path, payload: object) -> None:

@@ -159,12 +159,13 @@
       state.bySymbol = new Map(payload.rows.map((r) => [r.symbol, r]));
       syncControls();
       $('asof').textContent = `prices through ${fmtDate(payload.meta.asOf)}`;
-      // The refresh job is weekly and silent; stale data is its worst failure
-      // mode, so say so rather than let an old ranking pass for a fresh one.
+      // The refresh job runs each weekday morning and is silent; stale data is
+      // its worst failure mode, so say so rather than let an old ranking pass
+      // for a fresh one. Four days clears a long weekend.
       const ageDays = (Date.now() - Date.parse(payload.meta.generatedAt)) / 864e5;
-      if (ageDays > 10) {
+      if (ageDays > 4) {
         $('stale').hidden = false;
-        $('stale').textContent = `This ranking is ${Math.floor(ageDays)} days old — the weekly refresh `
+        $('stale').textContent = `This ranking is ${Math.floor(ageDays)} days old — the daily refresh `
           + 'may have failed. Treat it as a snapshot, not a live read.';
       }
       $('gen').textContent = `Refreshed ${fmtDate(payload.meta.generatedAt.slice(0, 10))}. Source: Financial Modeling Prep.`;
@@ -539,7 +540,7 @@
   }
 
   /* ---------- routing ---------- */
-  const VIEWS = ['list-view', 'detail-view', 'evidence-view', 'settings-view'];
+  const VIEWS = ['list-view', 'detail-view', 'evidence-view', 'settings-view', 'chart-view'];
   /* Whether the list is behind us in history. It isn't when the page was
      opened straight on a ticker or the evidence view from a shared link, and
      calling history.back() there would leave the site instead of going to the
@@ -555,10 +556,10 @@
   }
 
   function route() {
-    const ticker = /^#\/t\/([A-Za-z0-9.\-]+)$/.exec(location.hash);
+    const ticker = /^#\/t\/([A-Za-z0-9.\-]+)(\/chart)?$/.exec(location.hash);
     if (ticker) {
       const row = state.rows.find((r) => r.symbol === ticker[1].toUpperCase());
-      if (row) return showDetail(row);
+      if (row) return ticker[2] ? showChart(row) : showDetail(row);
       location.hash = '';
       return;
     }
@@ -584,7 +585,7 @@
     const key = peerKey();
     const p = r.r[key];
     if (!$('list-view').hidden) sessionStorage.setItem('sp400.scroll', String(scrollY));
-    $('list-view').hidden = true;
+    for (const v of VIEWS) if (v !== 'detail-view') $(v).hidden = true;
     const el = $('detail-view');
     el.hidden = false;
     const range = r.yearHigh && r.yearLow && r.yearHigh > r.yearLow
@@ -608,6 +609,10 @@
         ${r.idx === '500' ? '<span class="tag">S&amp;P 500 tail</span>' : ''}
         <a class="tag link" href="#/evidence">Decile ${decileOf(p.k, p.n)} · how it tested →</a>
       </div>
+
+      <a class="card go" href="#/t/${r.symbol}/chart"><b>Price chart →</b>
+        <small>Daily bars with a 200-day regression channel. Drag to pan, pinch to zoom,
+          drag the price axis to stretch it.</small></a>
 
       <div class="card">
         <h3>Momentum legs</h3>
@@ -691,8 +696,8 @@
      the decile returns, and the spread series only differ in their scale,
      colours and labels. */
   function barChart(host, cfg) {
-    const W = 340, H = cfg.height || 150, PAD_L = cfg.padLeft || 26, PAD_B = 16, PAD_T = 6;
-    const plotW = W - PAD_L - 4, plotH = H - PAD_B - PAD_T;
+    const W = 340, H = cfg.height || 150, PAD_L = 4, PAD_R = cfg.padAxis || 26, PAD_B = 16, PAD_T = 6;
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
     const pts = cfg.points;
     const step = plotW / pts.length;
     const barW = Math.max(2, step * (cfg.barRatio || 0.68));
@@ -710,8 +715,8 @@
 
     const guides = (cfg.guides || []).map((g) =>
       `<line class="${g.dashed ? 'mid' : 'grid'}" x1="${PAD_L}" y1="${y(g.at).toFixed(1)}" ` +
-      `x2="${W - 4}" y2="${y(g.at).toFixed(1)}"/>` +
-      `<text x="${PAD_L - 4}" y="${(y(g.at) + 3).toFixed(1)}" text-anchor="end">${g.label}</text>`
+      `x2="${W - PAD_R}" y2="${y(g.at).toFixed(1)}"/>` +
+      `<text x="${W - PAD_R + 4}" y="${(y(g.at) + 3).toFixed(1)}">${g.label}</text>`
     ).join('');
 
     // Optional smoothed line over the bars, one value per bar (null = gap).
@@ -776,8 +781,8 @@
      The axis is linear — over four years and under a doubling, a log axis would
      buy accuracy nobody can see. */
   function lineChart(host, cfg) {
-    const W = 340, H = cfg.height || 160, PAD_L = 34, PAD_B = 16, PAD_T = 8;
-    const plotW = W - PAD_L - 6, plotH = H - PAD_B - PAD_T;
+    const W = 340, H = cfg.height || 160, PAD_L = 6, PAD_R = 34, PAD_B = 16, PAD_T = 8;
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
     const all = cfg.series.flatMap((se) => se.values);
     const lo = Math.min(...all), hi = Math.max(...all);
     const span = (hi - lo) || 1;
@@ -787,8 +792,8 @@
 
     const guides = (cfg.guides || []).map((g) =>
       `<line class="${g.dashed ? 'mid' : 'grid'}" x1="${PAD_L}" y1="${y(g.at).toFixed(1)}" ` +
-      `x2="${W - 6}" y2="${y(g.at).toFixed(1)}"/>` +
-      `<text x="${PAD_L - 4}" y="${(y(g.at) + 3).toFixed(1)}" text-anchor="end">${g.label}</text>`
+      `x2="${W - PAD_R}" y2="${y(g.at).toFixed(1)}"/>` +
+      `<text x="${W - PAD_R + 4}" y="${(y(g.at) + 3).toFixed(1)}">${g.label}</text>`
     ).join('');
 
     const lines = cfg.series.map((se) =>
@@ -934,6 +939,51 @@
 
   const decileOf = (rank, n) => Math.min(10, Math.floor((rank - 1) / (n / 10)) + 1);
   const goBack = () => (listBehind ? history.back() : (location.hash = ''));
+
+  /* ---------- price chart ----------
+     A full-screen, non-scrolling view: every drag on it is a chart gesture.
+     The drawing and the gestures live in chart.js, which knows nothing about
+     the app; this only fetches the bars and frames them. */
+  function showChart(r) {
+    const fromDetail = !$('detail-view').hidden;
+    showView('chart-view');
+    const el = $('chart-view');
+    el.innerHTML = `
+      <div class="dtop">
+        <button class="back" id="cback">‹ Back</button>
+        <span class="grow"><b>${r.symbol}</b><small>${esc(r.name)}</small></span>
+        <span class="cpx" id="cpx"></span>
+      </div>
+      <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol} with a 200-day regression channel"></canvas>
+      <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>`;
+    $('cback').addEventListener('click', () => (fromDetail ? history.back() : (location.hash = `#/t/${r.symbol}`)));
+    loadBars(r.symbol).then((bars) => {
+      if (!location.hash.startsWith(`#/t/${r.symbol}/chart`)) return;
+      if (!bars) {
+        $('cpx').innerHTML = '<small>No bars yet</small>';
+        $('chint').textContent = 'Daily bars for this name arrive with the next data refresh.';
+        return;
+      }
+      const n = bars.c.length, last = bars.c[n - 1], prev = n > 1 ? bars.c[n - 2] : bars.o[n - 1];
+      const chg = last / prev - 1;
+      $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
+        `<small>${fmtDate(bars.dates[n - 1])}</small>`;
+      priceChart($('price-chart'), bars);
+      setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, 6000);
+    });
+  }
+
+  /* One fetch per symbol per session. A missing file resolves to null, so a
+     name published before its bars were means an empty chart, not a broken one. */
+  function loadBars(symbol) {
+    state.bars = state.bars || new Map();
+    if (!state.bars.has(symbol)) {
+      state.bars.set(symbol, fetch(`data/bars/${symbol}.json`, { cache: 'no-cache' })
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .catch(() => null));
+    }
+    return state.bars.get(symbol);
+  }
   const months = (h) => (h === '1' ? '1 month' : `${h} months`);
   const monthsAdj = (h) => `${h}-month`;              // adjectival: "6-month return"
 
@@ -1190,7 +1240,7 @@
     const universe = rows.map((r) => r.all);
     const top = Math.max(...points.map((p) => p.value), ...universe) * 1.08;
     barChart(host, {
-      points, min: 0, max: top, baseline: 0, barRatio: 0.7, padLeft: 22, height: 140,
+      points, min: 0, max: top, baseline: 0, barRatio: 0.7, padAxis: 22, height: 140,
       overlay: { values: universe },
       guides: [{ at: top, label: top.toFixed(0) }, { at: 1, label: '1' }],
       xLabel: (p, i, all) =>
@@ -1262,7 +1312,7 @@
     const values = points.map((p) => p.value);
     const top = Math.max(...values, 0) * 1.1;
     barChart(host, {
-      points, min: Math.min(...values, 0) * 1.15, max: top, baseline: 0, barRatio: 0.74, padLeft: 30,
+      points, min: Math.min(...values, 0) * 1.15, max: top, baseline: 0, barRatio: 0.74, padAxis: 30,
       guides: [{ at: 0, label: '0%' }, { at: top, label: (top * 100).toFixed(0) + '%' }],
       xLabel: (p, i) => (i === 0 ? 'D1' : i === 9 ? 'D10' : ''),
       aria: `Mean ${monthsAdj(h)} forward return for each momentum decile`,
@@ -1284,7 +1334,7 @@
     const values = points.map((p) => p.value);
     const hi = Math.max(...values, 0), lo = Math.min(...values, 0);
     barChart(host, {
-      points, min: lo * 1.1, max: hi * 1.1, baseline: 0, padLeft: 30,
+      points, min: lo * 1.1, max: hi * 1.1, baseline: 0, padAxis: 30,
       guides: [
         { at: hi, label: (hi * 100).toFixed(0) + '%' },
         { at: 0, label: '0', dashed: true },
