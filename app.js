@@ -6,6 +6,17 @@
   const $ = (id) => document.getElementById(id);
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
+  const PEER_KEY = 'sp400.peerset.v1';
+
+  /* The four peer sets a name can be ranked against. `uni` picks the universe,
+     `basis` picks whether the cross-section is the whole thing or just the
+     name's own sector. Data for all four ships in latest.json. */
+  const PEERS = {
+    cw: { label: 'MidCap 400', short: '400', basis: 'whole' },
+    cs: { label: 'MidCap 400 · within sector', short: '400 · sector', basis: 'sector' },
+    ew: { label: 'Extended 650', short: '650', basis: 'whole' },
+    es: { label: 'Extended 650 · within sector', short: '650 · sector', basis: 'sector' },
+  };
 
   const state = {
     rows: [],
@@ -22,7 +33,16 @@
     backtest: null,
     backtestPromise: null,
     horizon: '6',
+    peer: (() => {
+      try { return PEERS[localStorage.getItem(PEER_KEY)] ? localStorage.getItem(PEER_KEY) : 'cw'; }
+      catch { return 'cw'; }
+    })(),
   };
+
+  /* This row's placement in the active peer set, or undefined if it isn't a
+     member (an S&P 500 tail name while a MidCap 400 peer set is selected). */
+  const place = (r) => r.r[state.peer];
+  const sectorBasis = () => PEERS[state.peer].basis === 'sector';
 
   /* ---------- persistence ---------- */
   function loadWatch() {
@@ -64,8 +84,8 @@
     .then((payload) => {
       state.rows = payload.rows;
       state.meta = payload.meta;
-      $('asof').textContent =
-        `${payload.meta.ranked} names · prices through ${fmtDate(payload.meta.asOf)}`;
+      $('peer').value = state.peer;
+      $('asof').textContent = `prices through ${fmtDate(payload.meta.asOf)}`;
       $('gen').textContent = `Refreshed ${fmtDate(payload.meta.generatedAt.slice(0, 10))}. Source: Financial Modeling Prep.`;
       fillSectors();
       wire();
@@ -89,10 +109,16 @@
     for (const s of sectors) sel.append(new Option(s, s));
   }
 
+  const sortValue = (r, key) => {
+    if (key === 'mktCap') return r.mktCap;
+    const p = place(r);
+    return key === 'score' ? p.s : key === 'p12' ? p.p12 : p.p6;
+  };
+
   /* ---------- list ---------- */
   function applyFilters() {
     const q = state.query.trim().toLowerCase();
-    let out = state.rows;
+    let out = state.rows.filter(place);
     if (state.scope === 'watch') out = out.filter((r) => state.watch.has(r.symbol));
     if (state.sector) out = out.filter((r) => r.sector === state.sector);
     if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
@@ -101,15 +127,18 @@
     out = out.slice().sort(
       key === 'symbol'
         ? (a, b) => a.symbol.localeCompare(b.symbol)
-        : (a, b) => (b[key] ?? -Infinity) - (a[key] ?? -Infinity)
+        : (a, b) => (sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity)
     );
 
     state.view = out;
     state.shown = 0;
     $('rows').replaceChildren();
     $('empty').hidden = out.length > 0;
+    const total = state.rows.filter(place).length;
     $('count').textContent = out.length
-      ? `${out.length} of ${state.rows.length}` + (state.sort === 'score' ? ' · ranked by blended score' : '')
+      ? `${out.length} of ${total} · ` + (sectorBasis()
+          ? 'scored within each sector, so the number on the left is the position inside that sector'
+          : `ranked across the ${PEERS[state.peer].short === '650' ? 'extended 650' : 'MidCap 400'}`)
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -124,14 +153,16 @@
   }
 
   function rowNode(r) {
+    const p = place(r);
     const li = document.createElement('li');
     li.className = 'row';
     li.dataset.symbol = r.symbol;
     li.innerHTML =
-      `<span class="rk">${r.rank}</span>` +
-      `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b><small>${esc(r.name)}</small></a>` +
-      `<span class="sc"><b>${r.score.toFixed(1)}</b>` +
-      `<span class="bar"><i style="width:${r.score}%;background:${tone(r.score)}"></i></span></span>` +
+      `<span class="rk">${p.k}</span>` +
+      `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
+      `<small>${r.idx === '500' ? '<i class="badge">S&amp;P 500</i> ' : ''}${esc(r.name)}</small></a>` +
+      `<span class="sc"><b>${p.s.toFixed(1)}</b>` +
+      `<span class="bar"><i style="width:${p.s}%;background:${tone(p.s)}"></i></span></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
       `${state.watch.has(r.symbol) ? '★' : '☆'}</button>`;
     return li;
@@ -155,6 +186,11 @@
       clearTimeout(debounce);
       const value = e.target.value;
       debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
+    });
+    $('peer').addEventListener('change', (e) => {
+      state.peer = e.target.value;
+      try { localStorage.setItem(PEER_KEY, state.peer); } catch { /* private mode */ }
+      applyFilters();
     });
     $('sector').addEventListener('change', (e) => { state.sector = e.target.value; applyFilters(); });
     $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyFilters(); });
@@ -219,11 +255,24 @@
     }
     return state[cached];
   }
-  const loadHistory = () => loadJSON('data/history.json', 'history');
+  const loadHistory = (key) => loadJSON(`data/history/${key}.json`, `hist_${key}`);
   const loadBacktest = () => loadJSON('data/backtest.json', 'backtest');
 
   /* ---------- detail ---------- */
+  const ordinal = (n) => {
+    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
   function showDetail(r) {
+    // A name reached by deep link may not belong to the peer set the list is
+    // on (an S&P 500 tail name while MidCap 400 is selected). Resolve one peer
+    // set for the whole page rather than letting the hero and the chart
+    // disagree about which cross-section they are showing.
+    const key = r.r[state.peer] ? state.peer
+      : PEERS[state.peer].basis === 'sector' ? 'es' : 'ew';
+    const p = r.r[key];
+    const borrowed = key !== state.peer;
     if (!$('list-view').hidden) sessionStorage.setItem('sp400.scroll', String(scrollY));
     $('list-view').hidden = true;
     const el = $('detail-view');
@@ -238,20 +287,40 @@
         <button class="star${state.watch.has(r.symbol) ? ' on' : ''}" id="dstar" aria-label="Watchlist">${state.watch.has(r.symbol) ? '★' : '☆'}</button>
       </div>
       <div class="hero">
-        <span class="big" style="color:${tone(r.score)}">${r.score.toFixed(1)}</span>
-        <span class="lbl">blended score<b>rank ${r.rank} of ${state.meta.ranked}</b></span>
+        <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
+        <span class="lbl">blended score<b>${ordinal(p.k)} of ${p.n}${
+          PEERS[key].basis === 'sector' ? ` in ${esc(r.sector)}` : ''}</b></span>
       </div>
+      ${borrowed ? `<p class="scope">${r.symbol} is not in the MidCap 400, so this page is scored
+        against <b>${PEERS[key].label}</b>. Switch the list to an extended peer set to rank it
+        alongside everything else.</p>` : ''}
       <div class="tags">
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
         <span class="tag">${cap(r.mktCap)}</span>
-        <a class="tag link" href="#/evidence">Decile ${decileOf(r.rank)} · how it tested →</a>
+        ${r.idx === '500' ? '<span class="tag">S&amp;P 500 tail</span>' : ''}
+        <a class="tag link" href="#/evidence">Decile ${decileOf(p.k, p.n)} · how it tested →</a>
       </div>
 
       <div class="card">
         <h3>Momentum legs</h3>
-        ${leg('12–1', '12 months, last month skipped', r.p12, r.m12, r.va12)}
-        ${leg('6–1', '6 months, last month skipped', r.p6, r.m6, r.va6)}
+        ${leg('12–1', '12 months, last month skipped', p.p12, r.m12, r.va12)}
+        ${leg('6–1', '6 months, last month skipped', p.p6, r.m6, r.va6)}
+      </div>
+
+      <div class="card">
+        <h3>Against every peer set</h3>
+        <table class="peers">
+          <tbody>${Object.entries(PEERS).map(([k, cfg]) => {
+            const q = r.r[k];
+            return `<tr class="${k === key ? 'on' : ''}">
+              <td>${cfg.label.replace(' · within sector', ' <i>· sector</i>')}</td>
+              <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
+              <td class="k">${q ? `${q.k} / ${q.n}` : 'not a member'}</td></tr>`;
+          }).join('')}</tbody>
+        </table>
+        <p class="legend">A name can look ordinary against the whole index and strong against its own
+          sector, or the reverse. Switching the peer set on the list changes which row drives this page.</p>
       </div>
 
       <div class="card">
@@ -274,9 +343,9 @@
     $('back').addEventListener('click', () => history.length > 1 ? history.back() : (location.hash = ''));
     $('dstar').addEventListener('click', (e) => toggleWatch(r.symbol, e.currentTarget));
     scrollTo(0, 0);
-    loadHistory().then((h) => {
+    loadHistory(key).then((h) => {
       if (location.hash !== `#/t/${r.symbol}`) return;
-      drawChart($('chart'), h, r);
+      drawChart($('chart'), h, r, key);
     });
   }
 
@@ -363,7 +432,7 @@
   }
 
   /* Per-ticker score history: fixed 0-100 domain, 50 marks the index median. */
-  function drawChart(host, history, r) {
+  function drawChart(host, history, r, key) {
     const series = history && history.scores[r.symbol];
     const points = (series || [])
       .map((value, i) => ({ value, date: history.dates[i] }))
@@ -380,8 +449,10 @@
         i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
       aria: `Blended momentum score for ${r.symbol} over ${points.length} months`,
       readout: (p) => [fmtDate(p.date), p.value.toFixed(1)],
-      note: `Each bar re-ranks ${r.symbol} against the whole index at that month end.
-             Above the dashed line means top half of the MidCap 400.`,
+      note: `Each bar re-ranks ${r.symbol} against ${PEERS[key].basis === 'sector'
+               ? `other ${r.sector} names in the ${PEERS[key].short.split(' ')[0]}`
+               : `the whole ${PEERS[key].short}`} at that month end, using the membership that was
+             live on the day. Above the dashed line means the better half of that peer set.`,
     });
   }
 
@@ -405,7 +476,7 @@
     });
   }
 
-  const decileOf = (rank) => Math.min(10, Math.floor((rank - 1) / (state.meta.ranked / 10)) + 1);
+  const decileOf = (rank, n) => Math.min(10, Math.floor((rank - 1) / (n / 10)) + 1);
   const goBack = () => (history.length > 1 ? history.back() : (location.hash = ''));
   const months = (h) => (h === '1' ? '1 month' : `${h} months`);
   const monthsAdj = (h) => `${h}-month`;              // adjectival: "6-month return"
@@ -421,6 +492,9 @@
         <span class="grow"><b>Does the score work?</b>
           <small>${bt.rankingDates} month ends · ${fmtDate(bt.from)} – ${fmtDate(bt.to)}</small></span>
       </div>
+      <p class="scope">Tested on the <b>MidCap&nbsp;400 ranked as a whole</b>. The extended 650
+        universe and the within-sector bases are display options on the list — they are not tested
+        here, so nothing below carries over to them.</p>
       <div class="hero">
         <span class="big" style="color:${tone(sp.mean > 0 ? 82 : 18)}">${signed(sp.mean * 100, 1)}%</span>
         <span class="lbl">top minus bottom decile<b>mean over ${months(h)}</b></span>
@@ -461,6 +535,8 @@
           <li><b>It is decaying.</b> Spread by ranking-date year —
             ${sp.byYear.map((y) => `${y.year} ${signed(y.mean * 100, 1)}%` +
               (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.</li>
+          <li><b>Scope.</b> One peer set only: the MidCap 400 against itself. A sector-relative
+            ranking is a different signal and would need its own test.</li>
           <li><b>What is and isn't corrected.</b> Index membership is reconstructed month by month,
             so no name is ranked before it joined. Delisted names are held to their last price and
             then treated as cash. Costs, spreads and taxes are not modelled.</li>

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Point-in-time backtest of the blended momentum score.
 
+Scope: the S&P MidCap 400 ranked against itself as a whole. The extended
+650-name universe and the within-sector basis are display options in the app,
+not tested here — the extended universe's history would need a point-in-time
+S&P 500 tail at every rebalance, which is built but not validated for this use.
+
 Reconstructs S&P MidCap 400 membership month by month by walking Wikipedia's
 "Selected changes" table backwards from today's constituent list, re-ranks the
 members alive at each month end, and measures what the ranking was worth: 1/3/6
@@ -24,68 +29,13 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import build  # noqa: E402  (shared config, fetching and momentum maths)
+import build       # noqa: E402  (shared config, fetching and momentum maths)
+import universes  # noqa: E402  (membership reconstruction)
 
 WIKI = build.WIKI
 HORIZONS = (1, 3, 6)      # forward-return horizons, in months
 DECILES = 10
 MIN_MEMBERS = 200         # skip a month end whose reconstructed index looks broken
-
-
-def strip_tags(fragment: str) -> str:
-    return html.unescape(re.sub(r"<[^>]+>", "", fragment)).replace("\xa0", " ").strip()
-
-
-# --- Membership reconstruction ------------------------------------------------
-
-def parse_changes() -> list[dict]:
-    """Index additions and removals, newest first."""
-    page = build.http_get(WIKI).decode("utf-8", "replace")
-    tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', page, re.S)
-    changes = []
-    for table in tables:
-        headers = [strip_tags(h) for h in re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)]
-        if "Added" not in headers or "Removed" not in headers:
-            continue
-        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S):
-            cells = [strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
-            if len(cells) < 5:
-                continue
-            try:
-                when = dt.datetime.strptime(cells[0], "%B %d, %Y").date()
-            except ValueError:
-                continue
-            added, removed = build.normalise(cells[1]), build.normalise(cells[3])
-            valid = lambda s: bool(re.fullmatch(r"[A-Z][A-Z0-9-]{0,6}", s))  # noqa: E731
-            changes.append(
-                {
-                    "date": when,
-                    "added": added if valid(added) else None,
-                    "removed": removed if valid(removed) else None,
-                }
-            )
-        break
-    changes.sort(key=lambda c: c["date"], reverse=True)
-    return changes
-
-
-def membership_history(current: set[str], changes: list[dict], dates: list[str]):
-    """Membership at each date in `dates` (ascending), walking changes backwards."""
-    out: dict[str, set[str]] = {}
-    members = set(current)
-    cursor = 0
-    for date in sorted(dates, reverse=True):
-        target = dt.date.fromisoformat(date)
-        # Undo every change that happened after `target`.
-        while cursor < len(changes) and changes[cursor]["date"] > target:
-            change = changes[cursor]
-            if change["added"]:
-                members.discard(change["added"])
-            if change["removed"]:
-                members.add(change["removed"])
-            cursor += 1
-        out[date] = set(members)
-    return out
 
 
 # --- Returns ------------------------------------------------------------------
@@ -146,7 +96,7 @@ def add_months(iso: str, months: int) -> str:
 def main() -> None:
     universe = build.load_universe()
     current = {c["symbol"] for c in universe}
-    changes = parse_changes()
+    changes = universes.core_changes()
     log = build.log
     log(f"changes table: {len(changes)} add/remove events, newest {changes[0]['date']}")
 
@@ -168,7 +118,7 @@ def main() -> None:
     ranking_dates = [d for d in all_month_ends if d <= last_usable][-build.HISTORY_MONTHS:]
     log(f"{len(ranking_dates)} ranking dates, {ranking_dates[0]} → {ranking_dates[-1]}")
 
-    members_at = membership_history(current, changes, ranking_dates)
+    members_at = universes.membership_history(current, changes, ranking_dates)
 
     rows_by_h = {h: defaultdict(list) for h in HORIZONS}   # horizon -> decile -> returns
     spreads = {h: [] for h in HORIZONS}

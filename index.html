@@ -28,6 +28,14 @@
         <button role="tab" data-scope="watch" aria-selected="false">Watchlist <span id="watch-count"></span></button>
       </div>
       <div class="selects">
+        <label class="sel wide"><span>Ranked against</span>
+          <select id="peer">
+            <option value="cw">MidCap 400</option>
+            <option value="cs">MidCap 400 · within sector</option>
+            <option value="ew">Extended 650</option>
+            <option value="es">Extended 650 · within sector</option>
+          </select>
+        </label>
         <label class="sel"><span>Sector</span>
           <select id="sector"><option value="">All sectors</option></select>
         </label>
@@ -64,9 +72,16 @@
     <li><b>12–1 momentum.</b> Total return on dividend- and split-adjusted closes over the 12 months ending one month ago. The most recent month is skipped to sidestep short-term reversal.</li>
     <li><b>6–1 momentum.</b> Same idea over the trailing 6 months, again ending one month ago.</li>
     <li><b>Volatility adjustment.</b> Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one.</li>
-    <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other MidCap 400 name on the same day and mapped to 0–100.</li>
+    <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other name in the chosen peer set on the same day and mapped to 0–100.</li>
     <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
   </ol>
+  <h2 class="sub">Peer sets</h2>
+  <p class="fine"><b>MidCap 400</b> is the index itself. <b>Extended 650</b> adds the 250 smallest
+    S&amp;P 500 members by market cap, so a name is measured against everything of roughly its size
+    rather than against an index boundary. <b>Within sector</b> ranks a name only against its own
+    GICS sector, which strips out the sector bet the whole-universe ranking otherwise takes — useful
+    if you already control sector weights elsewhere. Both S&amp;P 500 membership and the market caps
+    that pick the tail are point-in-time, so a past bar reflects the universe as it stood that day.</p>
   <p class="fine">The history chart re-runs the full cross-section at each month end, so a bar shows where the name stood against its peers <em>on that date</em>. The peer set is today's index membership throughout, which introduces some survivorship bias in older bars. Data: Financial Modeling Prep. Not investment advice.</p>
   <div class="dlg-actions">
     <a class="primary" href="#/evidence" id="about-evidence">Does it actually work? →</a>

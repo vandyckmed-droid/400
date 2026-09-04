@@ -14,7 +14,7 @@ For every constituent, on every ranking date:
 | 12–1 momentum | Total return on dividend- and split-adjusted closes over the 12 months ending **one month ago** (252 → 21 trading days back). The last month is skipped to avoid short-term reversal. |
 | 6–1 momentum | The same over the trailing 6 months (126 → 21 trading days back). |
 | Volatility adjustment | Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window. A steady climb outranks an equally large but erratic one. |
-| Cross-sectional percentile | Each leg is ranked against every other MidCap 400 name on that date and mapped to 0–100 (average ranks, so ties share a percentile). |
+| Cross-sectional percentile | Each leg is ranked against every other name in the chosen **peer set** on that date and mapped to 0–100 (average ranks, so ties share a percentile). |
 | Blend | **Final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.** |
 
 A name needs a full 12-month window (≥ 180 daily returns) and a full 6-month window (≥ 90) to be
@@ -30,14 +30,49 @@ index are absent from older cross-sections, so historical bars carry some surviv
 this properly needs point-in-time constituent snapshots, which the current data plan doesn't expose.
 Present-day rankings are unaffected.
 
+## Peer sets
+
+The score is a percentile, so it only means anything relative to a peer group. Four are published,
+switchable on the list and persisted per device:
+
+| Peer set | Cross-section |
+| --- | --- |
+| MidCap 400 | The index against itself — the original ranking. |
+| MidCap 400 · within sector | Only against its own GICS sector inside the 400. |
+| Extended 650 | The 400 plus the 250 smallest S&P 500 members by market cap. |
+| Extended 650 · within sector | Only against its own sector inside the 650. |
+
+**Why the extended universe.** The 400/500 boundary is an index-construction artefact, not an
+economic one: a $50B S&P 500 laggard and a $36B MidCap 400 leader are competing for the same
+capital. Adding the S&P 500's small tail measures a name against everything of roughly its size.
+Membership and the market caps that pick the tail are both point-in-time, so a bar from 2024 uses
+the universe as it stood in 2024, not today's.
+
+**Why within-sector.** The whole-universe ranking takes large implicit sector positions — at the
+time of writing, zero of the top 40 are Utilities, Staples or Communication Services, and nearly
+half of Consumer Staples sits in the worst decile. Ranking inside the sector strips that bet out,
+which is what you want if sector weights are already controlled elsewhere. Sectors thinner than
+five names are left unscored: a percentile across four names says nothing.
+
+A per-ticker card shows all four placements side by side, which is where the two bases earn their
+keep — a name can be 2nd of 399 against the whole index and 1st of 35 inside its sector, or look
+ordinary overall and strong against its peers.
+
+One taxonomy note: FMP labels S&P 500 sectors with the Yahoo/Morningstar scheme
+("Technology", "Healthcare") while Wikipedia's MidCap 400 table uses GICS
+("Information Technology", "Health Care"). `universes.py` maps the former onto the latter — without
+it the extended universe would rank each name against others from its own *data source* rather than
+its own sector.
+
 ## Layout
 
 ```
 index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
-data/latest.json                 current ranking + key stats  (~128 KB)
-data/history.json                blended score per month end, shared date axis  (~73 KB)
-data/universe.json               constituent snapshot, also the offline fallback
+data/latest.json                 current ranking, all four peer sets + key stats  (~300 KB)
+data/history/{cw,cs,ew,es}.json  score per month end, one file per peer set, lazy-loaded
+data/universe.json               MidCap 400 snapshot, also the offline fallback
 scripts/build.py                 the whole pipeline, standard library only
+scripts/universes.py             universe definitions + point-in-time membership
 scripts/backtest.py              point-in-time membership + forward-return test
 data/backtest.json               decile returns, spreads and the spread time series
 .github/workflows/refresh.yml    weekly rebuild + commit
@@ -48,10 +83,15 @@ served as static JSON.
 
 ## Data
 
+- **S&P 500 membership** — FMP `stable/sp500-constituent` and `stable/historical-sp500-constituent`
+  (Wikipedia no longer carries a changes table for the 500).
+- **Market caps** — FMP `stable/historical-market-capitalization`, used to pick the small tail on
+  the day rather than approximating it from today's share counts.
 - **Universe** — scraped from Wikipedia's *List of S&P 400 companies* (there is no MidCap 400
   constituent endpoint on this FMP plan). Each successful scrape rewrites `data/universe.json`,
   which doubles as the fallback if the scrape ever fails.
-- **Prices** — FMP `stable/historical-price-eod/dividend-adjusted`, 6 years per ticker.
+- **Prices** — FMP `stable/historical-price-eod/dividend-adjusted`, 6 years per ticker,
+  ~1,100 symbols (both indices plus former members still inside the history window).
 - **Quotes** — FMP `stable/batch-quote` for market cap, 52-week range and last change.
 
 ## Refreshing
@@ -89,7 +129,9 @@ instant.
 
 ## Does the score actually predict anything?
 
-`scripts/backtest.py` answers that honestly. It rebuilds month-by-month index membership by
+**Scope: the MidCap 400 ranked as a whole.** The extended universe and the within-sector bases are
+display options, not tested — a sector-relative ranking is a different signal and would need its
+own test. `scripts/backtest.py` answers the question honestly for the peer set it does cover. It rebuilds month-by-month index membership by
 walking Wikipedia's *Selected changes* table backwards from today's list (399–402 members at every
 month end, ~3.4 additions/month), re-ranks only the names alive on each date, and measures forward
 returns. It imports `build.py` for the momentum maths, so the test and the site cannot diverge.

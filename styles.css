@@ -83,6 +83,7 @@ h1 span { color: var(--ink-3); font-weight: 600; }
 
 .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sel { display: block; position: relative; }
+.sel.wide { grid-column: 1 / -1; }
 .sel span {
   position: absolute; top: 4px; left: 10px;
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
@@ -167,6 +168,23 @@ h1 span { color: var(--ink-3); font-weight: 600; }
 .caveats i { font-style: normal; color: var(--ink-3); }
 
 .ctrl { padding: 0 12px 14px; }
+.scope { margin: 12px 12px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-soft);
+         border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.scope b { color: var(--ink); }
+.badge {
+  font-style: normal; font-size: 9.5px; font-weight: 700; letter-spacing: .03em;
+  padding: 1px 4px; border-radius: 4px; background: var(--track); color: var(--ink-3);
+}
+.peers { width: 100%; border-collapse: collapse; font-size: 13px; }
+.peers td { padding: 7px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
+.peers tr:last-child td { border-bottom: 0; }
+.peers tr.on td { color: var(--ink); font-weight: 650; }
+.peers tr.on td:first-child::before { content: '▸ '; color: var(--accent); }
+.peers i { font-style: normal; color: var(--ink-3); font-weight: 400; }
+.peers .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; width: 58px; }
+.peers .k { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3);
+            font-size: 11.5px; width: 78px; }
+dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
 .tag.link { color: var(--accent); border-color: var(--accent); }
 .card.caution { border-color: var(--mid); }
 .card.caution h3 { color: var(--mid); }

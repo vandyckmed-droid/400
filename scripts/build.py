@@ -24,6 +24,7 @@ import html
 import json
 import math
 import os
+import random
 import re
 import ssl
 import sys
@@ -53,9 +54,19 @@ YEARS_OF_PRICES = 6     # history depth to request from FMP
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
 WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
+MIN_SECTOR = 5          # smallest sector that gets a within-sector percentile
 
-WORKERS = 8
-RETRIES = 4
+# The four peer sets a name can be ranked against: which universe, and whether
+# the cross-section is the whole thing or just the name's own sector.
+PEER_SETS = {
+    "cw": ("core", "whole"),
+    "cs": ("core", "sector"),
+    "ew": ("ext", "whole"),
+    "es": ("ext", "sector"),
+}
+
+WORKERS = 5            # the vendor throttles above this on large payloads
+RETRIES = 6
 UA = "sp400-momentum-ranker/1.0 (+https://github.com/vandyckmed-droid/400)"
 
 API_KEY = os.environ.get("FMP_API_KEY") or os.environ.get("API_KEY") or ""
@@ -84,7 +95,9 @@ def http_get(url: str, timeout: int = 45) -> bytes:
                 return raw
         except Exception as exc:  # noqa: BLE001 - retry everything transport-level
             last = exc
-            time.sleep(2 ** attempt)
+            # Jittered backoff: throttling hits whole batches at once, so
+            # retrying in lockstep just reproduces the collision.
+            time.sleep(min(30, 2 ** attempt) * (0.6 + random.random() * 0.8))
     raise RuntimeError(f"GET failed after {RETRIES} tries: {url.split('apikey=')[0]}") from last
 
 
@@ -160,45 +173,59 @@ def load_universe() -> list[dict]:
 
 # --- 2. Prices ----------------------------------------------------------------
 
-def fetch_prices(symbol: str, start: str) -> list[tuple[str, float]]:
-    """Adjusted daily closes, oldest first. Cached on disk between runs."""
-    cache_file = CACHE / f"{symbol}.json"
+def cached_fmp(key: str, path: str, **params):
+    """An FMP call memoised on disk for 12 hours, so re-runs while iterating
+    cost nothing and a failed run doesn't re-pay for what already succeeded."""
+    cache_file = CACHE / f"{key}.json"
     if cache_file.exists() and time.time() - cache_file.stat().st_mtime < 12 * 3600:
-        return [tuple(x) for x in json.loads(cache_file.read_text())]
-    rows = fmp("historical-price-eod/dividend-adjusted", symbol=symbol, **{"from": start})
-    series = [
+        return json.loads(cache_file.read_text())
+    rows = fmp(path, **params)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps(rows))
+    return rows
+
+
+def gather(items: list[str], fn, label: str) -> dict:
+    """Run `fn` over `items` concurrently, tolerating individual failures."""
+    out, failures = {}, []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(fn, item): item for item in items}
+        for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            item = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    out[item] = result
+                else:
+                    failures.append(item)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(item)
+                if len(failures) < 6:
+                    log(f"  {label} failed for {item}: {exc}")
+            if done % 200 == 0:
+                log(f"  {label} {done}/{len(items)}")
+    if failures:
+        log(f"{label}: {len(failures)} without data ({', '.join(sorted(failures)[:10])})")
+    return out
+
+
+def fetch_prices(symbol: str, start: str) -> list[tuple[str, float]]:
+    """Adjusted daily closes, oldest first."""
+    rows = cached_fmp(
+        f"px-{symbol}", "historical-price-eod/dividend-adjusted",
+        symbol=symbol, **{"from": start},
+    )
+    series = sorted(
         (r["date"], float(r["adjClose"]))
         for r in rows
         if isinstance(r, dict) and r.get("adjClose") not in (None, 0)
-    ]
-    series.sort()
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(json.dumps(series))
-    return series
+    )
+    return series if len(series) > LONG_DAYS else []
 
 
 def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
     start = (dt.date.today() - dt.timedelta(days=int(365.25 * YEARS_OF_PRICES))).isoformat()
-    prices: dict[str, list[tuple[str, float]]] = {}
-    failures: list[str] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(fetch_prices, s, start): s for s in symbols}
-        for done, future in enumerate(concurrent.futures.as_completed(futures), 1):
-            symbol = futures[future]
-            try:
-                series = future.result()
-                if len(series) > LONG_DAYS:
-                    prices[symbol] = series
-                else:
-                    failures.append(symbol)
-            except Exception as exc:  # noqa: BLE001
-                failures.append(symbol)
-                log(f"  prices failed for {symbol}: {exc}")
-            if done % 50 == 0:
-                log(f"  prices {done}/{len(symbols)}")
-    if failures:
-        log(f"prices: {len(failures)} symbols without usable history: {', '.join(sorted(failures)[:15])}")
-    return prices
+    return gather(symbols, lambda s: fetch_prices(s, start), "prices")
 
 
 def fetch_quotes(symbols: list[str]) -> dict[str, dict]:
@@ -280,127 +307,191 @@ def month_end_dates(calendar: list[str], count: int) -> list[str]:
     return [by_month[m] for m in months[-count:]]
 
 
-def snapshot(prices, index_maps, date, universe_meta):
-    """Compute one cross-section. Returns (rows, blended scores by symbol)."""
-    legs: dict[str, dict] = {}
-    for symbol, series in prices.items():
-        dates, closes = index_maps[symbol]
+def rank_block(legs: dict, meta: dict, basis: str) -> dict:
+    """Turn raw vol-adjusted legs into percentiles, a blended score and a rank.
+
+    `basis` picks the cross-section each name is measured against: "whole" ranks
+    it against every member of the universe, "sector" only against its own GICS
+    sector. Sectors thinner than MIN_SECTOR are left unscored — a percentile
+    across four names says nothing.
+    """
+    if basis == "whole":
+        groups = {"*": set(legs)}
+    else:
+        groups = {}
+        for symbol in legs:
+            groups.setdefault(meta.get(symbol, {}).get("sector", ""), set()).add(symbol)
+
+    out = {}
+    for sector, members in groups.items():
+        if basis == "sector" and (not sector or len(members) < MIN_SECTOR):
+            continue
+        p_long = percentiles({s: legs[s][0] for s in members})
+        p_mid = percentiles({s: legs[s][1] for s in members})
+        blended = {s: WEIGHT_LONG * p_long[s] + WEIGHT_MID * p_mid[s] for s in members}
+        for rank, symbol in enumerate(sorted(members, key=lambda s: -blended[s]), 1):
+            out[symbol] = {
+                "s": round(blended[symbol], 2),
+                "k": rank,
+                "n": len(members),
+                "p12": round(p_long[symbol], 2),
+                "p6": round(p_mid[symbol], 2),
+            }
+    return out
+
+
+def legs_at(members, index_maps, date: str) -> dict:
+    """Vol-adjusted 12-1 and 6-1 for every member with enough history at `date`."""
+    out = {}
+    for symbol in members:
+        entry = index_maps.get(symbol)
+        if not entry:
+            continue
+        dates, closes = entry
         pos = bisect_right(dates, date) - 1
         if pos < 0:
             continue
         long_leg = vol_adjusted_momentum(closes, pos, LONG_DAYS, MIN_OBS_LONG)
         mid_leg = vol_adjusted_momentum(closes, pos, MID_DAYS, MIN_OBS_MID)
-        if not long_leg or not mid_leg:
+        if long_leg and mid_leg:
+            out[symbol] = (long_leg[2], mid_leg[2], long_leg, mid_leg)
+    return out
+
+
+# --- Assemble -----------------------------------------------------------------
+
+def main() -> None:
+    import universes
+
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / "history").mkdir(exist_ok=True)
+
+    core_universe = load_universe()
+    sp500_universe = universes.sp500_constituents()
+    log(f"S&P 500: {len(sp500_universe)} constituents")
+
+    meta = {c["symbol"]: c for c in core_universe}
+    for c in sp500_universe:
+        meta.setdefault(c["symbol"], c)
+    core_now = {c["symbol"] for c in core_universe}
+    sp500_now = {c["symbol"] for c in sp500_universe}
+
+    core_changes = universes.core_changes()
+    sp500_changes = universes.sp500_changes()
+    log(f"change logs: {len(core_changes)} MidCap 400, {len(sp500_changes)} S&P 500")
+
+    window_start = dt.date.today() - dt.timedelta(days=365 * 4)
+    ever = set(core_now) | set(sp500_now)
+    for change in core_changes + sp500_changes:
+        if change["date"] >= window_start and change["removed"]:
+            ever.add(change["removed"])
+    log(f"pricing {len(ever)} symbols (current members plus former ones still in window)")
+
+    prices = fetch_all_prices(sorted(ever))
+    index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
+    calendar = sorted({d for series in prices.values() for d, _ in series})
+    as_of = calendar[-1]
+    snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
+    all_dates = snapshot_dates + [as_of]
+    log(f"as of {as_of}; {len(snapshot_dates)} monthly snapshots from {snapshot_dates[0]}")
+
+    core_at = universes.membership_history(core_now, core_changes, all_dates)
+    sp500_at = universes.membership_history(sp500_now, sp500_changes, all_dates)
+
+    # Market caps are only needed to pick the small tail of the S&P 500.
+    cap_symbols = sorted({s for d in all_dates for s in sp500_at[d]} & set(prices))
+    log(f"market caps for {len(cap_symbols)} S&P 500 names (to size the tail)")
+    caps = universes.fetch_market_caps(cap_symbols)
+
+    ext_at = {}
+    for date in all_dates:
+        tail = universes.size_tail(sp500_at[date] & set(prices), caps, date)
+        ext_at[date] = (core_at[date] & set(prices)) | tail
+    log(f"extended universe today: {len(ext_at[as_of])} names "
+        f"({len(core_at[as_of] & set(prices))} core + {len(ext_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
+
+    # --- history: one momentum pass per date, reused by all four peer sets ---
+    history = {key: {} for key in PEER_SETS}
+    kept_dates = []
+    for date in snapshot_dates:
+        legs = legs_at(ext_at[date], index_maps, date)
+        if len(legs) < MIN_NAMES_PER_SNAPSHOT:
             continue
-        legs[symbol] = {"long": long_leg, "mid": mid_leg, "pos": pos}
+        kept_dates.append(date)
+        pools = {"core": core_at[date], "ext": ext_at[date]}
+        for key, (universe, basis) in PEER_SETS.items():
+            subset = {s: v for s, v in legs.items() if s in pools[universe]}
+            for symbol, block in rank_block(subset, meta, basis).items():
+                history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
 
-    if len(legs) < MIN_NAMES_PER_SNAPSHOT:
-        return [], {}
-
-    pct_long = percentiles({s: v["long"][2] for s, v in legs.items()})
-    pct_mid = percentiles({s: v["mid"][2] for s, v in legs.items()})
-    blended = {
-        s: WEIGHT_LONG * pct_long[s] + WEIGHT_MID * pct_mid[s] for s in legs
+    # --- today's cross-sections ---
+    legs_now = legs_at(ext_at[as_of], index_maps, as_of)
+    pools_now = {"core": core_at[as_of], "ext": ext_at[as_of]}
+    blocks = {
+        key: rank_block({s: v for s, v in legs_now.items() if s in pools_now[universe]}, meta, basis)
+        for key, (universe, basis) in PEER_SETS.items()
     }
 
+    ranked = sorted(legs_now)
+    quotes = fetch_quotes(ranked)
     rows = []
-    for symbol, leg in legs.items():
-        meta = universe_meta.get(symbol, {})
+    for symbol in ranked:
+        _, _, long_leg, mid_leg = legs_now[symbol]
+        info = meta.get(symbol, {})
+        q = quotes.get(symbol, {})
+        placement = {k: blocks[k][symbol] for k in PEER_SETS if symbol in blocks[k]}
+        if not placement:
+            continue
         rows.append(
             {
                 "symbol": symbol,
-                "name": meta.get("name", symbol),
-                "sector": meta.get("sector", ""),
-                "industry": meta.get("industry", ""),
-                "score": round(blended[symbol], 2),
-                "p12": round(pct_long[symbol], 2),
-                "p6": round(pct_mid[symbol], 2),
-                "m12": round(leg["long"][0], 6),
-                "m6": round(leg["mid"][0], 6),
-                "vol12": round(leg["long"][1], 6),
-                "vol6": round(leg["mid"][1], 6),
-                "va12": round(leg["long"][2], 4),
-                "va6": round(leg["mid"][2], 4),
+                "name": q.get("name") or info.get("name", symbol),
+                "sector": info.get("sector", ""),
+                "industry": info.get("industry", ""),
+                "idx": "400" if symbol in core_at[as_of] else "500",
+                "m12": round(long_leg[0], 6),
+                "m6": round(mid_leg[0], 6),
+                "vol12": round(long_leg[1], 6),
+                "vol6": round(mid_leg[1], 6),
+                "va12": round(long_leg[2], 4),
+                "va6": round(mid_leg[2], 4),
+                "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
+                "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
+                "mktCap": q.get("marketCap") or universes.cap_at(caps, symbol, as_of),
+                "yearHigh": q.get("yearHigh"),
+                "yearLow": q.get("yearLow"),
+                "r": placement,
             }
         )
-    rows.sort(key=lambda r: -r["score"])
-    for rank, row in enumerate(rows, 1):
-        row["rank"] = rank
-    return rows, blended
-
-
-# --- 4. Assemble --------------------------------------------------------------
-
-def main() -> None:
-    DATA.mkdir(parents=True, exist_ok=True)
-    universe = load_universe()
-    universe_meta = {c["symbol"]: c for c in universe}
-    symbols = sorted(universe_meta)
-
-    log(f"fetching {YEARS_OF_PRICES}y of adjusted prices for {len(symbols)} symbols")
-    prices = fetch_all_prices(symbols)
-    log(f"prices: {len(prices)} usable series")
-
-    index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
-
-    # Trading calendar = every date seen across the universe.
-    calendar = sorted({d for series in prices.values() for d, _ in series})
-    snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
-    as_of = calendar[-1]
-    log(f"as of {as_of}; {len(snapshot_dates)} monthly snapshots from {snapshot_dates[0]}")
-
-    history_scores: dict[str, list] = {s: [None] * len(snapshot_dates) for s in prices}
-    kept_dates: list[str] = []
-    for i, date in enumerate(snapshot_dates):
-        _, blended = snapshot(prices, index_maps, date, universe_meta)
-        if not blended:
-            continue
-        kept_dates.append(date)
-        for symbol in prices:
-            value = blended.get(symbol)
-            history_scores[symbol][i] = round(value, 1) if value is not None else None
-    keep_idx = [snapshot_dates.index(d) for d in kept_dates]
-    history_scores = {
-        s: [v[i] for i in keep_idx] for s, v in history_scores.items()
-    }
-
-    # The live cross-section uses the latest trading day, not a month end.
-    rows, _ = snapshot(prices, index_maps, as_of, universe_meta)
     log(f"ranked {len(rows)} names as of {as_of}")
 
-    quotes = fetch_quotes([r["symbol"] for r in rows])
-    for row in rows:
-        q = quotes.get(row["symbol"], {})
-        closes = index_maps[row["symbol"]][1]
-        row["price"] = q.get("price") or round(closes[-1], 2)
-        row["chg"] = round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None
-        row["mktCap"] = q.get("marketCap")
-        row["yearHigh"] = q.get("yearHigh")
-        row["yearLow"] = q.get("yearLow")
-        if q.get("name"):
-            row["name"] = q["name"]
-
-    # Drop history for names that fell out of the ranking.
-    ranked = {r["symbol"] for r in rows}
-    history_scores = {s: v for s, v in history_scores.items() if s in ranked}
-
-    meta = {
+    counts = {key: sum(1 for r in rows if key in r["r"]) for key in PEER_SETS}
+    meta_block = {
         "asOf": as_of,
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "universeSize": len(universe),
-        "ranked": len(rows),
+        "core": len(core_at[as_of] & set(prices)),
+        "ext": len(ext_at[as_of]),
+        "counts": counts,
+        "sizeTail": universes.SIZE_TAIL,
         "params": {
             "skipDays": SKIP_DAYS,
             "longDays": LONG_DAYS,
             "midDays": MID_DAYS,
             "weights": [WEIGHT_LONG, WEIGHT_MID],
+            "minSector": MIN_SECTOR,
             "historyMonths": len(kept_dates),
         },
     }
+    write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
-    write_json(DATA / "latest.json", {"meta": meta, "rows": rows})
-    write_json(DATA / "history.json", {"dates": kept_dates, "scores": history_scores})
-    log("wrote data/latest.json and data/history.json")
+    live = {r["symbol"] for r in rows}
+    for key in PEER_SETS:
+        scores = {
+            symbol: [by_date.get(d) for d in kept_dates]
+            for symbol, by_date in history[key].items()
+            if symbol in live
+        }
+        write_json(DATA / "history" / f"{key}.json", {"dates": kept_dates, "scores": scores})
 
 
 def write_json(path: Path, payload: object) -> None:
