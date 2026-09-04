@@ -38,6 +38,8 @@ data/latest.json                 current ranking + key stats  (~128 KB)
 data/history.json                blended score per month end, shared date axis  (~73 KB)
 data/universe.json               constituent snapshot, also the offline fallback
 scripts/build.py                 the whole pipeline, standard library only
+scripts/backtest.py              point-in-time membership + forward-return test
+data/backtest.json               decile returns, spreads and the spread time series
 .github/workflows/refresh.yml    weekly rebuild + commit
 ```
 
@@ -84,6 +86,35 @@ python3 -m http.server 8000                     # then open http://localhost:800
 
 Responses are cached under `.cache/` (gitignored) for 12 hours, so re-runs while iterating are
 instant.
+
+## Does the score actually predict anything?
+
+`scripts/backtest.py` answers that honestly. It rebuilds month-by-month index membership by
+walking Wikipedia's *Selected changes* table backwards from today's list (399–402 members at every
+month end, ~3.4 additions/month), re-ranks only the names alive on each date, and measures forward
+returns. It imports `build.py` for the momentum maths, so the test and the site cannot diverge.
+
+Over 36 month ends (Mar 2023 – Feb 2026), equal-weighted:
+
+| Horizon | Top decile | Bottom decile | Spread | Hit rate | Non-overlapping t |
+| --- | --- | --- | --- | --- | --- |
+| 1 month | +1.50% | +0.53% | +0.97% | 53% | 1.21 (n=36) |
+| 3 months | +6.09% | +1.47% | +4.62% | 78% | 1.65 (n=12) |
+| 6 months | +12.32% | +2.83% | +9.49% | 78% | 2.02 (n=6) |
+
+Mean return falls almost monotonically from D1 to D10 (rank correlation −0.93), which matters more
+than any single bucket: the whole ranking is ordered, not just its ends.
+
+**Read the caveats with the table.** Sampling 3- and 6-month returns monthly makes the windows
+overlap, so the naive t-stats (3.18 and 4.10) are inflated; the honest counts are 12 and 6
+independent windows. The sample is three years of a mostly rising market — every decile is positive
+at 6 months — and the 6-month spread decays across it: +12.0% for 2023 ranking dates, +10.8% for
+2024, +7.6% for 2025. This is evidence the ranking is ordered, not proof it will pay.
+
+Using today's membership instead of point-in-time *understates* the 6-month spread (+6.5% vs
++9.3%), because names dropped from the index are disproportionately the losers that belong in the
+bottom decile. Delisted names are held to their last print and then treated as cash; that path
+affects 0.03% of observations, so acquisition premia don't move the result.
 
 ## Not investment advice
 
