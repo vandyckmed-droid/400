@@ -50,6 +50,7 @@ MID_DAYS = 126          # 6-month formation window
 MIN_OBS_LONG = 180      # min daily returns required in the 12-1 window
 MIN_OBS_MID = 90        # min daily returns required in the 6-1 window
 HISTORY_MONTHS = 36     # month-end snapshots to publish
+HISTORY_WEEKS = 78      # week-end snapshots (18 months) for the finer-grained view
 YEARS_OF_PRICES = 6     # history depth to request from FMP
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
 WEIGHT_LONG = 0.5       # 12-1 weight in the blend
@@ -296,6 +297,20 @@ def percentiles(values: dict[str, float]) -> dict[str, float]:
     return out
 
 
+def week_end_dates(calendar: list[str], count: int) -> list[str]:
+    """The last trading day of each of the most recent `count` ISO weeks.
+
+    Unlike the monthly axis this keeps the in-progress week: a bar is a
+    cross-section taken on a date, not a return over a period, so a partial
+    week is still a valid reading and it keeps the last bar close to today.
+    """
+    by_week: dict[tuple[int, int], str] = {}
+    for date in calendar:
+        year, week, _ = dt.date.fromisoformat(date).isocalendar()
+        by_week[(year, week)] = date
+    return [by_week[w] for w in sorted(by_week)[-count:]]
+
+
 def month_end_dates(calendar: list[str], count: int) -> list[str]:
     """The last trading day of each of the most recent `count` complete months."""
     by_month: dict[str, str] = {}
@@ -392,7 +407,8 @@ def main() -> None:
     calendar = sorted({d for series in prices.values() for d, _ in series})
     as_of = calendar[-1]
     snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
-    all_dates = snapshot_dates + [as_of]
+    weekly_dates = week_end_dates(calendar, HISTORY_WEEKS)
+    all_dates = sorted(set(snapshot_dates) | set(weekly_dates) | {as_of})
     log(f"as of {as_of}; {len(snapshot_dates)} monthly snapshots from {snapshot_dates[0]}")
 
     core_at = universes.membership_history(core_now, core_changes, all_dates)
@@ -411,18 +427,24 @@ def main() -> None:
         f"({len(core_at[as_of] & set(prices))} core + {len(ext_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
 
     # --- history: one momentum pass per date, reused by all four peer sets ---
-    history = {key: {} for key in PEER_SETS}
-    kept_dates = []
-    for date in snapshot_dates:
-        legs = legs_at(ext_at[date], index_maps, date)
-        if len(legs) < MIN_NAMES_PER_SNAPSHOT:
-            continue
-        kept_dates.append(date)
-        pools = {"core": core_at[date], "ext": ext_at[date]}
-        for key, (universe, basis) in PEER_SETS.items():
-            subset = {s: v for s, v in legs.items() if s in pools[universe]}
-            for symbol, block in rank_block(subset, meta, basis).items():
-                history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
+    def build_history(dates):
+        history = {key: {} for key in PEER_SETS}
+        kept = []
+        for date in dates:
+            legs = legs_at(ext_at[date], index_maps, date)
+            if len(legs) < MIN_NAMES_PER_SNAPSHOT:
+                continue
+            kept.append(date)
+            pools = {"core": core_at[date], "ext": ext_at[date]}
+            for key, (universe, basis) in PEER_SETS.items():
+                subset = {s: v for s, v in legs.items() if s in pools[universe]}
+                for symbol, block in rank_block(subset, meta, basis).items():
+                    history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
+        return history, kept
+
+    history, kept_dates = build_history(snapshot_dates)
+    weekly, kept_weeks = build_history(weekly_dates)
+    log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections")
 
     # --- today's cross-sections ---
     legs_now = legs_at(ext_at[as_of], index_maps, as_of)
@@ -480,18 +502,20 @@ def main() -> None:
             "weights": [WEIGHT_LONG, WEIGHT_MID],
             "minSector": MIN_SECTOR,
             "historyMonths": len(kept_dates),
+            "historyWeeks": len(kept_weeks),
         },
     }
     write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
     live = {r["symbol"] for r in rows}
-    for key in PEER_SETS:
-        scores = {
-            symbol: [by_date.get(d) for d in kept_dates]
-            for symbol, by_date in history[key].items()
-            if symbol in live
-        }
-        write_json(DATA / "history" / f"{key}.json", {"dates": kept_dates, "scores": scores})
+    for source, dates, suffix in ((history, kept_dates, ""), (weekly, kept_weeks, "w")):
+        for key in PEER_SETS:
+            scores = {
+                symbol: [by_date.get(d) for d in dates]
+                for symbol, by_date in source[key].items()
+                if symbol in live
+            }
+            write_json(DATA / "history" / f"{key}{suffix}.json", {"dates": dates, "scores": scores})
 
 
 def write_json(path: Path, payload: object) -> None:
