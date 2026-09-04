@@ -2,8 +2,10 @@ name: Refresh momentum data
 
 on:
   schedule:
-    # Saturday 12:00 UTC — after Friday's US close has settled with the vendor.
-    - cron: '0 12 * * 6'
+    # Tuesday to Saturday at 10:00 UTC (05:00–06:00 New York): the morning
+    # after each weekday close, once the vendor's adjusted bars have settled.
+    # A market holiday produces no new bar; the run is then a no-op.
+    - cron: '0 10 * * 2-6'
   workflow_dispatch:
 
 permissions:

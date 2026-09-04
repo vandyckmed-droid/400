@@ -126,6 +126,9 @@ data/latest.json                 current ranking, all four peer sets + key stats
 data/spark/<key>.json            last 12 month-end scores; the strip in each list row, one per set
 data/history/<key>.json          score per month end (36), one file per peer set, lazy-loaded
 data/history/<key>w.json         score per week end (78 ~ 18 months), loaded only if asked for
+data/bars/<SYMBOL>.json          ~3 years of adjusted daily bars per ranked name, for the price chart
+chart.js                         the price chart: canvas bars, pan / pinch / axis-stretch gestures,
+                                 and a 200-day linear regression channel
 data/universe.json               MidCap 400 constituents + change log; the offline fallback
 data/sp500.json                  S&P 500 constituents + change log; the offline fallback
 manifest.webmanifest  icon-*.png   home-screen install
@@ -145,7 +148,7 @@ sector) and what is ranked (`r` = the return, `v` = the return divided by its ow
 returns.
 
 ```
-.github/workflows/refresh.yml    weekly rebuild + commit
+.github/workflows/refresh.yml    weekday-morning rebuild + commit
 ```
 
 The API key never reaches the browser: everything is computed server-side in the refresh job and
@@ -161,17 +164,19 @@ served as static JSON.
   constituent endpoint on this FMP plan). Each successful scrape rewrites `data/universe.json`,
   which doubles as the fallback if the scrape ever fails.
 - **Prices** — FMP `stable/historical-price-eod/dividend-adjusted`, 6 years per ticker,
-  ~1,100 symbols (both indices plus former members still inside the history window).
+  ~1,100 symbols (both indices plus former members still inside the history window). The same
+  payload supplies the open, high and low for the price chart, so the bars cost no extra calls
+  and are adjusted exactly as the closes the score is built on.
 - **Quotes** — FMP `stable/batch-quote` for market cap, 52-week range and last change.
 
 ## What the app does when things go wrong
 
-- **Stale data.** The refresh is weekly and silent, so a failed job would leave an old ranking
-  looking fresh. If the published data is more than ten days old the list shows an amber banner
-  saying so.
+- **Stale data.** The refresh is daily and silent, so a failed job would leave an old ranking
+  looking fresh. If the published data is more than four days old — longer than any long weekend —
+  the list shows an amber banner saying so.
 - **Sources down.** Each membership source (Wikipedia for the 400, FMP for the 500 and its change
   log) persists to a committed snapshot on success and falls back to it on failure, so an outage
-  degrades the refresh to last week's membership rather than failing it.
+  degrades the refresh to the last successful run's membership rather than failing it.
 - **Degraded output.** `build.py` refuses to publish if fewer than 380 of the 400 priced, the
   extended universe is under 620 names, the ranked count fell more than 5% from the last run, or
   a monthly cross-section went missing — the vendor throttles in alphabetical blocks, and a partial
@@ -181,9 +186,11 @@ served as static JSON.
 
 ## Refreshing
 
-Automatic: `.github/workflows/refresh.yml` runs Saturdays at 12:00 UTC, rebuilds the ranking and
-the backtest, and commits `data/` if anything changed. Momentum on 12- and 6-month windows barely moves intraday, so weekly is the right
-cadence; use **Actions → Refresh momentum data → Run workflow** for an on-demand rebuild.
+Automatic: `.github/workflows/refresh.yml` runs Tuesday to Saturday at 10:00 UTC — the morning
+after each weekday close, once the vendor's adjusted bars have settled — rebuilds the ranking, the
+backtest and the price bars, and commits `data/` if anything changed. A market holiday adds no bar,
+so that morning's run changes nothing. Use **Actions → Refresh momentum data → Run workflow** for
+an on-demand rebuild.
 
 **One-time setup:** add the FMP key as a repository secret named `FMP_API_KEY`
 (*Settings → Secrets and variables → Actions*). Without it the scheduled job fails and the site
@@ -196,7 +203,7 @@ no deploy workflow, no build step.
 
 **One-time setup:** *Settings → Pages → Build and deployment* → source **Deploy from a branch**,
 branch **`main`**, folder **`/ (root)`**. GitHub's built-in `pages-build-deployment` then republishes
-on every push to `main`, including the weekly data commit.
+on every push to `main`, including the daily data commit.
 
 This toggle cannot be set from CI: `POST /repos/{owner}/{repo}/pages` requires a token with the
 `pages` scope, and neither the Actions `GITHUB_TOKEN` (`Resource not accessible by integration`) nor

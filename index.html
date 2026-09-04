@@ -64,6 +64,7 @@
 
 <section id="detail-view" hidden></section>
 <section id="evidence-view" hidden></section>
+<section id="chart-view" hidden></section>
 <section id="settings-view" hidden>
   <div class="dtop">
     <button class="back" id="sback">‹ Back</button>
@@ -94,8 +95,8 @@
   <div class="card">
     <h3>Data</h3>
     <dl class="stats" id="data-stats"></dl>
-    <p class="legend">Refreshed weekly on Saturdays from Financial Modeling Prep. If it goes more than
-      ten days without a refresh the list says so.</p>
+    <p class="legend">Refreshed each weekday morning from Financial Modeling Prep, after the previous
+      day's close. If it goes more than four days without a refresh the list says so.</p>
   </div>
 
   <div class="card">
@@ -126,6 +127,7 @@
 
 
 
+<script src="chart.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
