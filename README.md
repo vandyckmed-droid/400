@@ -39,6 +39,7 @@ data/history.json                blended score per month end, shared date axis  
 data/universe.json               constituent snapshot, also the offline fallback
 scripts/build.py                 the whole pipeline, standard library only
 .github/workflows/refresh.yml    weekly rebuild + commit
+.github/workflows/pages.yml      publishes the repo root to Pages on every push to main
 ```
 
 The API key never reaches the browser: everything is computed server-side in the refresh job and
@@ -61,6 +62,12 @@ cadence; use **Actions → Refresh momentum data → Run workflow** for an on-de
 **One-time setup:** add the FMP key as a repository secret named `FMP_API_KEY`
 (*Settings → Secrets and variables → Actions*). Without it the scheduled job fails and the site
 keeps serving the last committed data.
+
+## Publishing
+
+`.github/workflows/pages.yml` uploads the repository root to GitHub Pages on every push to `main`.
+It passes `enablement: true` to `actions/configure-pages`, so the first run turns Pages on by
+itself — there is no Settings toggle to flip — and each weekly data commit redeploys the site.
 
 Locally:
 
