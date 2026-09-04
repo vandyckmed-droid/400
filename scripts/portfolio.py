@@ -8,8 +8,8 @@ rough would the ride have been.
 
 Construction, deliberately plain:
 
-* **Universe** — point-in-time, both the MidCap 400 and the extended 650, using
-  the same membership reconstruction the live site ranks with.
+* **Universe** — point-in-time, the same ~650-name membership reconstruction
+  the live site ranks with.
 * **Rebalance** — monthly, at each month end, on that day's cross-section.
 * **Weights** — equal at each rebalance, then left alone. No daily rebalancing,
   because that would assume trading the app never asks you to do.
@@ -55,11 +55,7 @@ STRIP_POINTS = 24         # points in the compact curve the list strip draws
 
 # Whole-universe peer sets only: a "top decile within each sector" portfolio is
 # a different strategy, and untested here.
-VARIANTS = {
-    universe[0] + "w" + adjust[0]: (universe, adjust)
-    for universe in ("core", "ext")
-    for adjust in ("raw", "vol")
-}
+VARIANTS = {"w" + adjust[0]: adjust for adjust in ("raw", "vol")}
 
 
 def concentration(basket: set[str], sectors: dict) -> dict:
@@ -204,30 +200,26 @@ def main() -> None:
     cap_symbols = sorted({s for d in rebal_dates for s in sp500_at[d]} & set(prices))
     caps = universes.fetch_market_caps(cap_symbols)
 
-    pools = {"core": {}, "ext": {}}
-    for date in rebal_dates:
-        priced_core = core_at[date] & set(prices)
-        tail = universes.size_tail(sp500_at[date] & set(prices), caps, date)
-        pools["core"][date] = priced_core
-        pools["ext"][date] = priced_core | tail
+    members_at = {
+        date: (core_at[date] & set(prices))
+              | universes.size_tail(sp500_at[date] & set(prices), caps, date)
+        for date in rebal_dates
+    }
 
     # --- baskets: one momentum pass per rebalance, shared by every variant ---
     baskets = {key: {} for key in VARIANTS}     # key -> date -> (top, bottom, all)
     concentrations = {key: [] for key in VARIANTS}   # key -> per-rebalance sector mix
     used_dates = []
     for date in rebal_dates:
-        legs = build.legs_at(pools["ext"][date], index_maps, date)
+        legs = build.legs_at(members_at[date], index_maps, date)
         if len(legs) < MIN_SCORED:
             continue
         used_dates.append(date)
-        for key, (universe, adjust) in VARIANTS.items():
-            members = {s: v for s, v in legs.items() if s in pools[universe][date]}
-            if len(members) < MIN_SCORED:
-                continue
+        for key, adjust in VARIANTS.items():
             at = build.LEG_VALUE[adjust]
-            p12 = build.percentiles({s: v[0][at] for s, v in members.items()})
-            p6 = build.percentiles({s: v[1][at] for s, v in members.items()})
-            blended = {s: build.WEIGHT_LONG * p12[s] + build.WEIGHT_MID * p6[s] for s in members}
+            p12 = build.percentiles({s: v[0][at] for s, v in legs.items()})
+            p6 = build.percentiles({s: v[1][at] for s, v in legs.items()})
+            blended = {s: build.WEIGHT_LONG * p12[s] + build.WEIGHT_MID * p6[s] for s in legs}
             order = sorted(blended, key=lambda s: (-blended[s], s))   # ties: see rank_block
             size = len(order) // DECILES
             top, whole = set(order[:size]), set(order)
@@ -238,7 +230,7 @@ def main() -> None:
                 "all": concentration(whole, sectors),
             })
     log(f"{len(used_dates)} usable rebalances; "
-        f"top decile holds {len(baskets['ewr'][used_dates[-1]][0])} names in the 650")
+        f"top decile holds {len(baskets['wr'][used_dates[-1]][0])} names")
 
     # --- chain the holding periods into one continuous daily series ---
     start = used_dates[0]
@@ -250,7 +242,7 @@ def main() -> None:
         "dates": [start] + days,
         "variants": {},
     }
-    for key, (universe, adjust) in VARIANTS.items():
+    for key, adjust in VARIANTS.items():
         curves = {"top": [1.0], "bottom": [1.0], "all": [1.0]}
         ok = True
         for i, date in enumerate(used_dates):
@@ -271,7 +263,6 @@ def main() -> None:
         n = len(curves["top"])
         dates = report["dates"][:n]
         entry = {
-            "universe": universe,
             "adjust": adjust,
             "holds": len(baskets[key][used_dates[-1]][0]),
             "members": len(baskets[key][used_dates[-1]][2]),

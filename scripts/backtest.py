@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Point-in-time backtest of the blended momentum score.
 
-Scope: the S&P MidCap 400 ranked against itself as a whole. The extended
-650-name universe and the within-sector basis are display options in the app,
-not tested here — the extended universe's history would need a point-in-time
-S&P 500 tail at every rebalance, which is built but not validated for this use.
+Scope: the universe ranked against itself as a whole. The within-sector basis
+is a display option in the app and is not tested here — it is a different
+signal and would need its own test.
 
-Reconstructs S&P MidCap 400 membership month by month by walking Wikipedia's
-"Selected changes" table backwards from today's constituent list, re-ranks the
-members alive at each month end, and measures what the ranking was worth: 1/3/6
-month forward returns by decile, the top-minus-bottom spread, and how often the
-top decile actually beat the bottom one.
+Reconstructs membership month by month — the MidCap 400 from Wikipedia's
+"Selected changes" table walked backwards from today, plus the S&P 500 tail
+picked with the market caps that were true on the day — re-ranks the members
+alive at each month end, and measures what the ranking was worth: 1/3/6 month
+forward returns by decile, the top-minus-bottom spread, and how often the top
+decile actually beat the bottom one.
 
 Reuses build.py for price fetching and the momentum maths, so the backtest and
 the live site cannot silently diverge.
@@ -35,7 +35,7 @@ import universes  # noqa: E402  (membership reconstruction)
 WIKI = build.WIKI
 HORIZONS = (1, 3, 6)      # forward-return horizons, in months
 DECILES = 10
-MIN_MEMBERS = 200         # skip a month end whose reconstructed index looks broken
+MIN_MEMBERS = 400         # skip a month end whose reconstructed universe looks broken
 ADJUSTS = ("raw", "vol")  # rank the return itself, or the return over its own vol
 
 
@@ -95,18 +95,20 @@ def add_months(iso: str, months: int) -> str:
 # --- Main ---------------------------------------------------------------------
 
 def main() -> None:
-    universe, changes = universes.load_core()
-    current = {c["symbol"] for c in universe}
     log = build.log
-    log(f"changes table: {len(changes)} add/remove events, newest {changes[0]['date']}")
+    core_universe, core_changes = universes.load_core()
+    sp500_universe, sp500_changes = universes.load_sp500()
+    core_now = {c["symbol"] for c in core_universe}
+    sp500_now = {c["symbol"] for c in sp500_universe}
+    log(f"change logs: {len(core_changes)} MidCap 400, {len(sp500_changes)} S&P 500")
 
     # Every symbol that was a member at any point in the window we care about.
     horizon_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
-    ever = set(current)
-    for change in changes:
+    ever = core_now | sp500_now
+    for change in core_changes + sp500_changes:
         if change["date"] >= horizon_start and change["removed"]:
             ever.add(change["removed"])
-    log(f"symbols to price: {len(ever)} ({len(ever) - len(current)} former members)")
+    log(f"symbols to price: {len(ever)}")
 
     prices = build.fetch_all_prices(sorted(ever))
     index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
@@ -118,7 +120,17 @@ def main() -> None:
     ranking_dates = [d for d in all_month_ends if d <= last_usable][-build.HISTORY_MONTHS:]
     log(f"{len(ranking_dates)} ranking dates, {ranking_dates[0]} → {ranking_dates[-1]}")
 
-    members_at = universes.membership_history(current, changes, ranking_dates)
+    # The same universe the site ranks, rebuilt at each date: the MidCap 400 as
+    # it stood, plus the S&P 500 tail picked on that day's market caps.
+    core_at = universes.membership_history(core_now, core_changes, ranking_dates)
+    sp500_at = universes.membership_history(sp500_now, sp500_changes, ranking_dates)
+    cap_symbols = sorted({s for d in ranking_dates for s in sp500_at[d]} & set(prices))
+    caps = universes.fetch_market_caps(cap_symbols)
+    members_at = {
+        date: (core_at[date] & set(prices))
+              | universes.size_tail(sp500_at[date] & set(prices), caps, date)
+        for date in ranking_dates
+    }
 
     # adjust -> horizon -> decile -> per-month mean returns
     rows_by_h = {a: {h: defaultdict(list) for h in HORIZONS} for a in ADJUSTS}

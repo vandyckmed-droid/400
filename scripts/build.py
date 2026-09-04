@@ -3,15 +3,15 @@
 
 Pipeline
 --------
-1. Resolve both universes with point-in-time membership (universes.py): the
-   MidCap 400, and the 400 plus the 250 smallest S&P 500 names by market cap.
+1. Resolve the universe with point-in-time membership (universes.py): the
+   MidCap 400 plus the 250 smallest S&P 500 names by market cap, ~650 in all.
    Each source falls back to a committed snapshot if it is down.
 2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
-3. At each month end and week end, compute volatility-adjusted 12-1 and 6-1
-   momentum once per name, then rank it four ways: against the whole of either
-   universe, or only against its own sector within either.
+3. At each month end and week end, compute the 12-1 and 6-1 legs once per name,
+   then rank them four ways: on the return or on the return over its own
+   volatility, each against the whole universe or against the name's sector.
 4. Refuse to publish if the result looks degraded (guard()), else emit
-   data/latest.json and data/history/{cw,cs,ew,es}[w].json.
+   data/latest.json and data/history/{wr,wv,sr,sv}[w].json.
 
 Only the standard library is used, so the refresh job needs no dependencies.
 """
@@ -59,13 +59,12 @@ WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
 MIN_SECTOR = 5          # smallest sector that gets a within-sector percentile
 
-# The eight peer sets a name can be ranked against, keyed by three letters:
-# which universe (c|e), whether the cross-section is the whole thing or just the
-# name's own sector (w|s), and what gets ranked (r = the return itself,
-# v = the return divided by its own volatility).
+# The four peer sets a name can be ranked against, keyed by two letters:
+# whether the cross-section is the whole universe or just the name's own sector
+# (w|s), and what gets ranked (r = the return itself, v = the return divided by
+# its own volatility). The universe is not an axis: there is one, defined below.
 PEER_SETS = {
-    universe[0] + basis[0] + adjust[0]: (universe, basis, adjust)
-    for universe in ("core", "ext")
+    basis[0] + adjust[0]: (basis, adjust)
     for basis in ("whole", "sector")
     for adjust in ("raw", "vol")
 }
@@ -475,20 +474,19 @@ def main() -> None:
     log(f"market caps for {len(cap_symbols)} S&P 500 names (to size the tail)")
     caps = universes.fetch_market_caps(cap_symbols)
 
-    ext_at = {}
+    # The universe: the MidCap 400 as it stood that day, plus the smallest tail
+    # of the S&P 500 by the market caps that were true that day.
+    members_at = {}
     for date in all_dates:
         tail = universes.size_tail(sp500_at[date] & set(prices), caps, date)
-        ext_at[date] = (core_at[date] & set(prices)) | tail
-    log(f"extended universe today: {len(ext_at[as_of])} names "
-        f"({len(core_at[as_of] & set(prices))} core + {len(ext_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
+        members_at[date] = (core_at[date] & set(prices)) | tail
+    log(f"universe today: {len(members_at[as_of])} names "
+        f"({len(core_at[as_of] & set(prices))} from the MidCap 400 + "
+        f"{len(members_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
 
     # --- today's cross-sections ---
-    legs_now = legs_at(ext_at[as_of], index_maps, as_of)
-    pools_now = {"core": core_at[as_of], "ext": ext_at[as_of]}
+    legs_now = legs_at(members_at[as_of], index_maps, as_of)
     live = set(legs_now)                          # every name the site will publish
-    # Names whose history each peer set should carry: today's members of that
-    # universe. On dates before they joined they are scored as outsiders.
-    carry = {"core": pools_now["core"] & live, "ext": live}
 
     # --- history: one momentum pass per date, reused by all four peer sets ---
     def build_history(dates):
@@ -496,15 +494,16 @@ def main() -> None:
         outside = {key: {} for key in PEER_SETS}
         kept = []
         for date in dates:
-            legs = legs_at(ext_at[date] | live, index_maps, date)
-            if sum(1 for s in legs if s in ext_at[date]) < MIN_NAMES_PER_SNAPSHOT:
+            legs = legs_at(members_at[date] | live, index_maps, date)
+            if sum(1 for s in legs if s in members_at[date]) < MIN_NAMES_PER_SNAPSHOT:
                 continue
             kept.append(date)
-            pools = {"core": core_at[date], "ext": ext_at[date]}
-            for key, (universe, basis, adjust) in PEER_SETS.items():
-                members = {s: v for s, v in legs.items() if s in pools[universe]}
-                joiners = {s: v for s, v in legs.items()
-                           if s in carry[universe] and s not in pools[universe]}
+            members = {s: v for s, v in legs.items() if s in members_at[date]}
+            # Published names that were not members on this date are scored
+            # against that day's distribution as outsiders, so a recent joiner
+            # still gets a full chart without disturbing the cross-section.
+            joiners = {s: v for s, v in legs.items() if s not in members_at[date]}
+            for key, (basis, adjust) in PEER_SETS.items():
                 for symbol, block in rank_block(members, meta, basis, adjust, joiners).items():
                     history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
                     if block.get("outside"):
@@ -516,9 +515,8 @@ def main() -> None:
     log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections; "
         f"{sum(len(v) for v in history_outside.values())} name/peer-set pairs carry pre-membership bars")
     blocks = {
-        key: rank_block({s: v for s, v in legs_now.items() if s in pools_now[universe]},
-                        meta, basis, adjust)
-        for key, (universe, basis, adjust) in PEER_SETS.items()
+        key: rank_block(legs_now, meta, basis, adjust)
+        for key, (basis, adjust) in PEER_SETS.items()
     }
 
     ranked = sorted(legs_now)
@@ -556,7 +554,7 @@ def main() -> None:
 
     core_priced = len(core_at[as_of] & set(prices))
     guard(core_priced >= 380, f"only {core_priced} of the MidCap 400 priced")
-    guard(len(ext_at[as_of]) >= 620, f"extended universe is only {len(ext_at[as_of])} names")
+    guard(len(members_at[as_of]) >= 620, f"universe is only {len(members_at[as_of])} names")
     previous = DATA / "latest.json"
     if previous.exists():
         before = len(json.loads(previous.read_text())["rows"])
@@ -567,8 +565,8 @@ def main() -> None:
     meta_block = {
         "asOf": as_of,
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "core": len(core_at[as_of] & set(prices)),
-        "ext": len(ext_at[as_of]),
+        "fromCore": len(core_at[as_of] & set(prices)),
+        "members": len(members_at[as_of]),
         "counts": counts,
         "sizeTail": universes.SIZE_TAIL,
         "params": {
