@@ -35,17 +35,21 @@ index are absent from older cross-sections, so historical bars carry some surviv
 this properly needs point-in-time constituent snapshots, which the current data plan doesn't expose.
 Present-day rankings are unaffected.
 
-## Peer sets
+## Universe, and how it's scored
 
-The score is a percentile, so it only means anything relative to a peer group. Four are published,
-switchable on the list and persisted per device:
+The score is a percentile, so it only means anything relative to a peer group. That group is set by
+two **independent** controls, deliberately not merged into one:
 
-| Peer set | Cross-section |
-| --- | --- |
-| MidCap 400 | The index against itself — the original ranking. |
-| MidCap 400 · within sector | Only against its own GICS sector inside the 400. |
-| Extended 650 | The 400 plus the 250 smallest S&P 500 members by market cap. |
-| Extended 650 · within sector | Only against its own sector inside the 650. |
+- **Universe** — `MidCap 400` or `Extended 650`. A mode, chosen once at the top of the list; the
+  title, every ranking, and every chart then run on it. It is not re-offered anywhere else in
+  the app.
+- **Score within sector** — a switch, not a universe. It ranks a name only against its own GICS
+  sector inside whichever universe is active.
+
+Both persist per device, and the four resulting combinations all ship in `latest.json` keyed
+`c`/`e` + `w`/`s`. Merging them into a single four-option control was the original design and it was
+wrong: it forced you to re-pick the universe every time you wanted to change how it was scored, and
+made the per-ticker card display both universes at once.
 
 **Why the extended universe.** The 400/500 boundary is an index-construction artefact, not an
 economic one: a $50B S&P 500 laggard and a $36B MidCap 400 leader are competing for the same
@@ -59,9 +63,9 @@ half of Consumer Staples sits in the worst decile. Ranking inside the sector str
 which is what you want if sector weights are already controlled elsewhere. Sectors thinner than
 five names are left unscored: a percentile across four names says nothing.
 
-A per-ticker card shows all four placements side by side, which is where the two bases earn their
-keep — a name can be 2nd of 399 against the whole index and 1st of 35 inside its sector, or look
-ordinary overall and strong against its peers.
+A per-ticker card shows both bases for the active universe side by side, which is where the sector
+basis earns its keep — a name can be 6th of 649 against the whole universe and 1st of 51 inside its
+sector.
 
 One taxonomy note: FMP labels S&P 500 sectors with the Yahoo/Morningstar scheme
 ("Technology", "Healthcare") while Wikipedia's MidCap 400 table uses GICS
