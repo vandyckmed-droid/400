@@ -973,9 +973,14 @@
       `A month with fewer than ${m.minScored} ranked names is skipped. ${m.skippedMonths === 0
         ? 'None were.' : `${m.skippedMonths} were.`}`,
       `A name needs at least ${m.minPriceBars} daily closes from the price vendor to be in the
-        universe at all. ${m.unpriced.length} former index members have none —
-        ${m.unpriced.join(', ')} — so they are absent at every date. Both lines therefore carry
-        survivorship bias; the data cannot say in which direction.`,
+        universe at all. ${m.unpriced.length} names in the index change logs have none.
+        ${m.unpriced.length - m.unpricedInWindow.length - m.unpricedPossibleTail.length} left
+        their index before this window began and cannot affect either line.
+        ${m.unpricedInWindow.length ? `<b>${m.unpricedInWindow.join(', ')}</b> were MidCap 400
+        members on rebalance dates in this window and are missing from both lines.` : ''}
+        ${m.unpricedPossibleTail.length ? `${m.unpricedPossibleTail.join(', ')} were S&amp;P 500
+        members in the window and are missing only if they were small enough for the tail.` : ''}
+        Both lines carry survivorship bias to that extent.`,
       `The final holding period, ${fmtDate(m.lastRebalance)} to ${fmtDate(pf.to)}, is not a full
         month.`,
       `Plotted values are stored to 0.01. The statistics below use the unrounded series.`,

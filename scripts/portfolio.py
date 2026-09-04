@@ -206,6 +206,13 @@ def main() -> None:
               | universes.size_tail(sp500_at[date] & set(prices), caps, date)
         for date in rebal_dates
     }
+    # Unpriced names that were index members on at least one rebalance date.
+    # Only these can change a plotted value; the others left before the window.
+    # An S&P 500 name counts only if it would have been small enough for the
+    # tail, which cannot be known without its cap, so it is listed as possible.
+    unpriced_core = sorted(s for s in unpriced if any(s in core_at[d] for d in rebal_dates))
+    unpriced_sp500 = sorted(s for s in unpriced if s not in unpriced_core
+                            and any(s in sp500_at[d] for d in rebal_dates))
 
     # --- baskets: one momentum pass per rebalance, shared by every variant ---
     baskets = {key: {} for key in VARIANTS}     # key -> date -> (top, bottom, all)
@@ -261,6 +268,8 @@ def main() -> None:
             "priceSource": "FMP historical-price-eod/dividend-adjusted, adjClose",
             "capSource": "FMP historical-market-capitalization",
             "unpriced": unpriced,
+            "unpricedInWindow": unpriced_core,
+            "unpricedPossibleTail": unpriced_sp500,
             "ranked": {"min": min(n for n, _ in sizes["wr"]), "max": max(n for n, _ in sizes["wr"])},
             "held": {"min": min(h for _, h in sizes["wr"]), "max": max(h for _, h in sizes["wr"])},
             "skippedMonths": len(rebal_dates) - len(used_dates),
