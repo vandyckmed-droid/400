@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Chart prototype</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b0d12%22/%3E%3Crect x=%226%22 y=%2218%22 width=%224%22 height=%228%22 fill=%22%23cf6b2f%22/%3E%3Crect x=%2212%22 y=%2213%22 width=%224%22 height=%2213%22 fill=%22%23c9b02f%22/%3E%3Crect x=%2218%22 y=%229%22 width=%224%22 height=%2217%22 fill=%22%2358c04a%22/%3E%3Crect x=%2224%22 y=%225%22 width=%224%22 height=%2221%22 fill=%22%2335c46a%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* The whole screen is the chart. Nothing scrolls, so a vertical drag is
+     always a chart gesture and never a page scroll. */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  .bar {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: calc(10px + var(--safe-t)) 14px 8px;
+    border-bottom: 1px solid var(--line);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar b { font-size: 19px; letter-spacing: -.02em; }
+  .bar .sub { color: var(--ink-3); font-size: 13px; }
+  .bar .px { margin-left: auto; font-weight: 700; }
+  .bar .chg { font-size: 13px; }
+  .up { color: var(--hot); } .down { color: var(--cold); }
+  #chart {
+    flex: 1; width: 100%; display: block;
+    touch-action: none; -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    margin-bottom: var(--safe-b);
+  }
+  .hint {
+    position: absolute; left: 0; right: 0; bottom: calc(30px + var(--safe-b));
+    text-align: center; font-size: 12px; color: var(--ink-3); pointer-events: none;
+    transition: opacity .4s; padding: 0 20px;
+  }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <b id="sym">—</b><span class="sub" id="sub">1D · prototype</span>
+    <span class="px" id="px"></span><span class="chg" id="chg"></span>
+  </div>
+  <canvas id="chart" aria-label="Daily price bars with a 200-bar regression channel"></canvas>
+  <p class="hint" id="hint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap the axis to reset</p>
+  <script src="chart.js"></script>
+  <script>
+    (function () {
+      const sym = (new URLSearchParams(location.search).get('s') || 'IESC').toUpperCase();
+      const boot = (d) => {
+        const n = d.c.length, last = d.c[n - 1], prev = d.c[n - 2] ?? d.o[n - 1];
+        const chg = last / prev - 1;
+        document.getElementById('sym').textContent = d.symbol;
+        document.getElementById('px').textContent = last.toFixed(2);
+        const el = document.getElementById('chg');
+        el.textContent = (chg >= 0 ? '+' : '') + (chg * 100).toFixed(2) + '%';
+        el.className = 'chg ' + (chg >= 0 ? 'up' : 'down');
+        document.getElementById('sub').textContent = '1D · ' + d.dates[0] + ' to ' + d.dates[n - 1];
+        const hint = document.getElementById('hint');
+        setTimeout(() => { hint.style.opacity = 0; }, 6000);
+        window.chart = priceChart(document.getElementById('chart'), d);
+      };
+      if (window.BARS) boot(window.BARS);
+      else fetch('data/bars/' + sym + '.json').then((r) => r.json()).then(boot)
+        .catch(() => { document.getElementById('sym').textContent = 'No bars for ' + sym; });
+    })();
+  </script>
+</body>
+</html>
