@@ -98,9 +98,12 @@
   const cls = (v) => v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : '';
 
   /* ---------- boot ---------- */
-  fetch('data/latest.json', { cache: 'no-cache' })
-    .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then((payload) => {
+  Promise.all([
+    fetch('data/latest.json', { cache: 'no-cache' })
+      .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+    loadJSON('data/spark.json', 'spark'),   // optional: rows still render without it
+  ])
+    .then(([payload]) => {
       state.rows = payload.rows;
       state.meta = payload.meta;
       state.bySymbol = new Map(payload.rows.map((r) => [r.symbol, r]));
@@ -231,11 +234,39 @@
       `<span class="rk">${p.k}</span>` +
       `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
       `<small>${r.idx === '500' ? '<i class="badge">S&amp;P 500</i> ' : ''}${esc(r.name)}</small></a>` +
-      `<span class="sc"><b>${p.s.toFixed(1)}</b>` +
-      `<span class="bar"><i style="width:${p.s}%;background:${tone(p.s)}"></i></span></span>` +
+      sparkline(r.symbol) +
+      `<span class="sc"><b>${p.s.toFixed(1)}</b></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
       `${state.watch.has(r.symbol) ? '★' : '☆'}</button>`;
     return li;
+  }
+
+  /* A year of month-end scores as a strip of tone-coloured bars, the same
+     ramp the detail chart uses, with a hairline at 50 so above/below the
+     median reads at a glance. Months scored as an outsider (before the name
+     joined the index) are dimmed, as in the detail chart. */
+  const SPARK = { w: 6, gap: 2, h: 22 };
+  function sparkline(symbol) {
+    const sp = state.spark;
+    const key = peerKey();
+    const scores = sp && sp[key] && sp[key][symbol];
+    const n = sp ? sp.dates.length : 12;
+    const width = n * (SPARK.w + SPARK.gap) - SPARK.gap;
+    const outside = (sp && sp.outside[key] && sp.outside[key][symbol]) || [];
+    let bars = '';
+    if (scores) {
+      scores.forEach((v, i) => {
+        if (v == null) return;
+        const h = Math.max(1.5, v / 100 * SPARK.h);
+        bars += `<rect x="${i * (SPARK.w + SPARK.gap)}" y="${(SPARK.h - h).toFixed(1)}" `
+          + `width="${SPARK.w}" height="${h.toFixed(1)}" rx="1" fill="${tone(v)}"`
+          + `${outside.includes(i) ? ' opacity=".4"' : ''}/>`;
+      });
+    }
+    const first = scores && scores.find((v) => v != null);
+    const label = scores ? `Score over the last ${n} months: ${first} to ${scores[scores.length - 1]}` : '';
+    return `<svg class="spark" viewBox="0 0 ${width} ${SPARK.h}" width="${width}" height="${SPARK.h}" `
+      + `role="img" aria-label="${label}"><line x1="0" x2="${width}" y1="${SPARK.h / 2}" y2="${SPARK.h / 2}"/>${bars}</svg>`;
   }
 
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

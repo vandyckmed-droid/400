@@ -51,6 +51,7 @@ MID_DAYS = 126          # 6-month formation window
 MIN_OBS_LONG = 180      # min daily returns required in the 12-1 window
 MIN_OBS_MID = 90        # min daily returns required in the 6-1 window
 HISTORY_MONTHS = 36     # month-end snapshots to publish
+SPARK_MONTHS = 12       # months of score strip drawn inline in each list row
 HISTORY_WEEKS = 78      # week-end snapshots (18 months) for the finer-grained view
 YEARS_OF_PRICES = 6     # history depth to request from FMP
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
@@ -572,6 +573,25 @@ def main() -> None:
             }
             write_json(DATA / "history" / f"{key}{suffix}.json",
                        {"dates": dates, "scores": scores, "outside": pre})
+
+    # The list rows draw a one-year strip per name, so that ships as one small
+    # file: integer scores for the last SPARK_MONTHS month-ends, all four peer
+    # sets together, only names in the published rows. Outsider indices are
+    # relative to the strip, not the full history.
+    strip = kept_dates[-SPARK_MONTHS:]
+    spark = {"dates": strip, "outside": {}}
+    for key in PEER_SETS:
+        spark[key] = {
+            symbol: [None if by_date.get(d) is None else round(by_date[d]) for d in strip]
+            for symbol, by_date in history[key].items()
+            if symbol in published
+        }
+        spark["outside"][key] = {
+            symbol: [i for i, d in enumerate(strip) if d in when]
+            for symbol, when in history_outside[key].items()
+            if symbol in published and any(d in when for d in strip)
+        }
+    write_json(DATA / "spark.json", spark)
 
 
 def write_json(path: Path, payload: object) -> None:
