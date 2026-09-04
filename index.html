@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="description" content="Volatility-adjusted momentum ranking of the S&P MidCap 400.">
+<title>MidCap 400 Momentum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b0d12%22/%3E%3Crect x=%226%22 y=%2218%22 width=%224%22 height=%228%22 fill=%22%23cf6b2f%22/%3E%3Crect x=%2212%22 y=%2213%22 width=%224%22 height=%2213%22 fill=%22%23c9b02f%22/%3E%3Crect x=%2218%22 y=%229%22 width=%224%22 height=%2217%22 fill=%22%2358c04a%22/%3E%3Crect x=%2224%22 y=%225%22 width=%224%22 height=%2221%22 fill=%22%2335c46a%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<main id="list-view">
+  <header class="topbar">
+    <div class="titlerow">
+      <h1>MidCap&nbsp;400 <span>Momentum</span></h1>
+      <button id="about-btn" class="ghost" aria-label="About the score">?</button>
+    </div>
+    <p class="asof" id="asof">Loading…</p>
+    <div class="controls">
+      <input id="search" type="search" inputmode="search" placeholder="Search ticker or name"
+             autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Search">
+      <div class="segmented" role="tablist" aria-label="Filter">
+        <button role="tab" data-scope="all" class="on" aria-selected="true">All</button>
+        <button role="tab" data-scope="watch" aria-selected="false">Watchlist <span id="watch-count"></span></button>
+      </div>
+      <div class="selects">
+        <label class="sel"><span>Sector</span>
+          <select id="sector"><option value="">All sectors</option></select>
+        </label>
+        <label class="sel"><span>Sort</span>
+          <select id="sort">
+            <option value="score">Blended score</option>
+            <option value="p12">12–1 percentile</option>
+            <option value="p6">6–1 percentile</option>
+            <option value="mktCap">Market cap</option>
+            <option value="symbol">Ticker A–Z</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <p class="count" id="count"></p>
+  <ol class="rows" id="rows"></ol>
+  <div id="sentinel"></div>
+  <p class="empty" id="empty" hidden>No matches.</p>
+  <footer class="foot">
+    <p>Scores are cross-sectional percentiles within the current S&amp;P&nbsp;MidCap&nbsp;400 — a rank against peers, not a return forecast.</p>
+    <p id="gen"></p>
+  </footer>
+</main>
+
+<section id="detail-view" hidden></section>
+
+<dialog id="about">
+  <h2>How the score works</h2>
+  <ol class="method">
+    <li><b>12–1 momentum.</b> Total return on dividend- and split-adjusted closes over the 12 months ending one month ago. The most recent month is skipped to sidestep short-term reversal.</li>
+    <li><b>6–1 momentum.</b> Same idea over the trailing 6 months, again ending one month ago.</li>
+    <li><b>Volatility adjustment.</b> Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one.</li>
+    <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other MidCap 400 name on the same day and mapped to 0–100.</li>
+    <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
+  </ol>
+  <p class="fine">The history chart re-runs the full cross-section at each month end, so a bar shows where the name stood against its peers <em>on that date</em>. The peer set is today's index membership throughout, which introduces some survivorship bias in older bars. Data: Financial Modeling Prep. Not investment advice.</p>
+  <button id="about-close">Close</button>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
