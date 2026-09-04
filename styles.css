@@ -102,6 +102,10 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 #watch-count { color: var(--ink-3); font-weight: 500; }
 
 .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Sector labels carry a member count, so the longest of them needs more
+   room than an even split gives. Narrow phones keep the even split: the
+   count is still readable in the open list and in the line below. */
+@media (min-width: 380px) { .selects { grid-template-columns: 1.6fr 1fr; } }
 .sel { display: block; position: relative; }
 .sel.wide { grid-column: 1 / -1; }
 .sel span {

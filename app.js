@@ -134,10 +134,22 @@
       .toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
 
+  /* Sectors are ordered by how many names they hold, biggest first, because
+     the size of the pool is what tells you whether a sector filter leaves you
+     a ranking or a handful of names. The counts move with the universe and
+     with the scoring basis (a sector too small to score drops out), so this
+     rebuilds on both rather than filling once at boot. */
   function fillSectors() {
-    const sectors = [...new Set(state.rows.map((r) => r.sector).filter(Boolean))].sort();
+    const members = state.rows.filter(place);
+    const counts = new Map();
+    for (const r of members) if (r.sector) counts.set(r.sector, (counts.get(r.sector) || 0) + 1);
+    const ordered = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const sel = $('sector');
-    for (const s of sectors) sel.append(new Option(s, s));
+    sel.replaceChildren(new Option(`All sectors (${members.length})`, ''));
+    for (const [name, n] of ordered) sel.append(new Option(`${name} (${n})`, name));
+    // A sector can vanish when the universe shrinks; fall back to all sectors.
+    if (state.sector && !counts.has(state.sector)) state.sector = '';
+    sel.value = state.sector;
   }
 
   /* The universe is the title. It needs no control of its own: naming the
@@ -292,11 +304,13 @@
       state.universe = other();
       try { localStorage.setItem(UNIVERSE_KEY, state.universe); } catch { /* private mode */ }
       syncControls();
+      fillSectors();
       applyFilters();
     });
     $('basis').addEventListener('change', (e) => {
       state.basis = e.target.checked ? 'sector' : 'whole';
       try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
+      fillSectors();
       applyFilters();
     });
     $('sback').addEventListener('click', goBack);
