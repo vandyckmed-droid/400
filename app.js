@@ -17,8 +17,8 @@
      `basis` is a way of looking at whichever universe you chose. Data for all
      four combinations ships in latest.json, keyed c/e + w/s. */
   const UNIVERSES = {
-    core: { label: 'MidCap 400', short: 'MidCap 400' },
-    ext: { label: 'Extended 650', short: 'extended 650' },
+    core: { label: 'MidCap 400', size: '400' },
+    ext: { label: 'MidCap 650', size: '650' },
   };
   const keyFor = (universe, basis) =>
     (universe === 'core' ? 'c' : 'e') + (basis === 'sector' ? 's' : 'w');
@@ -123,18 +123,16 @@
     for (const s of sectors) sel.append(new Option(s, s));
   }
 
-  /* The universe is a mode, so it shows in the title rather than only in a
-     control: the app is either the 400 app or the 650 app. */
+  /* The universe is the title. It needs no control of its own: naming the
+     app after it says which one is active and switching it is the same tap. */
+  const other = () => (state.universe === 'core' ? 'ext' : 'core');
+
   function syncControls() {
-    for (const b of document.querySelectorAll('#universe button')) {
-      const on = b.dataset.u === state.universe;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-selected', String(on));
-    }
+    const here = UNIVERSES[state.universe], there = UNIVERSES[other()];
+    $('title').innerHTML = `MidCap<span class="pill">${here.size} <i aria-hidden="true">⇄</i></span>`;
+    $('title').setAttribute('aria-label', `Universe: ${here.label}. Switch to ${there.label}.`);
+    document.title = `${here.label} Momentum`;
     $('basis').setAttribute('aria-pressed', String(sectorBasis()));
-    $('title').innerHTML = state.universe === 'core'
-      ? 'MidCap&nbsp;400 <span>Momentum</span>'
-      : 'Extended&nbsp;650 <span>Momentum</span>';
   }
 
   const sortValue = (r, key) => {
@@ -215,10 +213,8 @@
       const value = e.target.value;
       debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
     });
-    $('universe').addEventListener('click', (e) => {
-      const tab = e.target.closest('button[data-u]');
-      if (!tab || tab.dataset.u === state.universe) return;
-      state.universe = tab.dataset.u;
+    $('title').addEventListener('click', () => {
+      state.universe = other();
       try { localStorage.setItem(UNIVERSE_KEY, state.universe); } catch { /* private mode */ }
       syncControls();
       applyFilters();
@@ -338,8 +334,8 @@
           key[1] === 's' ? ` in ${esc(r.sector)}` : ''}</b></span>
       </div>
       ${borrowed ? `<p class="scope">${r.symbol} is not in the MidCap&nbsp;400, so this page is
-        scored against the <b>extended 650</b>. Switch the universe on the list to see it ranked
-        alongside everything else.</p>` : ''}
+        scored against <b>MidCap&nbsp;650</b>. Tap the title on the list to switch universe and see
+        it ranked alongside everything else.</p>` : ''}
       <div class="tags">
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
@@ -525,7 +521,7 @@
       readout: (p) => [(grain === 'w' ? 'week ending ' : '') + fmtDate(p.date), p.value.toFixed(1)],
       note: `Each bar re-ranks ${r.symbol} against ${key[1] === 's'
                ? `other ${r.sector} names`
-               : `all of the ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].short}`} at that
+               : `all of ${UNIVERSES[key[0] === 'c' ? 'core' : 'ext'].label}`} at that
              ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
              Above the dashed line means the better half of that peer set.`,
     });

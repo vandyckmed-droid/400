@@ -40,9 +40,10 @@ Present-day rankings are unaffected.
 The score is a percentile, so it only means anything relative to a peer group. That group is set by
 two **independent** controls, deliberately not merged into one:
 
-- **Universe** — `MidCap 400` or `Extended 650`. A mode, chosen once at the top of the list; the
-  title, every ranking, and every chart then run on it. It is not re-offered anywhere else in
-  the app.
+- **Universe** — `MidCap 400` or `MidCap 650`. A mode, and it *is* the title: tapping the number
+  switches it, and every ranking and chart then runs on it. It has no control of its own, because
+  naming the app after the universe already says which one is active and switching it is the same
+  tap. Not re-offered anywhere else.
 - **Score within sector** — a switch, not a universe. It ranks a name only against its own GICS
   sector inside whichever universe is active.
 
@@ -53,7 +54,8 @@ made the per-ticker card display both universes at once.
 
 **Why the extended universe.** The 400/500 boundary is an index-construction artefact, not an
 economic one: a $50B S&P 500 laggard and a $36B MidCap 400 leader are competing for the same
-capital. Adding the S&P 500's small tail measures a name against everything of roughly its size.
+capital. The name is loose — those 250 are large-cap by index membership and mid-cap by size — so
+they are badged in the list and the methodology dialog says exactly what they are. Adding the S&P 500's small tail measures a name against everything of roughly its size.
 Membership and the market caps that pick the tail are both point-in-time, so a bar from 2024 uses
 the universe as it stood in 2024, not today's.
 
