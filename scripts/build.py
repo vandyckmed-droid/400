@@ -59,14 +59,19 @@ WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
 MIN_SECTOR = 5          # smallest sector that gets a within-sector percentile
 
-# The four peer sets a name can be ranked against: which universe, and whether
-# the cross-section is the whole thing or just the name's own sector.
+# The eight peer sets a name can be ranked against, keyed by three letters:
+# which universe (c|e), whether the cross-section is the whole thing or just the
+# name's own sector (w|s), and what gets ranked (r = the return itself,
+# v = the return divided by its own volatility).
 PEER_SETS = {
-    "cw": ("core", "whole"),
-    "cs": ("core", "sector"),
-    "ew": ("ext", "whole"),
-    "es": ("ext", "sector"),
+    universe[0] + basis[0] + adjust[0]: (universe, basis, adjust)
+    for universe in ("core", "ext")
+    for basis in ("whole", "sector")
+    for adjust in ("raw", "vol")
 }
+# vol_adjusted_momentum returns (raw return, annualised vol, raw / vol); this
+# picks which of those three the cross-sectional percentile is taken over.
+LEG_VALUE = {"raw": 0, "vol": 2}
 
 WORKERS = 5            # the vendor throttles above this on large payloads
 RETRIES = 6
@@ -333,13 +338,19 @@ def month_end_dates(calendar: list[str], count: int) -> list[str]:
     return [by_month[m] for m in months[-count:]]
 
 
-def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None) -> dict:
-    """Turn raw vol-adjusted legs into percentiles, a blended score and a rank.
+def rank_block(legs: dict, meta: dict, basis: str, adjust: str,
+               outsiders: dict | None = None) -> dict:
+    """Turn momentum legs into percentiles, a blended score and a rank.
 
     `basis` picks the cross-section each name is measured against: "whole" ranks
     it against every member of the universe, "sector" only against its own GICS
     sector. Sectors thinner than MIN_SECTOR are left unscored — a percentile
     across four names says nothing.
+
+    `adjust` picks what is ranked: "raw" ranks the return itself, "vol" ranks
+    the return divided by the volatility of the same window, so a steady climb
+    outranks an equally large but erratic one. Both are published; the app
+    chooses between them.
 
     `outsiders` are names that were not members on this date but are published
     today. They are scored against the member distribution as if inserted into
@@ -347,6 +358,10 @@ def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None
     percentiles. That gives a recent joiner a full history chart while keeping
     every historical cross-section point-in-time.
     """
+    at = LEG_VALUE[adjust]
+    long_of = lambda s: legs[s][0][at]      # noqa: E731 - terse by design, used four times
+    mid_of = lambda s: legs[s][1][at]       # noqa: E731
+
     if basis == "whole":
         groups = {"*": set(legs)}
     else:
@@ -358,8 +373,8 @@ def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None
     for sector, members in groups.items():
         if basis == "sector" and (not sector or len(members) < MIN_SECTOR):
             continue
-        p_long = percentiles({s: legs[s][0] for s in members})
-        p_mid = percentiles({s: legs[s][1] for s in members})
+        p_long = percentiles({s: long_of(s) for s in members})
+        p_mid = percentiles({s: mid_of(s) for s in members})
         blended = {s: WEIGHT_LONG * p_long[s] + WEIGHT_MID * p_mid[s] for s in members}
         for rank, symbol in enumerate(sorted(members, key=lambda s: -blended[s]), 1):
             out[symbol] = {
@@ -371,13 +386,13 @@ def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None
             }
         if outsiders:
             n = len(members)
-            long_sorted = sorted(legs[s][0] for s in members)
-            mid_sorted = sorted(legs[s][1] for s in members)
+            long_sorted = sorted(long_of(s) for s in members)
+            mid_sorted = sorted(mid_of(s) for s in members)
             for symbol, leg in outsiders.items():
                 if basis == "sector" and meta.get(symbol, {}).get("sector", "") != sector:
                     continue
-                p_l = 100.0 * bisect_left(long_sorted, leg[0]) / n
-                p_m = 100.0 * bisect_left(mid_sorted, leg[1]) / n
+                p_l = 100.0 * bisect_left(long_sorted, leg[0][at]) / n
+                p_m = 100.0 * bisect_left(mid_sorted, leg[1][at]) / n
                 out[symbol] = {
                     "s": round(WEIGHT_LONG * p_l + WEIGHT_MID * p_m, 2),
                     "k": None, "n": n, "p12": round(p_l, 2), "p6": round(p_m, 2),
@@ -387,7 +402,11 @@ def rank_block(legs: dict, meta: dict, basis: str, outsiders: dict | None = None
 
 
 def legs_at(members, index_maps, date: str) -> dict:
-    """Vol-adjusted 12-1 and 6-1 for every member with enough history at `date`."""
+    """The 12-1 and 6-1 legs for every member with enough history at `date`.
+
+    Each leg is (raw return, annualised vol, raw / vol), so a caller can rank on
+    the return or on the volatility-adjusted return without recomputing.
+    """
     out = {}
     for symbol in members:
         entry = index_maps.get(symbol)
@@ -400,7 +419,7 @@ def legs_at(members, index_maps, date: str) -> dict:
         long_leg = vol_adjusted_momentum(closes, pos, LONG_DAYS, MIN_OBS_LONG)
         mid_leg = vol_adjusted_momentum(closes, pos, MID_DAYS, MIN_OBS_MID)
         if long_leg and mid_leg:
-            out[symbol] = (long_leg[2], mid_leg[2], long_leg, mid_leg)
+            out[symbol] = (long_leg, mid_leg)
     return out
 
 
@@ -473,11 +492,11 @@ def main() -> None:
                 continue
             kept.append(date)
             pools = {"core": core_at[date], "ext": ext_at[date]}
-            for key, (universe, basis) in PEER_SETS.items():
+            for key, (universe, basis, adjust) in PEER_SETS.items():
                 members = {s: v for s, v in legs.items() if s in pools[universe]}
                 joiners = {s: v for s, v in legs.items()
                            if s in carry[universe] and s not in pools[universe]}
-                for symbol, block in rank_block(members, meta, basis, joiners).items():
+                for symbol, block in rank_block(members, meta, basis, adjust, joiners).items():
                     history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
                     if block.get("outside"):
                         outside[key].setdefault(symbol, set()).add(date)
@@ -488,15 +507,16 @@ def main() -> None:
     log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections; "
         f"{sum(len(v) for v in history_outside.values())} name/peer-set pairs carry pre-membership bars")
     blocks = {
-        key: rank_block({s: v for s, v in legs_now.items() if s in pools_now[universe]}, meta, basis)
-        for key, (universe, basis) in PEER_SETS.items()
+        key: rank_block({s: v for s, v in legs_now.items() if s in pools_now[universe]},
+                        meta, basis, adjust)
+        for key, (universe, basis, adjust) in PEER_SETS.items()
     }
 
     ranked = sorted(legs_now)
     quotes = fetch_quotes(ranked)
     rows = []
     for symbol in ranked:
-        _, _, long_leg, mid_leg = legs_now[symbol]
+        long_leg, mid_leg = legs_now[symbol]
         info = meta.get(symbol, {})
         q = quotes.get(symbol, {})
         placement = {k: blocks[k][symbol] for k in PEER_SETS if symbol in blocks[k]}
@@ -574,24 +594,28 @@ def main() -> None:
             write_json(DATA / "history" / f"{key}{suffix}.json",
                        {"dates": dates, "scores": scores, "outside": pre})
 
-    # The list rows draw a one-year strip per name, so that ships as one small
-    # file: integer scores for the last SPARK_MONTHS month-ends, all four peer
-    # sets together, only names in the published rows. Outsider indices are
-    # relative to the strip, not the full history.
+    # The list rows draw a one-year strip per name. That ships one file per peer
+    # set rather than all of them together: the list only ever draws the active
+    # set, and eight sets in one payload would be most of the home screen's
+    # weight spent on seven the reader cannot see. Integer scores for the last
+    # SPARK_MONTHS month-ends, only names in the published rows; outsider
+    # indices are relative to the strip, not the full history.
+    (DATA / "spark").mkdir(exist_ok=True)
     strip = kept_dates[-SPARK_MONTHS:]
-    spark = {"dates": strip, "outside": {}}
     for key in PEER_SETS:
-        spark[key] = {
-            symbol: [None if by_date.get(d) is None else round(by_date[d]) for d in strip]
-            for symbol, by_date in history[key].items()
-            if symbol in published
-        }
-        spark["outside"][key] = {
-            symbol: [i for i, d in enumerate(strip) if d in when]
-            for symbol, when in history_outside[key].items()
-            if symbol in published and any(d in when for d in strip)
-        }
-    write_json(DATA / "spark.json", spark)
+        write_json(DATA / "spark" / f"{key}.json", {
+            "dates": strip,
+            "scores": {
+                symbol: [None if by_date.get(d) is None else round(by_date[d]) for d in strip]
+                for symbol, by_date in history[key].items()
+                if symbol in published
+            },
+            "outside": {
+                symbol: [i for i, d in enumerate(strip) if d in when]
+                for symbol, when in history_outside[key].items()
+                if symbol in published and any(d in when for d in strip)
+            },
+        })
 
 
 def write_json(path: Path, payload: object) -> None:

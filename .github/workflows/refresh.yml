@@ -35,6 +35,11 @@ jobs:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python scripts/backtest.py
 
+      - name: Refresh top-decile portfolio curves
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python scripts/portfolio.py
+
       - name: Commit if anything changed
         run: |
           git config user.name  "github-actions[bot]"

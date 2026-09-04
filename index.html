@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="description" content="Volatility-adjusted momentum ranking of the S&P MidCap 400.">
+<meta name="description" content="Momentum ranking of the S&P MidCap 400, with a point-in-time record of the top decile.">
 <title>MidCap 400 Momentum</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -50,6 +50,7 @@
     </div>
   </header>
 
+  <a class="perf" id="perf" href="#/evidence" hidden></a>
   <p class="count" id="count"></p>
   <ol class="rows" id="rows"></ol>
   <div id="sentinel"></div>
@@ -78,6 +79,14 @@
         already controlled elsewhere. Sectors with fewer than five names are left unscored.</small></span>
       <input type="checkbox" id="basis" role="switch">
     </label>
+    <label class="switch">
+      <span class="grow"><b>Divide each leg by its volatility</b>
+        <small>Rank the return over the annualised standard deviation of its own formation window
+        instead of the return itself, so a steady climb outranks an equally large but erratic one.
+        It has historically cut the portfolio's volatility and drawdown more than it changed the
+        return — the record below the list shows both.</small></span>
+      <input type="checkbox" id="adjust" role="switch">
+    </label>
     <p class="legend">The universe — MidCap&nbsp;400 or MidCap&nbsp;650 — is switched by tapping the
       title on the list. It isn't repeated here.</p>
   </div>
@@ -91,13 +100,7 @@
 
   <div class="card">
     <h3>How the score works</h3>
-    <ol class="method">
-      <li><b>12–1 momentum.</b> Total return on dividend- and split-adjusted closes over the 12 months ending one month ago. The most recent month is skipped to sidestep short-term reversal.</li>
-      <li><b>6–1 momentum.</b> Same idea over the trailing 6 months, again ending one month ago.</li>
-      <li><b>Volatility adjustment.</b> Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one.</li>
-      <li><b>Cross-sectional percentile.</b> Each leg is ranked against every other name in the peer set on the same day and mapped to 0–100.</li>
-      <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
-    </ol>
+    <ol class="method" id="method"></ol>
   </div>
 
   <div class="card">
@@ -113,7 +116,8 @@
   </div>
 
   <a class="card go" href="#/evidence"><b>Does the score actually work?</b>
-    <small>Point-in-time backtest: forward returns by decile, spread, hit rate, and the caveats.</small></a>
+    <small>Point-in-time backtest: what holding the top decile would have done,
+      forward returns by decile, spread, hit rate, and the caveats.</small></a>
 
   <footer class="foot"><p>Data: Financial Modeling Prep. A percentile is a rank against peers, not a
     return forecast. Not investment advice.</p></footer>
