@@ -111,6 +111,25 @@ def forward_return(series, index_map, start: str, months: int):
     return p1 / p0 - 1.0 if p0 > 0 else None
 
 
+def newey_west_t(values: list[float], lag: int) -> float:
+    """t-stat for mean(values) = 0, corrected for the autocorrelation that
+    overlapping forward-return windows induce."""
+    n = len(values)
+    mean = st.mean(values)
+    resid = [v - mean for v in values]
+    var = sum(v * v for v in resid) / n
+    for L in range(1, lag + 1):
+        cov = sum(resid[i] * resid[i - L] for i in range(L, n)) / n
+        var += 2 * (1 - L / (lag + 1)) * cov
+    return mean / (var / n) ** 0.5 if var > 0 else float("nan")
+
+
+def plain_t(values: list[float]) -> float:
+    if len(values) < 3:
+        return float("nan")
+    return st.mean(values) / (st.stdev(values) / len(values) ** 0.5)
+
+
 def add_months(iso: str, months: int) -> str:
     y, m, d = map(int, iso.split("-"))
     m += months
@@ -200,7 +219,12 @@ def main() -> None:
         f"median members {st.median(m for m, _ in coverage):.0f}, "
         f"median scored {st.median(s for _, s in coverage):.0f}")
 
-    report = {"rankingDates": len(coverage), "horizons": {}}
+    report = {
+        "rankingDates": len(coverage),
+        "from": ranking_dates[0],
+        "to": ranking_dates[-1],
+        "horizons": {},
+    }
     print()
     for h in HORIZONS:
         print(f"=== {h}-MONTH FORWARD RETURNS, equal-weighted, {len(spreads[h])} month ends ===")
@@ -221,15 +245,29 @@ def main() -> None:
                   f"{row['winRate']:6.0%}   {row['n']}")
         sp = [s for _, s in spreads[h]]
         hit = sum(1 for s in sp if s > 0) / len(sp)
-        tstat = st.mean(sp) / (st.stdev(sp) / len(sp) ** 0.5) if len(sp) > 1 else float("nan")
+        # Sampling h-month returns every month makes windows overlap, which
+        # inflates a plain t-stat. Report both corrections instead.
+        independent = sp[::h]
+        by_year = defaultdict(list)
+        for date, spread in spreads[h]:
+            by_year[date[:4]].append(spread)
         print(f"  TOP-MINUS-BOTTOM  mean {st.mean(sp):+.2%}  median {st.median(sp):+.2%}  "
-              f"hit rate {hit:.0%}  t={tstat:.2f}")
+              f"hit rate {hit:.0%}")
+        print(f"  t: naive {plain_t(sp):.2f} | Newey-West {newey_west_t(sp, max(1, h - 1)):.2f} | "
+              f"non-overlapping {plain_t(independent):.2f} (n={len(independent)})")
         print(f"  best {max(sp):+.1%}  worst {min(sp):+.1%}\n")
         report["horizons"][h] = {
             "deciles": decile_stats,
             "spread": {
                 "mean": st.mean(sp), "median": st.median(sp), "hitRate": hit,
-                "t": tstat, "best": max(sp), "worst": min(sp),
+                "tNaive": plain_t(sp),
+                "tNeweyWest": newey_west_t(sp, max(1, h - 1)),
+                "tIndependent": plain_t(independent),
+                "nIndependent": len(independent),
+                "best": max(sp), "worst": min(sp),
+                "byYear": [{"year": y, "mean": st.mean(v), "n": len(v),
+                            "hitRate": sum(1 for x in v if x > 0) / len(v)}
+                           for y, v in sorted(by_year.items())],
                 "series": [{"date": d, "spread": s} for d, s in spreads[h]],
             },
         }

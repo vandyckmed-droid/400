@@ -49,12 +49,14 @@
   <div id="sentinel"></div>
   <p class="empty" id="empty" hidden>No matches.</p>
   <footer class="foot">
-    <p>Scores are cross-sectional percentiles within the current S&amp;P&nbsp;MidCap&nbsp;400 — a rank against peers, not a return forecast.</p>
+    <p>Scores are cross-sectional percentiles within the current S&amp;P&nbsp;MidCap&nbsp;400 — a rank against peers, not a return forecast.
+      <a href="#/evidence">See how the score tested&nbsp;→</a></p>
     <p id="gen"></p>
   </footer>
 </main>
 
 <section id="detail-view" hidden></section>
+<section id="evidence-view" hidden></section>
 
 <dialog id="about">
   <h2>How the score works</h2>
@@ -66,7 +68,10 @@
     <li><b>Blend.</b> Final score = 50% × 12–1 percentile + 50% × 6–1 percentile.</li>
   </ol>
   <p class="fine">The history chart re-runs the full cross-section at each month end, so a bar shows where the name stood against its peers <em>on that date</em>. The peer set is today's index membership throughout, which introduces some survivorship bias in older bars. Data: Financial Modeling Prep. Not investment advice.</p>
-  <button id="about-close">Close</button>
+  <div class="dlg-actions">
+    <a class="primary" href="#/evidence" id="about-evidence">Does it actually work? →</a>
+    <button id="about-close">Close</button>
+  </div>
 </dialog>
 
 <script src="app.js"></script>
