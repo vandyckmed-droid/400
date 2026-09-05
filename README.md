@@ -224,6 +224,8 @@ python3 -m http.server 8000        # then open http://localhost:8000 and /resear
 
 ## Things that affect future work
 
+Small deferred items live in `TODO.md` at the repo root; the constraints below stay here.
+
 - **No dependencies anywhere.** The scripts use only the Python standard library and the site is
   plain HTML, CSS and JS. Adding a package or a build step is a real decision, not a detail.
 - **Everything is pre-computed.** A new feature that needs a number the JSON does not carry means a
