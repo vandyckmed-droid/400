@@ -80,16 +80,15 @@
   function saveSectors() {
     try { localStorage.setItem(SECTORS_KEY, JSON.stringify([...state.sectors])); } catch { /* private mode */ }
   }
-  /* Chart settings are one small object so a later control is a new key,
-     not a new store. Anything unreadable falls back to the chart's defaults. */
+  /* Chart settings: one object keyed by indicator, in the shape chart.js
+     declares, so a new indicator or setting is a new key rather than a new
+     store. Anything unreadable falls back to the chart's defaults. */
   function loadChartPrefs() {
-    const T = priceChart.TUNE;
-    const prefs = { fill: T.channelFill };
-    try {
-      const raw = JSON.parse(localStorage.getItem(CHART_KEY)) || {};
-      if (typeof raw.fill === 'number' && isFinite(raw.fill)) prefs.fill = Math.min(T.maxFill, Math.max(0, raw.fill));
-    } catch { /* absent or malformed */ }
-    return prefs;
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(CHART_KEY)) || {}; } catch { /* absent or malformed */ }
+    // The first version stored only { fill }; that choice carries into the channel.
+    if (typeof raw.fill === 'number' && !raw.channel) raw = { channel: { fill: raw.fill } };
+    return priceChart.normalize(raw);
   }
   function saveChartPrefs() {
     try { localStorage.setItem(CHART_KEY, JSON.stringify(state.chart)); } catch { /* private mode */ }
@@ -834,28 +833,34 @@
     const fromDetail = !$('detail-view').hidden;
     showView('chart-view');
     const el = $('chart-view');
-    const T = priceChart.TUNE;
-    const pctOf = (fill) => Math.round(fill * 100);
     el.innerHTML = `
       <div class="dtop">
         <button class="back" id="cback">‹ Back</button>
         <span class="grow"><b>${r.symbol}</b><small>${esc(r.name)}</small></span>
         <span class="cpx" id="cpx"></span>
-        <button type="button" class="ghost" id="ctune" aria-label="Chart settings" aria-haspopup="dialog"
+        <button type="button" class="ghost" id="ctune" aria-label="Indicators" aria-haspopup="dialog"
                 aria-expanded="false" hidden><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></button>
       </div>
-      <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol} with a 200-day regression channel"></canvas>
+      <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol}"></canvas>
       <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
-      <div class="cpanel" id="cpanel" role="dialog" aria-label="Chart settings" hidden>
+      <div class="cpanel" id="cpanel" role="dialog" aria-label="Indicators" hidden>
         <div class="sheet-handle" aria-hidden="true"></div>
-        <div class="cpanel-head"><b>Chart</b>
-          <button type="button" id="creset">Reset</button>
-          <button type="button" class="done" id="cdone">Done</button>
+        <div id="cpanel-list">
+          <div class="cpanel-head"><b>Indicators</b>
+            <button type="button" class="done" id="cdone">Done</button>
+          </div>
+          <ul class="ind-list" id="ind-list"></ul>
+          <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
         </div>
-        <label class="cslider"><span>Channel fill <output id="cfill-out" for="cfill"></output></span>
-          <input type="range" id="cfill" min="0" max="${pctOf(T.maxFill)}" step="1" aria-label="Channel fill">
-        </label>
-        <p class="fine">Shading between the channel lines. 0% keeps the lines only. Touch the chart to close.</p>
+        <div id="cpanel-set" hidden>
+          <div class="cpanel-head">
+            <button type="button" class="backlink" id="cset-back">‹ Indicators</button>
+            <b id="cset-title"></b>
+            <button type="button" id="creset">Reset</button>
+          </div>
+          <div id="cset-fields"></div>
+          <p class="fine" id="cset-blurb"></p>
+        </div>
       </div>`;
     $('cback').addEventListener('click', () => (fromDetail ? history.back() : (location.hash = `#/t/${r.symbol}`)));
     loadBars(r.symbol).then((bars) => {
@@ -869,20 +874,69 @@
       const chg = last / prev - 1;
       $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
         `<small>${fmtDate(bars.dates[n - 1])}</small>`;
-      const chart = priceChart($('price-chart'), bars, { fill: state.chart.fill });
+      const chart = priceChart($('price-chart'), bars, { indicators: state.chart });
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, 6000);
       wireChartPanel(chart);
     });
   }
 
-  /* The panel's controls apply on every move; the value is saved when it
-     settles. The canvas keeps its own gestures — a touch on it both closes
-     the panel and pans, which is what a finger expects. */
+  /* How each indicator's settings read in the panel. The numbers themselves
+     (defaults, ranges) come from chart.js so the two can never disagree. */
+  const IND_UI = {
+    channel: {
+      blurb: 'A straight line fitted through the closes over the length, with bands the chosen '
+        + 'number of standard deviations either side, extended to the right edge. Fill shades the '
+        + 'bands; 0% keeps the lines only.',
+      fields: [
+        { key: 'len', label: 'Length', fmt: (v) => `${v} days` },
+        { key: 'dev', label: 'Width', fmt: (v) => `${v.toFixed(1)}σ` },
+        { key: 'fill', label: 'Fill', scale: 100, fmt: (v) => `${Math.round(v * 100)}%` },
+      ],
+      summary: (c) => `${c.len} days · ${c.dev.toFixed(1)}σ · ${Math.round(c.fill * 100)}% fill`,
+    },
+    ma: {
+      blurb: 'The simple average of the closes over the period, drawn in amber over the bars.',
+      fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
+      summary: (m) => `Simple · ${m.period} days`,
+    },
+  };
+
+  /* The panel has two screens: the list of indicators, each with a switch and
+     a tap-through, and one indicator's settings. Controls apply on every move
+     and save when they settle. The canvas keeps its own gestures — a touch on
+     it both closes the panel and pans, which is what a finger expects. */
   function wireChartPanel(chart) {
-    const btn = $('ctune'), panel = $('cpanel'), slider = $('cfill'), out = $('cfill-out');
-    const show = () => { out.value = `${Math.round(state.chart.fill * 100)}%`; slider.value = String(Math.round(state.chart.fill * 100)); };
-    const apply = (fill) => { state.chart.fill = fill; chart.set({ fill }); show(); };
+    const IND = priceChart.INDICATORS;
+    const btn = $('ctune'), panel = $('cpanel'), list = $('cpanel-list'), setScreen = $('cpanel-set');
+    let editing = null;
+
+    const renderList = () => {
+      $('ind-list').innerHTML = Object.entries(IND).map(([id, spec]) => `
+        <li class="ind-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
+          <button type="button" class="ind-open" data-ind="${id}"><b>${spec.name} <i>›</i></b>
+            <small>${IND_UI[id].summary(state.chart[id])}</small></button>
+          <input type="checkbox" role="switch" data-ind="${id}" aria-label="${spec.name}"${state.chart[id].on ? ' checked' : ''}>
+        </li>`).join('');
+    };
+    const renderFields = (id) => {
+      const cur = state.chart[id];
+      $('cset-title').textContent = IND[id].name;
+      $('cset-blurb').textContent = IND_UI[id].blurb;
+      $('cset-fields').innerHTML = IND_UI[id].fields.map((f) => {
+        const [lo, hi, step] = IND[id].limits[f.key], k = f.scale || 1;
+        return `<label class="cslider"><span>${f.label} <output data-out="${f.key}">${f.fmt(cur[f.key])}</output></span>
+          <input type="range" data-ind="${id}" data-key="${f.key}" min="${lo * k}" max="${hi * k}" step="${step * k}"
+                 value="${Math.round(cur[f.key] * k * 1e6) / 1e6}" aria-label="${IND[id].name} ${f.label.toLowerCase()}"></label>`;
+      }).join('');
+    };
+    const apply = (id, patch) => {
+      chart.set({ [id]: patch });
+      state.chart = chart.indicators();            // the chart's clamped copy is the truth
+    };
+    const showList = () => { editing = null; renderList(); setScreen.hidden = true; list.hidden = false; };
+    const showSettings = (id) => { editing = id; renderFields(id); list.hidden = true; setScreen.hidden = false; };
     const open = () => {
+      showList();
       panel.hidden = false;
       $('chint').style.opacity = 0;
       btn.setAttribute('aria-expanded', 'true');
@@ -894,17 +948,46 @@
       btn.setAttribute('aria-expanded', 'false');
       setTimeout(() => { panel.hidden = true; }, 220);
     };
+
     btn.hidden = false;
-    show();
     btn.addEventListener('click', () => (panel.hidden ? open() : close()));
     $('cdone').addEventListener('click', close);
-    $('creset').addEventListener('click', () => { apply(priceChart.TUNE.channelFill); saveChartPrefs(); });
-    slider.addEventListener('input', () => apply(slider.valueAsNumber / 100));
-    slider.addEventListener('change', saveChartPrefs);
+    $('cset-back').addEventListener('click', showList);
+    $('creset').addEventListener('click', () => {
+      const { on, ...defaults } = IND[editing].defaults;   // reset the numbers, keep the switch
+      apply(editing, defaults);
+      saveChartPrefs();
+      renderFields(editing);
+    });
+    panel.addEventListener('click', (e) => {
+      const openBtn = e.target.closest('.ind-open');
+      if (openBtn) showSettings(openBtn.dataset.ind);
+    });
+    panel.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.type === 'checkbox' && t.dataset.ind) {
+        apply(t.dataset.ind, { on: t.checked });
+        t.closest('.ind-row').classList.toggle('on', t.checked);
+        saveChartPrefs();
+      } else if (t.type === 'range') {
+        saveChartPrefs();
+      }
+    });
+    panel.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t.type !== 'range') return;
+      const id = t.dataset.ind, key = t.dataset.key;
+      const f = IND_UI[id].fields.find((x) => x.key === key), k = f.scale || 1;
+      const step = IND[id].limits[key][2], dec = (String(step).split('.')[1] || '').length;
+      const v = +(Math.round(t.valueAsNumber / k / step) * step).toFixed(dec);
+      apply(id, { [key]: v });
+      setScreen.querySelector(`output[data-out="${key}"]`).textContent = f.fmt(state.chart[id][key]);
+    });
     $('price-chart').addEventListener('pointerdown', close);
     const onKey = (e) => {
       if (!panel.isConnected) { removeEventListener('keydown', onKey); return; }   // chart view was rebuilt
-      if (e.key === 'Escape') close();
+      if (e.key !== 'Escape') return;
+      if (editing) showList(); else close();
     };
     addEventListener('keydown', onKey);
   }

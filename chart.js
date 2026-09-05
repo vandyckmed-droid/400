@@ -1,14 +1,44 @@
 /* Price chart: daily bars on a canvas with the three gestures a phone
    needs — drag to pan time, pinch to zoom time, drag the price axis to stretch
-   it — plus a linear regression channel over the last 200 bars. */
+   it — plus two optional indicators: a linear regression channel and a
+   simple moving average. */
 (function () {
   'use strict';
 
+  /* The indicators the chart can draw: each one's defaults and the range
+     every setting may take, as [min, max, step]. app.js builds the panel
+     from this and stores the choices; the chart only ever sees a normalised
+     copy. Adding an indicator means a new entry here plus its drawing. */
+  const INDICATORS = {
+    channel: {
+      name: 'Regression channel',
+      defaults: { on: true, len: 200, dev: 2, fill: 0.07 },
+      limits: { len: [20, 360, 10], dev: [1, 3, 0.1], fill: [0, 0.4, 0.01] },
+    },
+    ma: {
+      name: 'Moving average',
+      defaults: { on: false, period: 50 },
+      limits: { period: [5, 200, 5] },
+    },
+  };
+
+  /* Fill in defaults and clamp every number, so a stale or hand-edited store
+     can never put the chart in a state it cannot draw. */
+  function normalize(prefs) {
+    const out = {};
+    for (const [id, spec] of Object.entries(INDICATORS)) {
+      const raw = (prefs && typeof prefs[id] === 'object' && prefs[id]) || {};
+      const o = { on: typeof raw.on === 'boolean' ? raw.on : spec.defaults.on };
+      for (const [k, [lo, hi]] of Object.entries(spec.limits)) {
+        const v = raw[k];
+        o[k] = (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : spec.defaults[k];
+      }
+      out[id] = o;
+    }
+    return out;
+  }
+
   const TUNE = {
-    channelLen: 200,     // bars in the regression
-    channelDev: 2,       // channel half-width in standard deviations
-    channelFill: 0.07,   // default opacity of the two channel bands (0 = lines only)
-    maxFill: 0.4,        // strongest fill the settings panel offers
     barW: 3,             // starting pixels per bar
     minBarW: 0.6,
     maxBarW: 40,
@@ -51,17 +81,27 @@
     return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
   }
 
-  /* opts: { fill }. `fill` is the channel band opacity; the app owns where it
-     is stored and hands it in, and can change it later through the returned
-     set(). */
-  const fillValue = (v) => (typeof v === 'number' && isFinite(v)) ? Math.min(TUNE.maxFill, Math.max(0, v)) : TUNE.channelFill;
+  /* Simple moving average of the closes; NaN until `len` bars are in. */
+  function sma(c, len) {
+    const out = new Array(c.length).fill(NaN);
+    let sum = 0;
+    for (let i = 0; i < c.length; i++) {
+      sum += c[i];
+      if (i >= len) sum -= c[i - len];
+      if (i >= len - 1) out[i] = sum / len;
+    }
+    return out;
+  }
 
+  /* opts: { indicators }, in the shape of INDICATORS' defaults. The app owns
+     where it is stored and hands it in, and changes it later through set(). */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
     const ctx = canvas.getContext('2d');
-    const channel = regression(c, TUNE.channelLen);
-    const cfg = { fill: fillValue(opts.fill) };
+    let cfg = normalize(opts.indicators);
+    let channel = regression(c, cfg.channel.len);
+    let ma = sma(c, cfg.ma.period);
 
     // View state. `right` is the fractional bar index sitting at the right edge
     // of the plot; `auto` means the price range follows the visible bars.
@@ -84,6 +124,7 @@
       colors = {
         bg: css('--bg'), ink: css('--ink'), ink3: css('--ink-3'), grid: css('--line-soft'),
         line: css('--line'), hot: css('--hot'), cold: css('--cold'), accent: css('--accent'),
+        mid: css('--mid'),
       };
     }
 
@@ -107,17 +148,22 @@
       view.right = clamp(view.right, 8, n + TUNE.rightRoom * visible());
     }
 
-    /* Auto range: the visible bars plus the channel where it is on screen. */
+    /* Auto range: the visible bars plus whichever indicators are on screen. */
     function autoRange() {
       const from = Math.max(0, Math.floor(view.right - visible()));
       const to = Math.min(n - 1, Math.ceil(view.right));
       let lo = Infinity, hi = -Infinity;
       for (let i = from; i <= to; i++) { if (l[i] < lo) lo = l[i]; if (h[i] > hi) hi = h[i]; }
-      const band = TUNE.channelDev * channel.sd;
-      for (const i of [Math.max(from, channel.start), Math.min(view.right, n - 1 + TUNE.rightRoom * visible())]) {
-        if (i < channel.start) continue;
-        const m = channel.at(i);
-        lo = Math.min(lo, m - band); hi = Math.max(hi, m + band);
+      if (cfg.channel.on) {
+        const band = cfg.channel.dev * channel.sd;
+        for (const i of [Math.max(from, channel.start), Math.min(view.right, n - 1 + TUNE.rightRoom * visible())]) {
+          if (i < channel.start) continue;
+          const m = channel.at(i);
+          lo = Math.min(lo, m - band); hi = Math.max(hi, m + band);
+        }
+      }
+      if (cfg.ma.on) {
+        for (let i = from; i <= to; i++) { const v = ma[i]; if (!isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
       }
       if (!isFinite(lo)) { lo = c[n - 1] * 0.9; hi = c[n - 1] * 1.1; }
       const pad = (hi - lo || 1) * TUNE.pad;
@@ -175,8 +221,8 @@
       ctx.beginPath(); ctx.rect(plotL, plotT, pw, ph); ctx.clip();
 
       // Regression channel: light fill, thin lines, extended to the right edge.
-      {
-        const band = TUNE.channelDev * channel.sd;
+      if (cfg.channel.on) {
+        const band = cfg.channel.dev * channel.sd;
         const i0 = channel.start, i1 = indexAt(plotR);
         const x0 = xOf(i0), x1 = plotR;
         const m0 = channel.at(i0), m1 = channel.at(i1);
@@ -185,8 +231,8 @@
           ctx.moveTo(x0, yOf(a0)); ctx.lineTo(x1, yOf(a1)); ctx.lineTo(x1, yOf(b1)); ctx.lineTo(x0, yOf(b0));
           ctx.closePath(); ctx.fill();
         };
-        if (cfg.fill > 0) {
-          ctx.globalAlpha = cfg.fill;
+        if (cfg.channel.fill > 0) {
+          ctx.globalAlpha = cfg.channel.fill;
           poly(m0 + band, m1 + band, m0, m1, colors.accent);
           poly(m0, m1, m0 - band, m1 - band, colors.cold);
           ctx.globalAlpha = 1;
@@ -218,6 +264,20 @@
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+
+      // Moving average: one amber line over the bars, broken where it has no value.
+      if (cfg.ma.on) {
+        ctx.strokeStyle = colors.mid; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        let pen = false;
+        for (let i = Math.max(0, from); i <= to; i++) {
+          const v = ma[i];
+          if (isNaN(v)) { pen = false; continue; }
+          if (pen) ctx.lineTo(xOf(i), yOf(v)); else { ctx.moveTo(xOf(i), yOf(v)); pen = true; }
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
 
       // Last price: dotted line across the plot.
       const last = c[n - 1], lastUp = last >= (n > 1 ? c[n - 2] : o[n - 1]);
@@ -388,15 +448,22 @@
     new ResizeObserver(resize).observe(canvas);
     resize();
 
-    /* Live settings: merge what is given and redraw on the next frame. */
+    /* Live settings: merge what is given per indicator, recompute only what
+       changed, and redraw on the next frame. */
     function set(next = {}) {
-      if ('fill' in next) cfg.fill = fillValue(next.fill);
+      const merged = {};
+      for (const id of Object.keys(INDICATORS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
+      const was = cfg;
+      cfg = normalize(merged);
+      if (cfg.channel.len !== was.channel.len) channel = regression(c, cfg.channel.len);
+      if (cfg.ma.period !== was.ma.period) ma = sma(c, cfg.ma.period);
       schedule();
     }
 
-    return { view, cfg, set, reset: resetPrice, redraw: schedule, channel, TUNE };
+    return { view, set, indicators: () => cfg, reset: resetPrice, redraw: schedule };
   }
 
   window.priceChart = priceChart;
-  window.priceChart.TUNE = TUNE;     // app.js reads the fill default and ceiling from here
+  window.priceChart.INDICATORS = INDICATORS;   // app.js builds the panel and its defaults from these
+  window.priceChart.normalize = normalize;
 })();
