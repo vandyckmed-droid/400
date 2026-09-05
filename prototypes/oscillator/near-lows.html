@@ -102,10 +102,11 @@
   const series = S.share_near_lows;
   const [LOW, HIGH] = U.bands;
 
+  // Index from realised weekly returns (back1w); older result files only carry forward returns.
   const nav = [1];
-  for (let i = 0; i < dates.length - 1; i++) {
-    const r = S.fwd1w[i];
-    nav.push(nav[i] * (1 + (r == null ? 0 : r)));
+  for (let i = 1; i < dates.length; i++) {
+    const r = S.back1w ? S.back1w[i] : S.fwd1w[i - 1];
+    nav.push(nav[i - 1] * (1 + (r == null ? 0 : r)));
   }
 
   const fmtPct = (x, d = 1) => x == null ? '–' : (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(d) + '%';

@@ -16,6 +16,7 @@ Files:
 | `DERIVED.md` | Every table the second study produces, regenerated on each run. |
 | `results-derived.json` | The same numbers, machine-readable, plus the weekly universe series. |
 | `near-lows.html` | A phone-sized chart of the near-yearly-lows share against the universe, reading `results-derived.json`. |
+| `near-lows-chart.html` | The same two series as one interactive chart: shared crosshair, drag to pan, pinch to zoom time, drag either value axis to stretch it. |
 
 ## What was tested
 

@@ -221,6 +221,26 @@ def centred_ranks(values):
     return [r / (n - 1) - 0.5 for r in rk] if n > 1 else [0.0] * n
 
 
+def realised_week(prices: dict, members, date: str, prev: str | None):
+    """Equal-weight return of `members` from the previous week end to `date`,
+    on the names priced at both. The chart's index is built from these, so it
+    runs to the latest week rather than stopping where forward returns do."""
+    if prev is None:
+        return None
+    rets = []
+    for symbol in members:
+        entry = prices.get(symbol)
+        if not entry:
+            continue
+        dates, closes = entry
+        i = bisect_right(dates, date) - 1
+        j = bisect_right(dates, prev) - 1
+        if i <= j or j < 0 or dates[i] != date or closes[j] <= 0:
+            continue
+        rets.append(closes[i] / closes[j] - 1.0)
+    return st.fmean(rets) if len(rets) >= MIN_MEMBERS else None
+
+
 def aggregate(raw: dict, has_volume: bool) -> dict:
     """Universe-level readings from one week end's raw descriptors."""
     n = len(raw["stretch_21"])
@@ -274,6 +294,7 @@ def main() -> None:
     week_ends = build.week_end_dates(calendar, 10_000)
     last_h = HORIZONS["3m"]
     eval_dates = [d for d in week_ends if index[d] >= WARMUP and index[d] + last_h < len(calendar)]
+    prev_week = {d: week_ends[i - 1] for i, d in enumerate(week_ends) if i}
 
     # --- Per week: descriptor ranks, forward returns, the momentum score ---
     weeks = []          # dicts: date, symbols, X (ranks), fwd {h: list}, score list
@@ -319,6 +340,7 @@ def main() -> None:
             "date": date,
             "reading": aggregate(raw, has_volume),
             "ew": {h: st.fmean(rows[s][1][h] for s in symbols) for h in HORIZONS},
+            "back1w": realised_week(prices, symbols, date, prev_week.get(date)),
         })
         if len(weeks) % 25 == 0:
             log(f"  {len(weeks)} week ends ({date})")
@@ -346,7 +368,8 @@ def main() -> None:
             for f, v in zip(features, vals):
                 raw[f].append(v)
         if len(raw[features[0]]) >= MIN_MEMBERS:
-            tail.append({"date": date, "reading": aggregate(raw, has_volume), "ew": None})
+            tail.append({"date": date, "reading": aggregate(raw, has_volume), "ew": None,
+                         "back1w": realised_week(prices, members_at(date), date, prev_week.get(date))})
     split_i = len(weeks) // 2
     split = weeks[split_i]["date"]
     lag_of = {h: max(1, math.ceil(days / 5) - 1) for h, days in HORIZONS.items()}
@@ -548,6 +571,7 @@ def main() -> None:
                for n_ in sorted(set(chosen) | {"share_near_lows", "share_near_highs", "median_drawdown"})},
             **{f"fwd{h}": [None if u["ew"] is None else round(u["ew"][h], 5) for u in uni + tail]
                for h in HORIZONS},
+            "back1w": [None if u["back1w"] is None else round(u["back1w"], 5) for u in uni + tail],
         },
     }
     (HERE / "results-derived.json").write_text(json.dumps(results, separators=(",", ":")) + "\n")
