@@ -27,20 +27,12 @@ jobs:
 
       # build.py exits non-zero if the universe comes back degraded (vendor
       # throttling, a broken scrape), so a bad week never reaches main.
+      # The research section (backtest, portfolio, oscillator studies) is not
+      # part of this job: research.yml refreshes it on demand.
       - name: Rebuild rankings
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python scripts/build.py
-
-      - name: Refresh backtest
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-        run: python scripts/backtest.py
-
-      - name: Refresh top-decile portfolio curves
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-        run: python scripts/portfolio.py
 
       - name: Commit if anything changed
         run: |

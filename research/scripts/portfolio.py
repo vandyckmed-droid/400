@@ -23,6 +23,9 @@ Ranked every way the app offers — on the return itself, on the return over its
 own volatility, and on the return net of the market — because the reader can
 choose, and the evidence should follow whichever they picked.
 
+Part of the research section (research/), not the app: run on demand by the
+"Refresh research" workflow, never by the daily refresh; writes research/data/.
+
 Alongside the money it also records how concentrated each basket was, as a
 sector Herfindahl index and its reciprocal, the effective number of sectors.
 A momentum screen has no diversification constraint, so its top decile can
@@ -43,15 +46,32 @@ from bisect import bisect_right
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import build       # noqa: E402  (shared config, fetching and momentum maths)
 import universes   # noqa: E402  (membership reconstruction)
+
+# The shared loaders rewrite data/universe.json and data/sp500.json on a
+# successful fetch. Research runs must not touch the published data, so use
+# the fresh copy in memory and fall back to the committed file without ever
+# writing it.
+def _read_only_snapshot(name, fetch, describe):
+    path = build.DATA / f"{name}.json"
+    try:
+        return fetch()
+    except Exception as exc:  # noqa: BLE001
+        if not path.exists():
+            raise
+        build.log(f"{describe}: fetch failed ({exc}); using committed snapshot")
+        return json.loads(path.read_text())
+
+
+build.snapshot = _read_only_snapshot
+OUT = Path(__file__).resolve().parent.parent / "data"      # research/data
 
 REBALANCES = 60           # month ends to run; the 6-year price window sets the real floor
 DECILES = 10
 MIN_SCORED = 200          # skip a month end whose reconstructed index looks broken
 TRADING_DAYS = 252.0
-STRIP_POINTS = 24         # points in the compact curve the list strip draws
 
 # Whole-universe peer sets only: a "top decile within each sector" portfolio is
 # a different strategy, and untested here.
@@ -163,7 +183,8 @@ def hold(basket: set[str], index_maps: dict, start: str, days: list[str]) -> lis
 
 
 def main() -> None:
-    data = Path(__file__).resolve().parent.parent / "data"
+    data = OUT
+    data.mkdir(parents=True, exist_ok=True)
     log = build.log
 
     core_universe, core_changes = universes.load_core()
@@ -329,25 +350,6 @@ def main() -> None:
 
     (data / "portfolio.json").write_text(json.dumps(report, separators=(",", ":")) + "\n")
     log(f"wrote portfolio.json  {(data / 'portfolio.json').stat().st_size / 1024:.0f} KB")
-
-    # A digest small enough for the list screen to load with the ranking: the
-    # headline numbers and a curve decimated to STRIP_POINTS.
-    brief = {"from": report["from"], "to": report["to"], "variants": {}}
-    for key, entry in report["variants"].items():
-        nav = entry["top"]
-        step = max(1, len(nav) // STRIP_POINTS)
-        s = entry["topStats"]
-        last = entry["concentration"]["now"]
-        brief["variants"][key] = {
-            "curve": [round(v, 1) for v in nav[::step]] + [round(nav[-1], 1)],
-            "cagr": s["cagr"], "vol": s["vol"], "maxDrawdown": s["maxDrawdown"],
-            "excess": s["cagr"] - entry["allStats"]["cagr"],
-            "effective": last["effective"],
-            "topSector": last["top"],
-            "topWeight": last["topWeight"],
-        }
-    (data / "portfolio-brief.json").write_text(json.dumps(brief, separators=(",", ":")) + "\n")
-    log(f"wrote portfolio-brief.json  {(data / 'portfolio-brief.json').stat().st_size / 1024:.1f} KB")
 
 
 if __name__ == "__main__":

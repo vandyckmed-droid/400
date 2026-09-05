@@ -14,6 +14,10 @@ decile actually beat the bottom one.
 
 Reuses build.py for price fetching and the momentum maths, so the backtest and
 the live site cannot silently diverge.
+
+Part of the research section (research/), not the app: it is run on demand by
+the "Refresh research" workflow, not by the daily refresh, and writes to
+research/data/. See research/README.md.
 """
 
 from __future__ import annotations
@@ -28,9 +32,27 @@ from bisect import bisect_right
 from collections import defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import build       # noqa: E402  (shared config, fetching and momentum maths)
 import universes  # noqa: E402  (membership reconstruction)
+
+# The shared loaders rewrite data/universe.json and data/sp500.json on a
+# successful fetch. Research runs must not touch the published data, so use
+# the fresh copy in memory and fall back to the committed file without ever
+# writing it.
+def _read_only_snapshot(name, fetch, describe):
+    path = build.DATA / f"{name}.json"
+    try:
+        return fetch()
+    except Exception as exc:  # noqa: BLE001
+        if not path.exists():
+            raise
+        build.log(f"{describe}: fetch failed ({exc}); using committed snapshot")
+        return json.loads(path.read_text())
+
+
+build.snapshot = _read_only_snapshot
+OUT = Path(__file__).resolve().parent.parent / "data"      # research/data
 
 WIKI = build.WIKI
 HORIZONS = (1, 3, 6)      # forward-return horizons, in months
@@ -239,7 +261,8 @@ def main() -> None:
         report["variants"][adjust] = {"horizons": variant}
     print()
 
-    out = Path(__file__).resolve().parent.parent / "data" / "backtest.json"
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / "backtest.json"
     out.write_text(json.dumps(report, separators=(",", ":")) + "\n")
     build.log(f"wrote {out.name}")
 
