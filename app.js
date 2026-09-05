@@ -30,13 +30,10 @@
   const state = {
     rows: [],
     meta: null,
-    history: null,
-    historyPromise: null,
     watch: loadWatch(),
     scope: 'all',
     sectors: loadSectors(),
     sort: 'score',
-    query: '',
     view: [],
     shown: 0,
     basis: (() => {
@@ -349,11 +346,9 @@
 
   /* ---------- list ---------- */
   function applyFilters() {
-    const q = state.query.trim().toLowerCase();
     let out = state.rows;
     if (state.scope === 'watch') out = out.filter((r) => state.watch.has(r.symbol));
     if (state.sectors.size) out = out.filter((r) => state.sectors.has(r.sector));
-    if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
 
     const key = state.sort;
     state.ranks = rankOn(key);
@@ -412,7 +407,7 @@
     li.innerHTML =
       `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : p.k}</span>` +
       `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
-      `<small>${r.idx === '500' ? '<i class="badge">S&amp;P 500</i> ' : ''}${esc(r.name)}</small></a>` +
+      `<small>${esc(r.name)}</small></a>` +
       sparkline(r.symbol) +
       `<span class="sc"><b>${SORTS[state.sort].value(r)}</b></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
@@ -460,12 +455,6 @@
 
   /* ---------- events ---------- */
   function wire() {
-    let debounce;
-    $('search').addEventListener('input', (e) => {
-      clearTimeout(debounce);
-      const value = e.target.value;
-      debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
-    });
     $('basis').addEventListener('change', (e) => {
       state.basis = e.target.checked ? 'sector' : 'whole';
       try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
@@ -550,9 +539,6 @@
       location.hash = '';
       return;
     }
-    // The evidence page left the app for the research section; an old
-    // bookmark or shared link still lands on it.
-    if (location.hash === '#/evidence') { location.replace('research/evidence.html'); return; }
     if (location.hash === '#/settings') return showSettings();
     showView('list-view');
     if (!state.view.length) applyFilters();
@@ -595,7 +581,6 @@
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
         <span class="tag">${cap(r.mktCap)}</span>
-        ${r.idx === '500' ? '<span class="tag">S&amp;P 500 tail</span>' : ''}
         <span class="tag">Decile ${decileOf(p.k, p.n)}</span>
       </div>
 

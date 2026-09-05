@@ -1,10 +1,6 @@
-/* Price chart prototype: daily bars on a canvas with the three gestures a phone
+/* Price chart: daily bars on a canvas with the three gestures a phone
    needs — drag to pan time, pinch to zoom time, drag the price axis to stretch
-   it — plus a linear regression channel over the last 200 bars.
-
-   Written as one function, priceChart(canvas, bars, opts), with no dependency
-   on the rest of the app so it can be lifted into app.js once the feel is
-   right. Everything tunable sits in TUNE at the top. */
+   it — plus a linear regression channel over the last 200 bars. */
 (function () {
   'use strict';
 
@@ -55,9 +51,9 @@
     return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
   }
 
-  /* opts: { fill, onDraw }. `fill` is the channel band opacity; the app owns
-     where it is stored and hands it in, and can change it later through the
-     returned set(). */
+  /* opts: { fill }. `fill` is the channel band opacity; the app owns where it
+     is stored and hands it in, and can change it later through the returned
+     set(). */
   const fillValue = (v) => (typeof v === 'number' && isFinite(v)) ? Math.min(TUNE.maxFill, Math.max(0, v)) : TUNE.channelFill;
 
   function priceChart(canvas, bars, opts = {}) {
@@ -244,7 +240,6 @@
         ctx.textAlign = 'left';
         ctx.fillText(fmtPrice(last), plotR + 8, ly);
       }
-      if (opts.onDraw) opts.onDraw(view);
     }
 
     /* ---------- gestures ---------- */
@@ -403,5 +398,5 @@
   }
 
   window.priceChart = priceChart;
-  window.priceChart.TUNE = TUNE;
+  window.priceChart.TUNE = TUNE;     // app.js reads the fill default and ceiling from here
 })();
