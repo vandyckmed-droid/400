@@ -224,7 +224,12 @@ python3 -m http.server 8000        # then open http://localhost:8000
   six years of the universe (none predicts anything useful), then derived one from the data with
   no formula assumed (per stock it rediscovers momentum, nothing more) and found that two
   universe-level readings, 63-day breadth and the share of names near yearly lows, do carry
-  information; its `README.md` has the designs and the verdicts.
+  information; its `README.md` has the designs and the verdicts. `prototypes/ma-cross/`
+  searched 254 moving-average crossover pairs over six years for the durations that best time
+  each name's peaks and valleys: none beats holding, the profit ordering reverses between bear
+  and bull halves, and the only stable result is that EMA 40/60 marks 20% turns most reliably,
+  about five weeks after the fact; its `README.md` has the design, the trade-off ladder and
+  the verdict.
 - **Minor stale wording remains** in `index.html` (the list footer still says "within the current
   S&P MidCap 400") and in `manifest.webmanifest` (the description still says "volatility-adjusted"
   and "MidCap 400"). Neither affects behaviour.
