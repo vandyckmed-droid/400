@@ -47,26 +47,34 @@ For each name, on each ranking date:
 1. **12–1 momentum**: total return on dividend- and split-adjusted closes over the 252 trading days
    ending 21 trading days ago. The last month is skipped to avoid short-term reversal.
 2. **6–1 momentum**: the same over 126 trading days, again ending 21 days ago.
-3. **Optional volatility adjustment**: each leg divided by the annualised standard deviation of
-   daily log returns over its own window.
+3. **Optional adjustment**: each leg is either left as the return, divided by the annualised
+   standard deviation of daily log returns over its own window, or replaced by the return net of
+   the market (see below).
 4. **Percentile**: each leg is ranked 0–100 against the peer set (average ranks for ties).
 5. **Blend**: final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.
 
 A name needs at least 180 daily returns in the 12-month window and 90 in the 6-month window, so
 recent listings sit out until they season.
 
-### The four peer sets
+### The six peer sets
 
-Two switches in Settings change how the one cross-section is read, never which names are in it.
-Both persist per device in local storage.
+Two settings change how the one cross-section is read, never which names are in it. Both persist
+per device in local storage.
 
-| Switch | Off (default) | On |
-| --- | --- | --- |
-| Score within sector | Rank against the whole universe (`w`) | Rank only against the name's GICS sector (`s`) |
-| Divide each leg by its volatility | Rank the return itself (`r`) | Rank return ÷ volatility (`v`) |
+| Setting | Choices |
+| --- | --- |
+| Score within sector (switch) | Off: rank against the whole universe (`w`). On: rank only against the name's GICS sector (`s`) |
+| What each leg measures (three-way) | The return itself (`r`, default); return ÷ its own volatility (`v`); return net of the market (`m`) |
 
-The combination is a two-letter key: `wr`, `wv`, `sr`, `sv`. All four ship in every ranking file.
-Sectors with fewer than five names would be left unscored, but none currently are.
+The combination is a two-letter key: `wr`, `wv`, `wm`, `sr`, `sv`, `sm`. All six ship in every
+ranking file. Sectors with fewer than five names would be left unscored, but none currently are.
+
+**Net of the market** means residual momentum: over each formation window the name's daily log
+returns are regressed on the equal-weight average of every priced name, and the leg becomes the
+return that regression leaves unexplained (the intercept times the number of days). It stops
+rewarding names that merely rode the market. Over five years of point-in-time testing it beat the
+plain ranking on return, volatility and drawdown while sharing about 85% of its names; the
+volatility option gave a calmer ride at a similar return.
 
 Sector labels are normalised to GICS names. FMP labels S&P 500 sectors with a different taxonomy
 ("Technology", "Healthcare"); `scripts/universes.py` maps those onto the GICS names Wikipedia uses
@@ -82,7 +90,8 @@ and portfolio never use outsider scores.
 ## Evidence
 
 Both evidence scripts import the momentum maths from `scripts/build.py`, so the test and the live
-site cannot diverge. Both rank the whole universe only; the within-sector basis is untested.
+site cannot diverge. Both rank the whole universe only, on all three leg measures; the
+within-sector basis is untested.
 
 - **Backtest** (`scripts/backtest.py`): at each of up to 60 month ends (about five years, as far back as the six-year price window allows), rebuild
   point-in-time membership, rank, split into deciles, and measure 1-, 3- and 6-month forward
@@ -96,12 +105,13 @@ site cannot diverge. Both rank the whole universe only; the within-sector basis 
 
 The evidence page reads the numbers from the data files, so it never carries a stale claim. Both
 windows were widened from three to about five years in September 2026 so the record includes the
-2022 bear market. The honest summary as of then: the ranking is ordered (returns fall almost
-monotonically from decile 1 to 10) and the top decile beats the equal-weight universe by about a
-point a year while carrying more risk, but the edge is concentrated in 2023 onward; in late 2021
-the ranking ran backwards and in 2022 it was flat. The return-ranked top decile sits in roughly
-5.4 effective sectors against 8.5 for the universe; volatility adjustment spreads it to about 6.2
-and cuts drawdown more than it changes return.
+2022 bear market. The honest summary as of then, for the top decile held monthly from September
+2021: ranked on the plain return, about 9.8% a year against 8.6% for the equal-weight universe,
+with more volatility and a deeper worst fall; ranked on return ÷ volatility, a similar return with
+the universe's risk; ranked net of the market, about 12.4% a year with risk between the two. The
+edge is concentrated in 2023 onward; in late 2021 the ranking ran backwards and in 2022 it was
+flat. The plain-return top decile sits in roughly 5.4 effective sectors against 8.5 for the
+universe; the other two spread it to about 6.2 and 6.6.
 
 ## How it is built
 
@@ -120,8 +130,8 @@ scripts/backtest.py                decile forward-return test
 scripts/portfolio.py               daily top-decile portfolio curves
 
 data/latest.json                   current ranking, all four peer sets, quotes, key stats (~330 KB)
-data/spark/<key>.json              last 12 month-end scores per name, one file per peer set
-data/history/<key>.json            36 month-end scores per name, one file per peer set
+data/spark/<key>.json              last 12 month-end scores per name, one file per peer set (6)
+data/history/<key>.json            36 month-end scores per name, one file per peer set (6)
 data/history/<key>w.json           78 week-end scores per name, loaded only when asked for
 data/bars/<SYMBOL>.json            756 adjusted daily bars per ranked name (~19 MB in all)
 data/backtest.json                 decile returns, spreads, per-year breakdown, both rankings

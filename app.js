@@ -18,11 +18,13 @@
      everything of roughly its size, and which index committee happens to hold
      it is not a fact about the name. What remains are two ways of looking at
      that one universe: `basis` (against all of it, or against the name's own
-     sector) and `adjust` (the return, or the return over its own volatility).
-     All four combinations ship in latest.json, keyed w/s + r/v. */
+     sector) and `adjust` (the return, the return over its own volatility, or
+     the return net of the market). All six combinations ship in latest.json,
+     keyed w/s + r/v/m. */
   const UNIVERSE = { label: 'MidCap 650', size: '650' };
+  const ADJ = { raw: 'r', vol: 'v', resid: 'm' };
   const keyFor = (basis, adjust) =>
-    (basis === 'sector' ? 's' : 'w') + (adjust === 'vol' ? 'v' : 'r');
+    (basis === 'sector' ? 's' : 'w') + (ADJ[adjust] || 'r');
 
   const state = {
     rows: [],
@@ -44,10 +46,10 @@
       try { return localStorage.getItem(BASIS_KEY) === 'sector' ? 'sector' : 'whole'; }
       catch { return 'whole'; }
     })(),
-    /* Default is the return itself. Dividing by volatility is a real choice
-       about what "momentum" means, not a detail, so it is opt-in. */
+    /* Default is the return itself. The other two are real choices about what
+       "momentum" means, not details, so they are opt-in. */
     adjust: (() => {
-      try { return localStorage.getItem(ADJUST_KEY) === 'vol' ? 'vol' : 'raw'; }
+      try { const v = localStorage.getItem(ADJUST_KEY); return v in ADJ ? v : 'raw'; }
       catch { return 'raw'; }
     })(),
     grain: (() => {
@@ -116,7 +118,17 @@
   const cls = (v) => v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : '';
   // pct() above is unsigned; a return needs its sign, and a real minus sign.
   const spct = (v, d = 1) => v == null ? '—' : `${v >= 0 ? '+' : '−'}${pct(Math.abs(v), d)}`;
-  const RANKED_ON = { raw: 'the return itself', vol: 'return ÷ volatility' };
+  const RANKED_ON = { raw: 'the return itself', vol: 'return ÷ volatility', resid: 'return net of the market' };
+  const ADJUST_NOTE = {
+    raw: 'The return itself over each formation window. The simplest reading, and the one the '
+      + 'published tests use by default.',
+    vol: 'The return divided by the annualised standard deviation of its own window, so a steady '
+      + 'climb outranks an equally large but erratic one. Historically a calmer ride at a similar '
+      + 'return.',
+    resid: 'The part of the return the market does not explain: each name\'s daily moves are '
+      + 'regressed on the equal-weight universe over the window, and only what is left over is '
+      + 'ranked. Stops rewarding names that merely rode the market.',
+  };
 
   /* ---------- data files ----------
      Everything past latest.json is fetched once and memoised on state, so a
@@ -285,7 +297,12 @@
 
   function syncControls() {
     $('basis').checked = sectorBasis();
-    $('adjust').checked = volAdjusted();
+    for (const b of $('adjust-seg').querySelectorAll('button')) {
+      const on = b.dataset.adjust === state.adjust;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on);
+    }
+    $('adjust-note').textContent = ADJUST_NOTE[state.adjust];
   }
 
   /* Everything that has to happen when the peer set changes, in one place so no
@@ -324,7 +341,11 @@
       ...(volAdjusted() ? [['Volatility adjustment', 'Each leg is divided by the annualised standard '
         + 'deviation of daily log returns measured over that same formation window, so a steady '
         + 'climb outranks an equally large but erratic one.']] : []),
-      ['Cross-sectional percentile', `Each ${volAdjusted() ? 'adjusted ' : ''}leg is ranked against `
+      ...(state.adjust === 'resid' ? [['Market stripped out', 'Over that same window each name\'s '
+        + 'daily log returns are regressed on the equal-weight average of every priced name. The '
+        + 'leg becomes the return that regression leaves unexplained — the name\'s own move, net of '
+        + 'its beta times the market\'s.']] : []),
+      ['Cross-sectional percentile', `Each ${state.adjust === 'raw' ? '' : 'adjusted '}leg is ranked against `
         + 'every other name in the peer set on the same day and mapped to 0–100.'],
       ['Blend', `Final score = ${m.params.weights[0] * 100}% × 12–1 percentile + `
         + `${m.params.weights[1] * 100}% × 6–1 percentile.`],
@@ -486,8 +507,10 @@
       try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
       peerSetChanged();
     });
-    $('adjust').addEventListener('change', (e) => {
-      state.adjust = e.target.checked ? 'vol' : 'raw';
+    $('adjust-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-adjust]');
+      if (!b || b.dataset.adjust === state.adjust) return;
+      state.adjust = b.dataset.adjust;
       try { localStorage.setItem(ADJUST_KEY, state.adjust); } catch { /* private mode */ }
       peerSetChanged();
       showSettings();                       // the method text below it changes too
@@ -616,8 +639,8 @@
 
       <div class="card">
         <h3>Momentum legs</h3>
-        ${leg('12–1', '12 months, last month skipped', p.p12, r.m12, r.va12)}
-        ${leg('6–1', '6 months, last month skipped', p.p6, r.m6, r.va6)}
+        ${leg('12–1', '12 months, last month skipped', p.p12, r.m12, r.va12, r.rm12)}
+        ${leg('6–1', '6 months, last month skipped', p.p6, r.m6, r.va6, r.rm6)}
       </div>
 
       <div class="card">
@@ -678,14 +701,17 @@
     renderTickerChart(r, key);
   }
 
-  /* One momentum leg: percentile, raw return, and the vol-adjusted ratio. */
-  function leg(title, note, percentile, raw, adjusted) {
+  /* One momentum leg: percentile, then the three things a leg can measure.
+     The one the active setting ranks on is marked. */
+  function leg(title, note, percentile, raw, adjusted, resid) {
+    const on = (k) => state.adjust === k ? ' class="on"' : '';
     return `<div class="leg">
       <h4>${title}<small>${note}</small></h4>
-      <dl class="stats">
+      <dl class="stats quad">
         <div><dt>Percentile</dt><dd style="color:${tone(percentile)}">${num(percentile)}</dd></div>
-        <div><dt>Return</dt><dd class="${cls(raw)}">${pct(raw)}</dd></div>
-        <div><dt>Vol-adjusted</dt><dd class="${cls(adjusted)}">${signed(adjusted, 2)}</dd></div>
+        <div${on('raw')}><dt>Return</dt><dd class="${cls(raw)}">${pct(raw)}</dd></div>
+        <div${on('vol')}><dt>÷ Volatility</dt><dd class="${cls(adjusted)}">${signed(adjusted, 2)}</dd></div>
+        <div${on('resid')}><dt>Net of market</dt><dd class="${cls(resid)}">${resid == null ? '—' : spct(resid)}</dd></div>
       </dl>
     </div>`;
   }
@@ -1060,6 +1086,7 @@
   function methodCard(v, pf) {
     const m = pf.method;
     const vol = state.adjust === 'vol';
+    const resid = state.adjust === 'resid';
     const w = m.weights;
     const rows = [
       ['Universe', `On each rebalance date: every S&amp;P MidCap 400 member that day, plus the
@@ -1068,7 +1095,10 @@
       ['Score', `From adjusted closes, two returns per name: from ${m.longDays} to ${m.skipDays}
         trading days before the date (12–1) and from ${m.midDays} to ${m.skipDays} (6–1).${vol
           ? ` Each is divided by the annualised standard deviation of the name's daily log returns
-              over that same window.` : ''}
+              over that same window.` : ''}${resid
+          ? ` Each is replaced by the return a regression of the name's daily log returns on the
+              equal-weight universe's, over that same window, leaves unexplained — the name's own
+              move net of its beta times the market's.` : ''}
         Each is converted to a 0–100 percentile across all ranked names, ties sharing their average
         rank. Score = ${w[0]} × 12–1 percentile + ${w[1]} × 6–1 percentile.
         <span class="setting">Ranked on ${RANKED_ON[state.adjust]} — set in Settings.</span>`],

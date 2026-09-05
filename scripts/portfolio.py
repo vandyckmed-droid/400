@@ -19,9 +19,9 @@ Construction, deliberately plain:
 * **Costs** — none. No commissions, spreads, slippage or tax. Every figure here
   is therefore better than the same strategy would have been in an account.
 
-Ranked both ways — on the return itself and on the return over its own
-volatility — because the app lets the reader choose, and the evidence should
-follow whichever they picked.
+Ranked every way the app offers — on the return itself, on the return over its
+own volatility, and on the return net of the market — because the reader can
+choose, and the evidence should follow whichever they picked.
 
 Alongside the money it also records how concentrated each basket was, as a
 sector Herfindahl index and its reciprocal, the effective number of sectors.
@@ -55,7 +55,7 @@ STRIP_POINTS = 24         # points in the compact curve the list strip draws
 
 # Whole-universe peer sets only: a "top decile within each sector" portfolio is
 # a different strategy, and untested here.
-VARIANTS = {"w" + adjust[0]: adjust for adjust in ("raw", "vol")}
+VARIANTS = {"w" + build.ADJUST_KEY[adjust]: adjust for adjust in build.ADJUSTS}
 
 
 def concentration(basket: set[str], sectors: dict) -> dict:
@@ -142,7 +142,7 @@ def hold(basket: set[str], index_maps: dict, start: str, days: list[str]) -> lis
     # between processes. Without this the weekly job rewrites the file with
     # differences in the sixteenth digit and commits a no-op diff.
     for symbol in sorted(basket):
-        dates, closes = index_maps[symbol]
+        dates, closes = index_maps[symbol][0], index_maps[symbol][1]
         pos = bisect_right(dates, start) - 1
         if pos >= 0 and closes[pos] > 0:
             held[symbol] = closes[pos]
@@ -153,7 +153,7 @@ def hold(basket: set[str], index_maps: dict, start: str, days: list[str]) -> lis
     out = []
     for day in days:
         for symbol, last in held.items():
-            dates, closes = index_maps[symbol]
+            dates, closes = index_maps[symbol][0], index_maps[symbol][1]
             pos = bisect_right(dates, day) - 1
             if pos >= 0 and dates[pos] == day and closes[pos] > 0:
                 value[symbol] *= closes[pos] / last
@@ -188,7 +188,7 @@ def main() -> None:
 
     prices = build.fetch_all_prices(sorted(ever))
     unpriced = sorted(ever - set(prices))
-    index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
+    index_maps = build.make_index_maps(prices)
     calendar = build.trading_days(prices)
 
     # Rebalance on complete months only, so the final holding period is a full

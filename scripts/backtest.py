@@ -37,7 +37,7 @@ HORIZONS = (1, 3, 6)      # forward-return horizons, in months
 DECILES = 10
 MIN_MEMBERS = 400         # skip a month end whose reconstructed universe looks broken
 MONTHS = 60               # ranking dates to test; the price window (6 years) sets the real floor
-ADJUSTS = ("raw", "vol")  # rank the return itself, or the return over its own vol
+ADJUSTS = build.ADJUSTS   # the return itself, over its own vol, or net of the market
 
 
 # --- Returns ------------------------------------------------------------------
@@ -48,7 +48,7 @@ def forward_return(series, index_map, start: str, months: int):
     A series that ends early (acquisition, delisting) is held to its last print
     and then treated as cash — the standard conservative treatment.
     """
-    dates, closes = index_map
+    dates, closes = index_map[0], index_map[1]
     i = bisect_right(dates, start) - 1
     if i < 0:
         return None
@@ -112,7 +112,7 @@ def main() -> None:
     log(f"symbols to price: {len(ever)}")
 
     prices = build.fetch_all_prices(sorted(ever))
-    index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
+    index_maps = build.make_index_maps(prices)
     calendar = build.trading_days(prices)
 
     # Month ends we can both rank at and measure a 6-month forward return from.
@@ -140,18 +140,7 @@ def main() -> None:
 
     for date in ranking_dates:
         members = members_at[date]
-        scored = {}
-        for symbol in members:
-            if symbol not in index_maps:
-                continue
-            dates, closes = index_maps[symbol]
-            pos = bisect_right(dates, date) - 1
-            if pos < 0:
-                continue
-            long_leg = build.vol_adjusted_momentum(closes, pos, build.LONG_DAYS, build.MIN_OBS_LONG)
-            mid_leg = build.vol_adjusted_momentum(closes, pos, build.MID_DAYS, build.MIN_OBS_MID)
-            if long_leg and mid_leg:
-                scored[symbol] = (long_leg, mid_leg)
+        scored = build.legs_at(members, index_maps, date)
 
         if len(scored) < MIN_MEMBERS:
             skipped += 1
@@ -198,7 +187,7 @@ def main() -> None:
     }
     for adjust in ADJUSTS:
         variant = {}
-        label = "return" if adjust == "raw" else "return / volatility"
+        label = {"raw": "return", "vol": "return / volatility", "resid": "return net of market"}[adjust]
         print()
         print(f"########## RANKED ON {label.upper()} ##########")
         for h in HORIZONS:

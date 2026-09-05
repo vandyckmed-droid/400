@@ -8,10 +8,12 @@ Pipeline
    Each source falls back to a committed snapshot if it is down.
 2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
 3. At each month end and week end, compute the 12-1 and 6-1 legs once per name,
-   then rank them four ways: on the return or on the return over its own
-   volatility, each against the whole universe or against the name's sector.
+   then rank them six ways: on the return, on the return over its own
+   volatility, or on the return net of the market (the part a regression on
+   the equal-weight universe does not explain), each against the whole
+   universe or against the name's sector.
 4. Refuse to publish if the result looks degraded (guard()), else emit
-   data/latest.json and data/history/{wr,wv,sr,sv}[w].json.
+   data/latest.json and data/history/{wr,wv,wm,sr,sv,sm}[w].json.
 5. Write data/bars/<SYMBOL>.json for every published name: the adjusted daily
    bars the price chart draws, taken from the same payload as step 2.
 
@@ -62,18 +64,21 @@ WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
 MIN_SECTOR = 5          # smallest sector that gets a within-sector percentile
 
-# The four peer sets a name can be ranked against, keyed by two letters:
+# The six peer sets a name can be ranked against, keyed by two letters:
 # whether the cross-section is the whole universe or just the name's own sector
 # (w|s), and what gets ranked (r = the return itself, v = the return divided by
-# its own volatility). The universe is not an axis: there is one, defined below.
+# its own volatility, m = the return net of the market). The universe is not an
+# axis: there is one, defined below.
+ADJUSTS = ("raw", "vol", "resid")
+ADJUST_KEY = {"raw": "r", "vol": "v", "resid": "m"}
 PEER_SETS = {
-    basis[0] + adjust[0]: (basis, adjust)
+    basis[0] + ADJUST_KEY[adjust]: (basis, adjust)
     for basis in ("whole", "sector")
-    for adjust in ("raw", "vol")
+    for adjust in ADJUSTS
 }
-# vol_adjusted_momentum returns (raw return, annualised vol, raw / vol); this
-# picks which of those three the cross-sectional percentile is taken over.
-LEG_VALUE = {"raw": 0, "vol": 2}
+# A leg is (raw return, annualised vol, raw / vol, residual return); this picks
+# which of those the cross-sectional percentile is taken over.
+LEG_VALUE = {"raw": 0, "vol": 2, "resid": 3}
 
 WORKERS = 5            # the vendor throttles above this on large payloads
 RETRIES = 6
@@ -296,6 +301,44 @@ def trading_days(prices: dict[str, list[tuple[str, float]]]) -> list[str]:
     return sorted(d for d, n in count.items() if n >= floor)
 
 
+def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
+    """Per symbol: (dates, closes, and prefix sums for the market regression).
+
+    The market is the equal-weight average of every priced name, rebalanced
+    daily. For each symbol the market's log return is measured between that
+    symbol's own consecutive bars, so a name with a missing day is regressed
+    on the market over the same gap. Prefix sums of the stock's log return (y),
+    the market's (x), x*x and x*y make the regression over any window O(1).
+    """
+    calendar = trading_days(prices)
+    at = {s: dict(v) for s, v in prices.items()}
+    cum = [0.0]
+    for prev, cur in zip(calendar, calendar[1:]):
+        rets = [m[cur] / m[prev] - 1.0 for m in at.values() if cur in m and prev in m]
+        cum.append(cum[-1] + math.log1p(sum(rets) / len(rets)) if rets else cum[-1])
+    market = dict(zip(calendar, cum))
+
+    def cum_at(date: str) -> float:
+        i = bisect_right(calendar, date) - 1
+        return cum[i] if i >= 0 else 0.0
+
+    out = {}
+    for symbol, series in prices.items():
+        dates = [d for d, _ in series]
+        closes = [c for _, c in series]
+        px, py, pxx, pxy = [0.0], [0.0], [0.0], [0.0]
+        prev_m = market.get(dates[0], cum_at(dates[0]))
+        for i in range(1, len(dates)):
+            m = market.get(dates[i], cum_at(dates[i]))
+            x = m - prev_m
+            y = math.log(closes[i] / closes[i - 1])
+            prev_m = m
+            px.append(px[-1] + x); py.append(py[-1] + y)
+            pxx.append(pxx[-1] + x * x); pxy.append(pxy[-1] + x * y)
+        out[symbol] = (dates, closes, px, py, pxx, pxy)
+    return out
+
+
 def price_start() -> str:
     return (dt.date.today() - dt.timedelta(days=int(365.25 * YEARS_OF_PRICES))).isoformat()
 
@@ -380,6 +423,26 @@ def vol_adjusted_momentum(closes: list[float], end: int, lookback: int, min_obs:
     if vol <= 1e-6:
         return None
     return raw, vol, raw / vol
+
+
+def residual_momentum(entry: tuple, end: int, lookback: int, min_obs: int):
+    """The return the market does not explain, over the same formation window
+    as vol_adjusted_momentum. Regress the name's daily log returns on the
+    equal-weight universe's with an intercept; the residual momentum is that
+    intercept times the number of days, i.e. the window's return net of beta
+    times the market's. Returns None when the window is short or degenerate."""
+    _, _, px, py, pxx, pxy = entry
+    stop, start = end - SKIP_DAYS, end - lookback
+    n = stop - start
+    if start < 0 or n < min_obs:
+        return None
+    sx, sy = px[stop] - px[start], py[stop] - py[start]
+    sxx, sxy = pxx[stop] - pxx[start], pxy[stop] - pxy[start]
+    denom = n * sxx - sx * sx
+    if denom <= 1e-12:
+        return None
+    beta = (n * sxy - sx * sy) / denom
+    return sy - beta * sx
 
 
 def percentiles(values: dict[str, float]) -> dict[str, float]:
@@ -498,8 +561,9 @@ def rank_block(legs: dict, meta: dict, basis: str, adjust: str,
 def legs_at(members, index_maps, date: str) -> dict:
     """The 12-1 and 6-1 legs for every member with enough history at `date`.
 
-    Each leg is (raw return, annualised vol, raw / vol), so a caller can rank on
-    the return or on the volatility-adjusted return without recomputing.
+    Each leg is (raw return, annualised vol, raw / vol, residual return), so a
+    caller can rank on any of them without recomputing. `index_maps` comes from
+    make_index_maps().
     """
     out = {}
     # Sorted, so this dict — and everything downstream that inherits its
@@ -510,14 +574,16 @@ def legs_at(members, index_maps, date: str) -> dict:
         entry = index_maps.get(symbol)
         if not entry:
             continue
-        dates, closes = entry
+        dates, closes = entry[0], entry[1]
         pos = bisect_right(dates, date) - 1
         if pos < 0:
             continue
         long_leg = vol_adjusted_momentum(closes, pos, LONG_DAYS, MIN_OBS_LONG)
         mid_leg = vol_adjusted_momentum(closes, pos, MID_DAYS, MIN_OBS_MID)
-        if long_leg and mid_leg:
-            out[symbol] = (long_leg, mid_leg)
+        long_res = residual_momentum(entry, pos, LONG_DAYS, MIN_OBS_LONG)
+        mid_res = residual_momentum(entry, pos, MID_DAYS, MIN_OBS_MID)
+        if long_leg and mid_leg and long_res is not None and mid_res is not None:
+            out[symbol] = (long_leg + (long_res,), mid_leg + (mid_res,))
     return out
 
 
@@ -548,7 +614,7 @@ def main() -> None:
     log(f"pricing {len(ever)} symbols (current members plus former ones still in window)")
 
     prices = fetch_all_prices(sorted(ever))
-    index_maps = {s: ([d for d, _ in v], [c for _, c in v]) for s, v in prices.items()}
+    index_maps = make_index_maps(prices)
     calendar = trading_days(prices)
     as_of = calendar[-1]
     snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
@@ -632,6 +698,8 @@ def main() -> None:
                 "vol6": round(mid_leg[1], 6),
                 "va12": round(long_leg[2], 4),
                 "va6": round(mid_leg[2], 4),
+                "rm12": round(long_leg[3], 6),
+                "rm6": round(mid_leg[3], 6),
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
                 "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
                 "mktCap": q.get("marketCap") or universes.cap_at(caps, symbol, as_of),
@@ -659,6 +727,7 @@ def main() -> None:
         "members": len(members_at[as_of]),
         "counts": counts,
         "sizeTail": universes.SIZE_TAIL,
+        "adjusts": list(ADJUSTS),
         "params": {
             "skipDays": SKIP_DAYS,
             "longDays": LONG_DAYS,
