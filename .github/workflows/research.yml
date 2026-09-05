@@ -62,5 +62,5 @@ jobs:
             echo "No research changes."
             exit 0
           fi
-          git commit -m "research: refresh backtest, portfolio and oscillator studies ($(date -u +%Y-%m-%d))"
+          git commit -m "research: refresh studies ($(date -u +%Y-%m-%d))"
           git push
