@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build       # noqa: E402  (shared config, fetching and momentum maths)
 import universes   # noqa: E402  (membership reconstruction)
 
-REBALANCES = 48           # month ends to run, capped by market-cap history depth
+REBALANCES = 60           # month ends to run; the 6-year price window sets the real floor
 DECILES = 10
 MIN_SCORED = 200          # skip a month end whose reconstructed index looks broken
 TRADING_DAYS = 252.0
@@ -179,7 +179,7 @@ def main() -> None:
         sectors.setdefault(c["symbol"], c.get("sector"))
     log(f"universes: {len(core_now)} MidCap 400, {len(sp500_now)} S&P 500")
 
-    window_start = (dt.date.today() - dt.timedelta(days=365 * 6)).isoformat()
+    window_start = (dt.date.today() - dt.timedelta(days=365 * build.YEARS_OF_PRICES)).isoformat()
     ever = set(core_now) | set(sp500_now)
     for change in core_changes + sp500_changes:
         if change["date"] >= window_start and change["removed"]:

@@ -84,22 +84,24 @@ and portfolio never use outsider scores.
 Both evidence scripts import the momentum maths from `scripts/build.py`, so the test and the live
 site cannot diverge. Both rank the whole universe only; the within-sector basis is untested.
 
-- **Backtest** (`scripts/backtest.py`): at each of the last 36 usable month ends, rebuild
+- **Backtest** (`scripts/backtest.py`): at each of up to 60 month ends (about five years, as far back as the six-year price window allows), rebuild
   point-in-time membership, rank, split into deciles, and measure 1-, 3- and 6-month forward
   returns. Reports decile means, top-minus-bottom spread, hit rate, and t-statistics with the
   overlap correction. Delisted names are held at their last print and then treated as cash.
 - **Portfolio** (`scripts/portfolio.py`): buy the top decile equally weighted at each month end,
-  hold untouched until the next, repeat for up to 48 months. Records a daily NAV for the top
+  hold untouched until the next, repeat for up to 60 months. Records a daily NAV for the top
   decile, bottom decile and the whole universe equally weighted (the benchmark), plus return,
   volatility, drawdown, and sector concentration (Herfindahl and effective number of sectors) at
   each rebalance. No costs or taxes, so every figure is better than real life.
 
-The evidence page reads the numbers from the data files, so it never carries a stale claim. As of
-September 2026 the honest summary is: the ranking is ordered (returns fall almost monotonically
-from decile 1 to 10), the top decile beats the equal-weight universe by well under a point a year
-while carrying more risk, and the return-ranked top decile is concentrated in roughly 5.4 effective
-sectors against 8.5 for the universe. Volatility adjustment spreads it to about 6.2 and cuts
-drawdown more than it changes return.
+The evidence page reads the numbers from the data files, so it never carries a stale claim. Both
+windows were widened from three to about five years in September 2026 so the record includes the
+2022 bear market. The honest summary as of then: the ranking is ordered (returns fall almost
+monotonically from decile 1 to 10) and the top decile beats the equal-weight universe by about a
+point a year while carrying more risk, but the edge is concentrated in 2023 onward; in late 2021
+the ranking ran backwards and in 2022 it was flat. The return-ranked top decile sits in roughly
+5.4 effective sectors against 8.5 for the universe; volatility adjustment spreads it to about 6.2
+and cuts drawdown more than it changes return.
 
 ## How it is built
 
