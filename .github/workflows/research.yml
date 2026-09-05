@@ -1,10 +1,10 @@
 name: Refresh research
 
 # Manual only. Reruns the research section — the top-decile backtest and
-# portfolio curves, and the two oscillator studies — against the vendor's
-# six-year price history, and commits research/ if anything changed. Nothing
-# here touches data/ or the app; the daily refresh (refresh.yml) never runs
-# these scripts.
+# portfolio curves, the two oscillator studies and the moving-average cross
+# study — against the vendor's six-year price history, and commits research/
+# if anything changed. Nothing here touches data/ or the app; the daily
+# refresh (refresh.yml) never runs these scripts.
 #
 # Run it: Actions → Refresh research → Run workflow.
 
@@ -47,6 +47,11 @@ jobs:
         env:
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python research/oscillator/derived.py
+
+      - name: Moving-average cross study
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/ma-cross/ma_cross.py
 
       - name: Commit if anything changed
         run: |

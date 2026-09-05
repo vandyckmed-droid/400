@@ -108,6 +108,11 @@ it and carries exactly one link to it, at the foot of the methodology in Setting
   no formula assumed (per stock it rediscovers momentum), and two universe-level readings that do
   carry information: 63-day breadth and the share of names near their yearly lows, each with a
   phone page and, for the near-lows share, an interactive two-pane chart.
+- **Moving-average cross study** (`research/ma-cross/`): 254 crossover pairs searched over six
+  years for the durations that best time each name's peaks and valleys. None beats holding, the
+  profit ordering reverses between the bear and bull halves, and the only stable result is that
+  EMA 40/60 marks 20% turns most reliably, about five weeks after the fact. Its `README.md` has
+  the design, the trade-off ladder and the verdict; no page, just the report.
 
 The research numbers are a snapshot. They are refreshed only by the manual **Refresh research**
 workflow (see Automation), never by the daily job, and every page states the dates it covers.
@@ -139,6 +144,7 @@ research/evidence.html  evidence.js  the top-decile record: self-contained, incl
 research/scripts/backtest.py       decile forward-return test  → research/data/backtest.json
 research/scripts/portfolio.py      daily top-decile portfolio curves → research/data/portfolio.json
 research/oscillator/               the oscillator studies: scripts, results, reports, pages
+research/ma-cross/                 the moving-average cross study: script, results, report
 research/README.md                 what the section is and how to refresh it
 
 .github/workflows/refresh.yml      weekday-morning rebuild of data/ + commit
@@ -193,8 +199,8 @@ timestamp; that is what keeps the staleness banner quiet over a long weekend.
 On-demand rebuild: **Actions → Refresh momentum data → Run workflow**.
 
 `.github/workflows/research.yml` has no schedule. **Actions → Refresh research → Run workflow**
-reruns the backtest, the portfolio curves and both oscillator studies against the vendor's
-six-year history and commits `research/` if anything changed. It never touches `data/`.
+reruns the backtest, the portfolio curves, both oscillator studies and the moving-average cross
+study against the vendor's six-year history and commits `research/` if anything changed. It never touches `data/`.
 
 Publishing is GitHub Pages serving the `main` branch root directly. There is no deploy workflow;
 every push to `main`, including the daily data commit, republishes the site.
@@ -212,6 +218,7 @@ FMP_API_KEY=your_key python3 research/scripts/backtest.py  # the research sectio
 FMP_API_KEY=your_key python3 research/scripts/portfolio.py
 FMP_API_KEY=your_key python3 research/oscillator/oscillator.py
 FMP_API_KEY=your_key python3 research/oscillator/derived.py
+FMP_API_KEY=your_key python3 research/ma-cross/ma_cross.py
 python3 -m http.server 8000        # then open http://localhost:8000 and /research/
 ```
 

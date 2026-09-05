@@ -35,15 +35,19 @@ Scripts:
 | `scripts/portfolio.py` | `data/portfolio.json` | Buy the top decile equally weighted at each month end, hold until the next, for up to 60 months. Daily NAV for top decile, bottom decile and the equal-weight universe; return, volatility, drawdown, sector concentration at each rebalance. No costs or taxes. |
 | `oscillator/oscillator.py` | `oscillator/results.json`, `REPORT.md` | Textbook oscillators tested per stock (none work) and the breadth reading |
 | `oscillator/derived.py` | `oscillator/results-derived.json`, `DERIVED.md` | A reading derived from the data with no formula assumed; the near-lows share |
+| `ma-cross/ma_cross.py` | `ma-cross/results.json`, `REPORT.md` | 254 moving-average crossover pairs scored on how well they time each name's peaks and valleys; none beats holding, EMA 40/60 marks turns most reliably |
 
 `oscillator/README.md` is the design note for the two oscillator studies: what was tested, the
 verdicts, the recommended designs and the caveats.
+`ma-cross/README.md` is the design note for the moving-average cross study: what was tested, the
+trade-off between lag and false alarms, the recommended durations and the caveats. It has no page;
+the report is the deliverable.
 
 ## Refreshing it
 
 The numbers here are a snapshot of the day they were last run. To bring them up to date:
-**Actions → Refresh research → Run workflow**. That reruns all four scripts against the vendor's
-six-year price history (about ten minutes) and commits `research/` if anything changed. Nothing
+**Actions → Refresh research → Run workflow**. That reruns all five scripts against the vendor's
+six-year price history (about fifteen minutes) and commits `research/` if anything changed. Nothing
 else runs it.
 
 Locally, with the vendor key:
@@ -53,6 +57,7 @@ FMP_API_KEY=your_key python3 research/scripts/backtest.py
 FMP_API_KEY=your_key python3 research/scripts/portfolio.py
 FMP_API_KEY=your_key python3 research/oscillator/oscillator.py
 FMP_API_KEY=your_key python3 research/oscillator/derived.py
+FMP_API_KEY=your_key python3 research/ma-cross/ma_cross.py
 python3 -m http.server 8000        # then open http://localhost:8000/research/
 ```
 
