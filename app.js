@@ -391,7 +391,7 @@
     li.innerHTML =
       `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : p.k}</span>` +
       `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
-      `<small>${r.idx === '500' ? '<i class="badge">S&amp;P 500</i> ' : ''}${esc(r.name)}</small></a>` +
+      `<small>${esc(r.name)}</small></a>` +
       sparkline(r.symbol) +
       `<span class="sc"><b>${SORTS[state.sort].value(r)}</b></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
@@ -565,7 +565,6 @@
         ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
         ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
         <span class="tag">${cap(r.mktCap)}</span>
-        ${r.idx === '500' ? '<span class="tag">S&amp;P 500 tail</span>' : ''}
         <span class="tag">Decile ${decileOf(p.k, p.n)}</span>
       </div>
 

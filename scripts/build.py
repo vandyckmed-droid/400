@@ -685,7 +685,6 @@ def main() -> None:
                 "name": q.get("name") or info.get("name", symbol),
                 "sector": info.get("sector", ""),
                 "industry": info.get("industry", ""),
-                "idx": "400" if symbol in core_at[as_of] else "500",
                 "m12": round(long_leg[0], 6),
                 "m6": round(mid_leg[0], 6),
                 "vol12": round(long_leg[1], 6),
