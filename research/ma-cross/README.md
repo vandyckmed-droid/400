@@ -1,7 +1,7 @@
 # Moving-average cross prototype
 
-A design study, not a feature. Nothing in this folder is loaded by the site or run by the
-refresh job. It asks one question of the universe and six years of its prices: **which two
+A design study, not a feature. Nothing in this folder is loaded by the app or run by the daily
+refresh; the manual research workflow reruns it with the other studies. It asks one question of the universe and six years of its prices: **which two
 moving-average durations come closest to buying every valley and selling every peak, and how
 close is that?**
 
@@ -124,10 +124,10 @@ channel, which marks trend and stretch without pretending to time turns.
 
 ```sh
 # Six-year, point-in-time run (the real test). Same key the refresh job uses. About five minutes.
-FMP_API_KEY=your_key python3 prototypes/ma-cross/ma_cross.py
+FMP_API_KEY=your_key python3 research/ma-cross/ma_cross.py
 
 # Without a key: a three-year preview from the committed bars, today's members only.
-python3 prototypes/ma-cross/ma_cross.py
+python3 research/ma-cross/ma_cross.py
 ```
 
 It rewrites `REPORT.md` and `results.json` in this folder and nothing else.

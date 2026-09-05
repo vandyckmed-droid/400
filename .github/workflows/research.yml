@@ -1,0 +1,66 @@
+name: Refresh research
+
+# Manual only. Reruns the research section — the top-decile backtest and
+# portfolio curves, the two oscillator studies and the moving-average cross
+# study — against the vendor's six-year price history, and commits research/
+# if anything changed. Nothing here touches data/ or the app; the daily
+# refresh (refresh.yml) never runs these scripts.
+#
+# Run it: Actions → Refresh research → Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Backtest by decile
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/scripts/backtest.py
+
+      - name: Top-decile portfolio curves
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/scripts/portfolio.py
+
+      - name: Oscillator study, textbook indicators and breadth
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/oscillator/oscillator.py
+
+      - name: Oscillator study, derived from the data
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/oscillator/derived.py
+
+      - name: Moving-average cross study
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python research/ma-cross/ma_cross.py
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add research
+          if git diff --cached --quiet; then
+            echo "No research changes."
+            exit 0
+          fi
+          git commit -m "research: refresh backtest, portfolio and oscillator studies ($(date -u +%Y-%m-%d))"
+          git push

@@ -1,7 +1,8 @@
 # Oscillator prototype
 
-A design study, not a feature. Nothing in this folder is loaded by the site or run by the
-refresh job. It asks one question of the universe and six years of its prices: **is there an
+A design study, not a feature. This folder is part of the research section (`research/`),
+outside the app: nothing in it is loaded by the app or run by the daily refresh, and the
+"Refresh research" workflow reruns it on demand. It asks one question of the universe and six years of its prices: **is there an
 oscillator worth having, and if so, which one?**
 
 Files:
@@ -179,11 +180,11 @@ because the data above says it would be decoration.
 
 ```sh
 # Six-year, point-in-time run (the real test). Same key the refresh job uses.
-FMP_API_KEY=your_key python3 prototypes/oscillator/oscillator.py
-FMP_API_KEY=your_key python3 prototypes/oscillator/derived.py      # the second study
+FMP_API_KEY=your_key python3 research/oscillator/oscillator.py
+FMP_API_KEY=your_key python3 research/oscillator/derived.py      # the second study
 
 # Without a key: a three-year preview from the committed bars, today's members only.
-python3 prototypes/oscillator/oscillator.py
+python3 research/oscillator/oscillator.py
 ```
 
 A few minutes each once prices are cached. They rewrite `REPORT.md`, `DERIVED.md` and the two
