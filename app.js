@@ -10,6 +10,7 @@
   const BASIS_KEY = 'sp400.basis.v1';
   const ADJUST_KEY = 'sp400.adjust.v1';
   const GRAIN_KEY = 'sp400.grain.v1';
+  const CHART_KEY = 'sp400.chart.v1';      // the price chart's own settings
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -48,6 +49,7 @@
     grain: (() => {
       try { return localStorage.getItem(GRAIN_KEY) === 'w' ? 'w' : 'm'; } catch { return 'm'; }
     })(),
+    chart: loadChartPrefs(),
   };
 
   const peerKey = () => keyFor(state.basis, state.adjust);
@@ -77,6 +79,20 @@
   }
   function saveSectors() {
     try { localStorage.setItem(SECTORS_KEY, JSON.stringify([...state.sectors])); } catch { /* private mode */ }
+  }
+  /* Chart settings are one small object so a later control is a new key,
+     not a new store. Anything unreadable falls back to the chart's defaults. */
+  function loadChartPrefs() {
+    const T = priceChart.TUNE;
+    const prefs = { fill: T.channelFill };
+    try {
+      const raw = JSON.parse(localStorage.getItem(CHART_KEY)) || {};
+      if (typeof raw.fill === 'number' && isFinite(raw.fill)) prefs.fill = Math.min(T.maxFill, Math.max(0, raw.fill));
+    } catch { /* absent or malformed */ }
+    return prefs;
+  }
+  function saveChartPrefs() {
+    try { localStorage.setItem(CHART_KEY, JSON.stringify(state.chart)); } catch { /* private mode */ }
   }
 
   /* ---------- formatting ---------- */
@@ -818,14 +834,29 @@
     const fromDetail = !$('detail-view').hidden;
     showView('chart-view');
     const el = $('chart-view');
+    const T = priceChart.TUNE;
+    const pctOf = (fill) => Math.round(fill * 100);
     el.innerHTML = `
       <div class="dtop">
         <button class="back" id="cback">‹ Back</button>
         <span class="grow"><b>${r.symbol}</b><small>${esc(r.name)}</small></span>
         <span class="cpx" id="cpx"></span>
+        <button type="button" class="ghost" id="ctune" aria-label="Chart settings" aria-haspopup="dialog"
+                aria-expanded="false" hidden><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></button>
       </div>
       <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol} with a 200-day regression channel"></canvas>
-      <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>`;
+      <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
+      <div class="cpanel" id="cpanel" role="dialog" aria-label="Chart settings" hidden>
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="cpanel-head"><b>Chart</b>
+          <button type="button" id="creset">Reset</button>
+          <button type="button" class="done" id="cdone">Done</button>
+        </div>
+        <label class="cslider"><span>Channel fill <output id="cfill-out" for="cfill"></output></span>
+          <input type="range" id="cfill" min="0" max="${pctOf(T.maxFill)}" step="1" aria-label="Channel fill">
+        </label>
+        <p class="fine">Shading between the channel lines. 0% keeps the lines only. Touch the chart to close.</p>
+      </div>`;
     $('cback').addEventListener('click', () => (fromDetail ? history.back() : (location.hash = `#/t/${r.symbol}`)));
     loadBars(r.symbol).then((bars) => {
       if (!location.hash.startsWith(`#/t/${r.symbol}/chart`)) return;
@@ -838,9 +869,44 @@
       const chg = last / prev - 1;
       $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
         `<small>${fmtDate(bars.dates[n - 1])}</small>`;
-      priceChart($('price-chart'), bars);
+      const chart = priceChart($('price-chart'), bars, { fill: state.chart.fill });
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, 6000);
+      wireChartPanel(chart);
     });
+  }
+
+  /* The panel's controls apply on every move; the value is saved when it
+     settles. The canvas keeps its own gestures — a touch on it both closes
+     the panel and pans, which is what a finger expects. */
+  function wireChartPanel(chart) {
+    const btn = $('ctune'), panel = $('cpanel'), slider = $('cfill'), out = $('cfill-out');
+    const show = () => { out.value = `${Math.round(state.chart.fill * 100)}%`; slider.value = String(Math.round(state.chart.fill * 100)); };
+    const apply = (fill) => { state.chart.fill = fill; chart.set({ fill }); show(); };
+    const open = () => {
+      panel.hidden = false;
+      $('chint').style.opacity = 0;
+      btn.setAttribute('aria-expanded', 'true');
+      requestAnimationFrame(() => panel.classList.add('open'));
+    };
+    const close = () => {
+      if (panel.hidden) return;
+      panel.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+      setTimeout(() => { panel.hidden = true; }, 220);
+    };
+    btn.hidden = false;
+    show();
+    btn.addEventListener('click', () => (panel.hidden ? open() : close()));
+    $('cdone').addEventListener('click', close);
+    $('creset').addEventListener('click', () => { apply(priceChart.TUNE.channelFill); saveChartPrefs(); });
+    slider.addEventListener('input', () => apply(slider.valueAsNumber / 100));
+    slider.addEventListener('change', saveChartPrefs);
+    $('price-chart').addEventListener('pointerdown', close);
+    const onKey = (e) => {
+      if (!panel.isConnected) { removeEventListener('keydown', onKey); return; }   // chart view was rebuilt
+      if (e.key === 'Escape') close();
+    };
+    addEventListener('keydown', onKey);
   }
 
   /* One fetch per symbol per session. A missing file resolves to null, so a

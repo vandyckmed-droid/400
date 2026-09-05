@@ -17,7 +17,11 @@ to work in this repository and with its owner.
   whole universe and within its sector, quote and volatility figures, and a bar chart of its score
   at each of the last 36 month ends or 78 week ends with a trailing 4-period average.
 - **Price chart.** A full-screen chart of 18 months of adjusted daily bars with a 200-day linear
-  regression channel. Drag to pan, pinch to zoom, drag the price axis to stretch it.
+  regression channel. Drag to pan, pinch to zoom, drag the price axis to stretch it. A button in
+  its top bar opens the chart's own small settings panel: today a slider for how strongly the
+  channel is shaded (0–40%, default 7%; 0 leaves the lines only). Changes draw live, a touch on
+  the chart closes the panel, and the choice persists per device. Any later chart-only setting
+  belongs in this panel, not on the settings page.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
   universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
@@ -90,7 +94,8 @@ own percentiles. Those bars are dimmed on the charts and labelled "not yet a mem
 ```
 index.html  styles.css  app.js     the site: vanilla JS, no build step, no dependencies
 chart.js                           the price chart: canvas bars, pan / pinch / axis-stretch,
-                                   200-day linear regression channel
+                                   200-day linear regression channel; takes its settings from
+                                   app.js as options and exposes set() to change them live
 manifest.webmanifest  icon-*.png   home-screen install
 .nojekyll                          tells GitHub Pages to serve the files as they are
 
@@ -113,7 +118,11 @@ data/sp500.json                    S&P 500 constituents + change log; also the o
 The app is a single page routed by URL hash: the list at `/`, a ticker at `#/t/SYMBOL`, its price
 chart at `#/t/SYMBOL/chart`, and `#/settings`. Files beyond the ranking are fetched lazily and
 memoised; a failed optional fetch leaves that piece out rather than breaking the page. Watchlist,
-sector filter, both settings and the chart interval persist in local storage.
+sector filter, both settings, the chart interval and the price chart's own settings persist in
+local storage.
+
+Both settings buttons (list top bar and chart top bar) share one hand-drawn sliders icon, kept as
+an inline SVG symbol at the top of `index.html`.
 
 ### Data sources
 

@@ -69,7 +69,7 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
   background: color-mix(in srgb, var(--mid) 14%, transparent); border: 1px solid var(--mid); color: var(--ink);
 }
 .ghost {
-  width: 32px; height: 32px; flex: 0 0 auto;
+  width: 32px; height: 32px; flex: 0 0 auto; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: 50%;
   background: var(--bg-soft); color: var(--ink-2);
@@ -250,6 +250,45 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
   text-align: center; font-size: 12px; color: var(--ink-3); pointer-events: none;
   transition: opacity .4s; padding: 0 20px;
 }
+
+/* The chart's own settings: a small panel that slides up over the foot of
+   the chart with no backdrop, so the chart stays fully visible and redraws
+   live as a control moves. Touching the chart itself closes it. */
+.cpanel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  background: var(--card); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  padding: 0 16px calc(14px + var(--safe-b));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .18);
+  transform: translateY(100%); transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+}
+.cpanel.open { transform: translateY(0); }
+.cpanel[hidden] { display: none; }
+.cpanel-head { display: flex; align-items: center; gap: 16px; padding: 6px 0 10px; }
+.cpanel-head b { flex: 1; font-size: 15px; }
+.cpanel-head button {
+  border: 0; background: transparent; padding: 4px 2px; font-size: 14px; font-weight: 600;
+  color: var(--accent); -webkit-tap-highlight-color: transparent;
+}
+.cpanel-head button.done { font-weight: 700; }
+.cslider { display: block; padding: 6px 0 2px; }
+.cslider span { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
+.cslider output { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 650; }
+.cslider input {
+  appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 32px;
+  margin: 4px 0 0; background: transparent; cursor: pointer; touch-action: none;
+}
+.cslider input::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--track); }
+.cslider input::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
+.cslider input::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none; width: 26px; height: 26px; margin-top: -11px;
+  border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.cslider input::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.cpanel .fine { margin: 6px 0 0; font-size: 11.5px; color: var(--ink-3); }
 
 .hero { padding: 18px 16px 6px; display: flex; align-items: baseline; gap: 12px; }
 .hero .big { font-size: 46px; font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
