@@ -33,7 +33,6 @@
     scope: 'all',
     sectors: loadSectors(),
     sort: 'score',
-    query: '',
     view: [],
     shown: 0,
     basis: (() => {
@@ -331,11 +330,9 @@
 
   /* ---------- list ---------- */
   function applyFilters() {
-    const q = state.query.trim().toLowerCase();
     let out = state.rows;
     if (state.scope === 'watch') out = out.filter((r) => state.watch.has(r.symbol));
     if (state.sectors.size) out = out.filter((r) => state.sectors.has(r.sector));
-    if (q) out = out.filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
 
     const key = state.sort;
     state.ranks = rankOn(key);
@@ -442,12 +439,6 @@
 
   /* ---------- events ---------- */
   function wire() {
-    let debounce;
-    $('search').addEventListener('input', (e) => {
-      clearTimeout(debounce);
-      const value = e.target.value;
-      debounce = setTimeout(() => { state.query = value; applyFilters(); }, 120);
-    });
     $('basis').addEventListener('change', (e) => {
       state.basis = e.target.checked ? 'sector' : 'whole';
       try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }

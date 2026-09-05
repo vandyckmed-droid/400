@@ -77,12 +77,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .ghost:active { background: var(--line); }
 
 .controls { display: grid; gap: 8px; }
-#search {
-  width: 100%; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--line); background: var(--bg-soft);
-  -webkit-appearance: none; appearance: none;
-}
-#search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .segmented { display: flex; gap: 4px; padding: 3px; background: var(--bg-soft); border-radius: 10px; border: 1px solid var(--line); }
 .segmented button {
