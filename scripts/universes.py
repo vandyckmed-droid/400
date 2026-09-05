@@ -14,8 +14,6 @@ One universe, assembled from two sources:
 The boundary between the two is an index committee's, not a size boundary, so
 crossing it is what the tail is for: a name is measured against everything of
 roughly its size rather than against which index happens to hold it.
-
-Shared by build.py (the live ranking), backtest.py and portfolio.py.
 """
 
 from __future__ import annotations

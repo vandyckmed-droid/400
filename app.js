@@ -532,9 +532,6 @@
       location.hash = '';
       return;
     }
-    // The evidence page left the app for the research section; an old
-    // bookmark or shared link still lands on it.
-    if (location.hash === '#/evidence') { location.replace('research/evidence.html'); return; }
     if (location.hash === '#/settings') return showSettings();
     showView('list-view');
     if (!state.view.length) applyFilters();
