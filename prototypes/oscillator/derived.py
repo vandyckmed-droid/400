@@ -221,6 +221,25 @@ def centred_ranks(values):
     return [r / (n - 1) - 0.5 for r in rk] if n > 1 else [0.0] * n
 
 
+def aggregate(raw: dict, has_volume: bool) -> dict:
+    """Universe-level readings from one week end's raw descriptors."""
+    n = len(raw["stretch_21"])
+    s21 = sorted(raw["stretch_21"])
+    q = lambda arr, p: arr[int(p * (len(arr) - 1))]      # noqa: E731
+    return {
+        "median_stretch_21": st.median(raw["stretch_21"]),
+        "median_stretch_63": st.median(raw["stretch_63"]),
+        "share_capitulating": sum(1 for v in raw["stretch_21"] if v < -2) / n,
+        "share_near_lows": sum(1 for v in raw["range252"] if v < 0.1) / n,
+        "share_near_highs": sum(1 for v in raw["range252"] if v > 0.9) / n,
+        "median_drawdown": st.median(raw["drawdown"]),
+        "dispersion_21": q(s21, 0.75) - q(s21, 0.25),
+        "median_volregime": st.median(raw["volregime"]),
+        "median_closepos": st.median(raw["closepos"]),
+        **({"median_volshock": st.median(raw["volshock"])} if has_volume else {}),
+    }
+
+
 # --- Main ---------------------------------------------------------------------
 
 def main() -> None:
@@ -296,27 +315,38 @@ def main() -> None:
         })
         # Universe readings: aggregate the raw descriptors, not the ranks.
         raw = {f: [rows[s][0][k] for s in symbols] for k, f in enumerate(features)}
-        s21 = sorted(raw["stretch_21"])
-        q = lambda arr, p: arr[int(p * (len(arr) - 1))]      # noqa: E731
         uni.append({
             "date": date,
-            "reading": {
-                "median_stretch_21": st.median(raw["stretch_21"]),
-                "median_stretch_63": st.median(raw["stretch_63"]),
-                "share_capitulating": sum(1 for v in raw["stretch_21"] if v < -2) / len(symbols),
-                "share_near_lows": sum(1 for v in raw["range252"] if v < 0.1) / len(symbols),
-                "share_near_highs": sum(1 for v in raw["range252"] if v > 0.9) / len(symbols),
-                "median_drawdown": st.median(raw["drawdown"]),
-                "dispersion_21": q(s21, 0.75) - q(s21, 0.25),
-                "median_volregime": st.median(raw["volregime"]),
-                "median_closepos": st.median(raw["closepos"]),
-                **({"median_volshock": st.median(raw["volshock"])} if has_volume else {}),
-            },
+            "reading": aggregate(raw, has_volume),
             "ew": {h: st.fmean(rows[s][1][h] for s in symbols) for h in HORIZONS},
         })
         if len(weeks) % 25 == 0:
             log(f"  {len(weeks)} week ends ({date})")
     log(f"{len(weeks)} week ends used, {weeks[0]['date']} to {weeks[-1]['date']}")
+
+    # Universe readings on the week ends after the last tested one, so the
+    # chart runs to this week. No forward return exists for them yet, so they
+    # take no part in any statistic.
+    tail = []
+    for date in week_ends:
+        if date <= weeks[-1]["date"] or index[date] < WARMUP:
+            continue
+        raw = {f: [] for f in features}
+        for symbol in members_at(date):
+            entry = prices.get(symbol)
+            if not entry:
+                continue
+            dates, closes = entry
+            pos = bisect_right(dates, date) - 1
+            if pos < WARMUP or dates[pos] != date:
+                continue
+            vals = [desc[symbol][f][pos] for f in features]
+            if any(v is None for v in vals):
+                continue
+            for f, v in zip(features, vals):
+                raw[f].append(v)
+        if len(raw[features[0]]) >= MIN_MEMBERS:
+            tail.append({"date": date, "reading": aggregate(raw, has_volume), "ew": None})
     split_i = len(weeks) // 2
     split = weeks[split_i]["date"]
     lag_of = {h: max(1, math.ceil(days / 5) - 1) for h, days in HORIZONS.items()}
@@ -446,7 +476,8 @@ def main() -> None:
         hi_w = [p[2] for p in pts if p[1] > hi_band]
         mid_w = [p[2] for p in pts if lo_band <= p[1] <= hi_band]
         uni_out[name] = {
-            "latest": uni[-1]["reading"][name],
+            "latest": (tail or uni)[-1]["reading"][name],
+            "latestDate": (tail or uni)[-1]["date"],
             "bands": [lo_band, hi_band],
             "horizons": per_h,
             "buckets": {h: {
@@ -509,9 +540,15 @@ def main() -> None:
         },
         "universe": uni_out,
         "universeCombined": comb_out,
-        "universeSeries": {"dates": [u["date"] for u in uni],
-                           "combined": [round(c[1], 4) for c in comb],
-                           **{n_: [round(u["reading"][n_], 4) for u in uni] for n_ in chosen}},
+        "universeSeries": {
+            "dates": [u["date"] for u in uni + tail],
+            "testedThrough": uni[-1]["date"],
+            "combined": [round(combined(u), 4) for u in uni + tail],
+            **{n_: [round(u["reading"][n_], 4) for u in uni + tail]
+               for n_ in sorted(set(chosen) | {"share_near_lows", "share_near_highs", "median_drawdown"})},
+            **{f"fwd{h}": [None if u["ew"] is None else round(u["ew"][h], 5) for u in uni + tail]
+               for h in HORIZONS},
+        },
     }
     (HERE / "results-derived.json").write_text(json.dumps(results, separators=(",", ":")) + "\n")
     (HERE / "DERIVED.md").write_text(report(results))

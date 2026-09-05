@@ -15,6 +15,7 @@ Files:
 | `derived.py` | The second study: an oscillator derived from the data itself, no textbook formula assumed. |
 | `DERIVED.md` | Every table the second study produces, regenerated on each run. |
 | `results-derived.json` | The same numbers, machine-readable, plus the weekly universe series. |
+| `near-lows.html` | A phone-sized chart of the near-yearly-lows share against the universe, reading `results-derived.json`. |
 
 ## What was tested
 
