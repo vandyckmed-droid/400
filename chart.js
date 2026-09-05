@@ -11,6 +11,8 @@
   const TUNE = {
     channelLen: 200,     // bars in the regression
     channelDev: 2,       // channel half-width in standard deviations
+    channelFill: 0.07,   // default opacity of the two channel bands (0 = lines only)
+    maxFill: 0.4,        // strongest fill the settings panel offers
     barW: 3,             // starting pixels per bar
     minBarW: 0.6,
     maxBarW: 40,
@@ -53,11 +55,17 @@
     return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
   }
 
+  /* opts: { fill, onDraw }. `fill` is the channel band opacity; the app owns
+     where it is stored and hands it in, and can change it later through the
+     returned set(). */
+  const fillValue = (v) => (typeof v === 'number' && isFinite(v)) ? Math.min(TUNE.maxFill, Math.max(0, v)) : TUNE.channelFill;
+
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
     const ctx = canvas.getContext('2d');
     const channel = regression(c, TUNE.channelLen);
+    const cfg = { fill: fillValue(opts.fill) };
 
     // View state. `right` is the fractional bar index sitting at the right edge
     // of the plot; `auto` means the price range follows the visible bars.
@@ -181,10 +189,12 @@
           ctx.moveTo(x0, yOf(a0)); ctx.lineTo(x1, yOf(a1)); ctx.lineTo(x1, yOf(b1)); ctx.lineTo(x0, yOf(b0));
           ctx.closePath(); ctx.fill();
         };
-        ctx.globalAlpha = 0.07;
-        poly(m0 + band, m1 + band, m0, m1, colors.accent);
-        poly(m0, m1, m0 - band, m1 - band, colors.cold);
-        ctx.globalAlpha = 1;
+        if (cfg.fill > 0) {
+          ctx.globalAlpha = cfg.fill;
+          poly(m0 + band, m1 + band, m0, m1, colors.accent);
+          poly(m0, m1, m0 - band, m1 - band, colors.cold);
+          ctx.globalAlpha = 1;
+        }
         const ln = (a0, a1, color) => {
           ctx.strokeStyle = color; ctx.beginPath();
           ctx.moveTo(x0, yOf(a0)); ctx.lineTo(x1, yOf(a1)); ctx.stroke();
@@ -383,7 +393,13 @@
     new ResizeObserver(resize).observe(canvas);
     resize();
 
-    return { view, reset: resetPrice, redraw: schedule, channel, TUNE };
+    /* Live settings: merge what is given and redraw on the next frame. */
+    function set(next = {}) {
+      if ('fill' in next) cfg.fill = fillValue(next.fill);
+      schedule();
+    }
+
+    return { view, cfg, set, reset: resetPrice, redraw: schedule, channel, TUNE };
   }
 
   window.priceChart = priceChart;

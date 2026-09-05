@@ -18,11 +18,22 @@
 </head>
 <body>
 
+<!-- The one icon the app draws itself: a sketched set of sliders, used for
+     both settings buttons. Kept as a symbol so each button is one <use>. -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><symbol id="i-tune" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 6.9c3.1-.5 6.1-.4 9.1-.3"/><path d="M19.1 6.5c.5 0 .9.1 1.3.2"/>
+  <path d="M3.4 12.3c.6-.1 1.1-.2 1.6-.2"/><path d="M11.5 11.9c3 .1 6-.1 9 .2"/>
+  <path d="M3.5 17.4c2.1.2 4.2 0 6.3.1"/><path d="M16.3 17.7c1.4-.2 2.8-.2 4.2-.3"/>
+  <path d="M15.8 3.8c1.7-.3 3 1.1 2.9 2.6-.1 1.4-1.4 2.5-2.8 2.3-1.4-.2-2.3-1.5-2-2.8.2-1 1-1.9 1.9-2.1z"/>
+  <path d="M8.3 9.4c1.6-.1 2.7 1.2 2.6 2.6-.1 1.4-1.3 2.4-2.7 2.3-1.3-.1-2.3-1.3-2.2-2.6.1-1.2 1-2.2 2.3-2.3z"/>
+  <path d="M12.9 14.9c1.5-.2 2.8 1 2.8 2.4 0 1.5-1.3 2.6-2.7 2.5-1.4-.1-2.4-1.3-2.3-2.7.1-1.1.9-2 2.2-2.2z"/>
+</symbol></svg>
+
 <main id="list-view">
   <header class="topbar">
     <div class="titlerow">
       <h1 class="title">MidCap<span class="pill">650</span></h1>
-      <a id="settings-btn" class="ghost" href="#/settings" aria-label="Settings and how the score works"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
+      <a id="settings-btn" class="ghost" href="#/settings" aria-label="Settings and how the score works"><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></a>
     </div>
     <p class="asof" id="asof">Loading…</p>
     <p class="stale" id="stale" hidden></p>
