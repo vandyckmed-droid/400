@@ -1,0 +1,41 @@
+Slim-down baseline — measured before any removal
+Commit: 56f3e89 (main, 2026-09-05)
+Tool: cloc 1.98, git ls-files, du
+
+FILES (tracked by git)                     707
+  of which per-stock bar data files        620   data/bars/*.json
+  of which other data files                 47   data/{history,spark,latest,universe,sp500}.json, research/data, research results
+  of which code, pages, styles, workflows   22
+  of which docs (markdown)                   9
+  of which icons / manifest / misc           9
+
+LINES OF CODE (blank and comment lines excluded)
+  Everything incl. data JSON            24,123
+  Code only (no JSON, no Markdown)       6,405
+    Python                               3,135   (7 files)
+    JavaScript                           1,556   (3 files)
+    HTML                                 1,119   (7 files)
+    CSS                                    492   (2 files)
+    YAML (automation)                       80   (2 files)
+  App only (index, styles, app.js, chart.js, chart.html, scripts/)   2,210
+  Research only (research/)                                            ~4,100
+  Markdown (docs, reports)               1,336   (9 files)
+
+OUTSIDE PACKAGES                            0
+  No package.json, requirements.txt, or pyproject.toml.
+  No third-party scripts or stylesheets loaded from the web.
+  Python uses only the standard library.
+
+SIZE
+  Working files (excl. .git)             25 MB   (24,473,839 bytes tracked)
+    data/                                22 MB
+    research/                           2.4 MB
+  Git history (.git)                     14 MB
+
+MEASURE COMMANDS (to re-run at the end)
+  git ls-files | wc -l
+  cloc --vcs=git --quiet .
+  cloc --vcs=git --quiet --exclude-dir=data,bars --exclude-ext=json,md .
+  cloc --quiet index.html styles.css app.js chart.js chart.html scripts
+  git ls-files -z | xargs -0 du -cb | tail -1
+  du -sh --exclude=.git .
