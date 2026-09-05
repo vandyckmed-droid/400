@@ -42,7 +42,7 @@
   <span class="big" id="latest">–</span>
   <span class="zone mid" id="zone"></span>
 </header>
-<div class="hint">Drag to pan · pinch to zoom time · drag either value axis to stretch it, double-tap to reset · touch for the crosshair</div>
+<div class="hint">Drag to pan · pinch to zoom time · press and hold for the crosshair, then drag it · drag a value axis to stretch it, double-tap to reset</div>
 <canvas id="chart"></canvas>
 <footer>Top: the ranked universe, equal weight, weekly. Bottom: share of names in the bottom tenth of their own 52-week range; bands are the outer tenths of the training readings. Tables and method: <a href="near-lows.html">near-lows.html</a>.</footer>
 
@@ -62,7 +62,8 @@
   const spellsDown = new Set(U.lowEpisodes.map(e => dates.indexOf(e.start)));
 
   const TUNE = { pxW: 4, minPxW: 1, maxPxW: 60, pad: 0.06, rightRoom: 0.25, axisDragHalf: 110, timeDragDouble: 150,
-                 tickPx: 56, dateLabelPx: 48, snapMs: 160, doubleTapMs: 320, split: 0.6 };
+                 tickPx: 56, dateLabelPx: 48, snapMs: 160, doubleTapMs: 320, split: 0.6,
+                 holdMs: 320, slop: 8 };   // press-and-hold arms the crosshair; a drag past `slop` before that pans
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const fmtDate = (s) => { const [y, m, d] = s.split('-'); return `${MONTHS[+m - 1]} ${+d}, ${y}`; };
   const fmtPct = (x, d = 1) => x == null ? '–' : (x >= 0 ? '+' : '−') + Math.abs(x * 100).toFixed(d) + '%';
@@ -307,15 +308,27 @@
     } else if (z === 'time') {
       gesture = { type: 'time', x0: pt.x, pxW0: view.pxW };
     } else {
-      gesture = { type: 'pan', x: pt.x, y: pt.y, pane: p, moved: false };
-      cross = { x: pt.x, y: pt.y, pane: p };
+      // A press. Move past the slop before the hold timer fires and it is a
+      // pan; stay put until the timer fires and the crosshair arms, after
+      // which the finger moves only the crosshair and the chart stays fixed.
+      // TradingView's mobile convention.
+      gesture = { type: 'press', x0: pt.x, y0: pt.y, x: pt.x, y: pt.y, pane: p, timer: 0 };
+      gesture.timer = setTimeout(() => {
+        if (!gesture || gesture.type !== 'press') return;
+        gesture = { type: 'cross' };
+        cross = { x: pt.x, y: pt.y, pane: p };
+        if (navigator.vibrate) navigator.vibrate(8);
+        schedule();
+      }, TUNE.holdMs);
     }
   }
+  function cancelHold() { if (gesture && gesture.type === 'press') clearTimeout(gesture.timer); }
   function startPinch() {
     const [a, b] = [...pointers.values()];
     const dx = b.x - a.x, dy = b.y - a.y, mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const vertical = Math.abs(dy) > Math.abs(dx), p = paneAt(mid.y);
     if (vertical) freeze(p);
+    cancelHold();
     cross = null;
     gesture = { type: 'pinch', vertical, pane: p, d0: Math.hypot(dx, dy) || 1, pxW0: view.pxW, idx0: indexAt(mid.x),
                 span0: p.hi - p.lo, v0: valAt(p, mid.y), f: (mid.y - p.top) / (p.bottom - p.top) };
@@ -326,7 +339,7 @@
     pointers.set(e.pointerId, local(e));
     if (pointers.size === 1) startSingle(pointers.get(e.pointerId));
     else if (pointers.size === 2) startPinch();
-    else gesture = null;
+    else { cancelHold(); gesture = null; }
     schedule();
   });
   canvas.addEventListener('pointermove', (e) => {
@@ -338,15 +351,24 @@
     }
     pointers.set(e.pointerId, pt);
     if (!gesture) return;
+    if (gesture.type === 'press') {
+      if (Math.hypot(pt.x - gesture.x0, pt.y - gesture.y0) < TUNE.slop) return;
+      clearTimeout(gesture.timer);
+      gesture = { type: 'pan', x: gesture.x0, y: gesture.y0, pane: gesture.pane };
+      cross = null;
+    }
     switch (gesture.type) {
       case 'pan': {
         view.right -= (pt.x - gesture.x) / view.pxW;
         const p = gesture.pane;
         if (!p.auto) { const dv = (pt.y - gesture.y) * (p.hi - p.lo) / (p.bottom - p.top); p.lo += dv; p.hi += dv;
           if (p.floor != null && p.lo < p.floor) { p.hi += p.floor - p.lo; p.lo = p.floor; } }
-        gesture.x = pt.x; gesture.y = pt.y; gesture.moved = true;
+        gesture.x = pt.x; gesture.y = pt.y;
         clampView();
-        cross = { x: pt.x, y: pt.y, pane: paneAt(pt.y) };
+        break;
+      }
+      case 'cross': {
+        cross = { x: clamp(pt.x, plotL, plotR), y: pt.y, pane: paneAt(pt.y) };
         break;
       }
       case 'axis': setSpan(gesture.pane, gesture.span0 * Math.pow(2, (pt.y - gesture.y0) / TUNE.axisDragHalf), gesture.v0, gesture.f); break;
@@ -366,6 +388,7 @@
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
     const g = gesture; gesture = null;
+    if (g && g.type === 'press') { clearTimeout(g.timer); if (e.pointerType !== 'mouse') cross = null; }   // a plain tap dismisses
     if (g && (g.type === 'axis' || (g.type === 'pinch' && g.vertical))) snapPane(g.pane);
     if (pointers.size === 1) startSingle([...pointers.values()][0]);
     schedule();

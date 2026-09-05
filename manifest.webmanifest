@@ -1,7 +1,7 @@
 {
   "name": "MidCap Momentum",
   "short_name": "MidCap",
-  "description": "Volatility-adjusted momentum ranking of the S&P MidCap 400.",
+  "description": "Momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

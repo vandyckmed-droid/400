@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="description" content="Momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500, with a point-in-time record of the top decile.">
+<meta name="description" content="Momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500, refreshed every weekday.">
 <title>MidCap 650 Momentum</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -52,20 +52,17 @@
     </div>
   </header>
 
-  <a class="perf" id="perf" href="#/evidence" hidden></a>
   <p class="count" id="count"></p>
   <ol class="rows" id="rows"></ol>
   <div id="sentinel"></div>
   <p class="empty" id="empty" hidden>No matches.</p>
   <footer class="foot">
-    <p>Scores are cross-sectional percentiles within the current S&amp;P&nbsp;MidCap&nbsp;400 — a rank against peers, not a return forecast.
-      <a href="#/evidence">See how the score tested&nbsp;→</a></p>
+    <p>Scores are cross-sectional percentiles within the MidCap&nbsp;650 universe — a rank against peers, not a return forecast.</p>
     <p id="gen"></p>
   </footer>
 </main>
 
 <section id="detail-view" hidden></section>
-<section id="evidence-view" hidden></section>
 <section id="chart-view" hidden></section>
 <section id="settings-view" hidden>
   <div class="dtop">
@@ -105,6 +102,10 @@
   <div class="card">
     <h3>How the score works</h3>
     <ol class="method" id="method"></ol>
+    <p class="fine research">Whether the score has been worth following, and other readings of the
+      universe, are kept outside the app in the <a href="research/">research section</a>: a
+      point-in-time backtest of the top decile and a set of prototype indicators, refreshed on
+      demand rather than daily.</p>
   </div>
 
   <div class="card">
@@ -119,10 +120,6 @@
       picked on that day's market caps. A name that joined recently is scored as an outsider on
       earlier dates — where it <em>would</em> have ranked — and those bars are dimmed.</p>
   </div>
-
-  <a class="card go" href="#/evidence"><b>Does the score actually work?</b>
-    <small>Point-in-time backtest: what holding the top decile would have done,
-      forward returns by decile, spread, hit rate, and the caveats.</small></a>
 
   <footer class="foot"><p>Data: Financial Modeling Prep. A percentile is a rank against peers, not a
     return forecast. Not investment advice.</p></footer>
