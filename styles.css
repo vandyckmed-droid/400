@@ -301,6 +301,9 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .leg h4 { margin: 0 0 9px; font-size: 13px; font-weight: 700; }
 .leg h4 small { font-weight: 500; color: var(--ink-3); font-size: 11px; margin-left: 6px; }
 .leg .stats, .stats.trio { grid-template-columns: repeat(3, 1fr); }
+.leg .stats.quad { grid-template-columns: repeat(2, 1fr); }
+.leg .stats div.on dt { color: var(--ink); font-weight: 650; }
+.leg .stats div.on dt::after { content: ' ·'; }
 .caveats i { font-style: normal; color: var(--ink-3); }
 
 .ctrl { padding: 0 12px 14px; }
@@ -337,6 +340,11 @@ dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
 .switch + .switch { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
 .switch .grow b { display: block; font-size: 14px; }
 .switch .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
+.choice { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.choice .grow b { display: block; font-size: 14px; }
+.choice .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; min-height: 2.9em; }
+.choice .segmented { margin-top: 10px; }
+.choice .segmented button { flex: 1; }
 .switch input {
   appearance: none; -webkit-appearance: none; flex: 0 0 auto; margin: 0;
   width: 46px; height: 28px; border-radius: 14px; background: var(--track); position: relative;

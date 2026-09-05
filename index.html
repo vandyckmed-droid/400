@@ -82,16 +82,17 @@
         already controlled elsewhere.</small></span>
       <input type="checkbox" id="basis" role="switch">
     </label>
-    <label class="switch">
-      <span class="grow"><b>Divide each leg by its volatility</b>
-        <small>Rank the return over the annualised standard deviation of its own formation window
-        instead of the return itself, so a steady climb outranks an equally large but erratic one.
-        It has historically cut the portfolio's volatility and drawdown more than it changed the
-        return — the top-decile record above the list shows both.</small></span>
-      <input type="checkbox" id="adjust" role="switch">
-    </label>
+    <div class="choice">
+      <span class="grow"><b>What each leg measures</b>
+        <small id="adjust-note"></small></span>
+      <div class="segmented" id="adjust-seg" role="radiogroup" aria-label="What each leg measures">
+        <button type="button" role="radio" data-adjust="raw">Return</button>
+        <button type="button" role="radio" data-adjust="vol">÷ Volatility</button>
+        <button type="button" role="radio" data-adjust="resid">Net of market</button>
+      </div>
+    </div>
     <p class="legend">The universe is fixed: every name is ranked against all ~650 of them. Both
-      switches change how that one cross-section is read, not which names are in it.</p>
+      settings change how that one cross-section is read, not which names are in it.</p>
   </div>
 
   <div class="card">
