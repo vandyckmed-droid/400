@@ -1,261 +1,215 @@
 # MidCap 650 Momentum
 
-A phone-first momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500 — ~650
-names — published as a static site on GitHub Pages, with a point-in-time record of what holding its
-top decile would have done.
+A phone-first momentum ranking of roughly 650 US mid-sized stocks, published as a static site on
+GitHub Pages and refreshed every weekday morning by a GitHub Action.
 
 **Live:** https://vandyckmed-droid.github.io/400/
 
+This file is the source of truth for the project's current state. `CLAUDE.md` covers how to work
+with the owner.
+
+## What the product does
+
+- Ranks every name in the universe by price momentum and shows the list, sortable and filterable,
+  with a watchlist and search.
+- Each name has a detail page: its placement against the whole universe and within its sector, a
+  history chart of its score at each month end (36) or week end (78), and a full-screen price chart.
+- An evidence page shows what the score has been worth: a point-in-time backtest by decile and a
+  daily equal-weight top-decile portfolio curve, with caveats.
+- A settings page holds two switches (see below), the methodology, and a data card.
+- Installable to the iOS home screen as a standalone app.
+
+Everything is computed server-side by Python scripts and served as static JSON. The browser does
+no math beyond drawing. The Financial Modeling Prep (FMP) API key never reaches the browser.
+
+## The universe
+
+There is exactly one universe and it is not a setting:
+
+- the S&P MidCap 400 as it stood on the day, plus
+- the 250 smallest S&P 500 members by that day's market cap (the "tail").
+
+The 400/500 boundary is an index-committee decision, not an economic one, so the tail lets a name
+be ranked against everything of roughly its size. Tail names are badged "500" in the list.
+Membership and market caps are both point-in-time, so a historical cross-section uses the universe
+as it stood that day.
+
+The earlier design that offered the universe as a switch was removed deliberately. Every published
+name is a member of every peer set, so there is no "not in this universe" state anywhere in the app.
+
+**Known limitation.** Names that have since left the index are absent from older cross-sections,
+so historical bars carry some survivorship bias. Present-day rankings are unaffected.
+
 ## The score
 
-For every constituent, on every ranking date:
+For each name, on each ranking date:
 
-| Step | What happens |
-| --- | --- |
-| 12–1 momentum | Total return on dividend- and split-adjusted closes over the 12 months ending **one month ago** (252 → 21 trading days back). The last month is skipped to avoid short-term reversal. |
-| 6–1 momentum | The same over the trailing 6 months (126 → 21 trading days back). |
-| Volatility adjustment *(optional)* | Each leg is divided by the annualised standard deviation of daily log returns measured over that same formation window, so a steady climb outranks an equally large but erratic one. **Off by default**; a switch in Settings turns it on, and every ranking, history and backtest ships both ways. Historically it has cut the portfolio's volatility and drawdown far more than it changed its return. |
-| Cross-sectional percentile | Each leg is ranked against every other name in the chosen **peer set** on that date and mapped to 0–100 (average ranks, so ties share a percentile). |
-| Blend | **Final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.** |
+1. **12–1 momentum**: total return on dividend- and split-adjusted closes over the 252 trading days
+   ending 21 trading days ago. The last month is skipped to avoid short-term reversal.
+2. **6–1 momentum**: the same over 126 trading days, again ending 21 days ago.
+3. **Optional volatility adjustment**: each leg divided by the annualised standard deviation of
+   daily log returns over its own window.
+4. **Percentile**: each leg is ranked 0–100 against the peer set (average ranks for ties).
+5. **Blend**: final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.
 
-A name needs a full 12-month window (≥ 180 daily returns) and a full 6-month window (≥ 90) to be
-ranked, so very recent index additions sit out until they season.
+A name needs at least 180 daily returns in the 12-month window and 90 in the 6-month window, so
+recent listings sit out until they season.
 
-The **history chart** re-runs the entire cross-section at each snapshot, so a bar shows where a name
-stood *against its peers on that date* — not a rescaling of today's numbers. A trailing 4-period
-average (4 weeks or 4 months, following the interval) is drawn over the bars: enough to smooth the
-week-to-week noise without lagging so far that a turn only shows after it's over.
+### The four peer sets
 
-**Recent joiners.** Membership is point-in-time, so a name that joined the index in April has only
-five month-ends as a member — and a five-bar chart for a five-year-old stock tells you nothing.
-On dates before it joined, the name is scored *as an outsider* against that day's members: inserted
-into their distribution to find where it would have ranked, without disturbing the members' own
-percentiles (which are byte-identical with or without it). Those bars are dimmed, the readout says
-"not yet a member", and the note gives the join date. At the time of writing 103 names in the 400
-and 178 in the 650 have at least one such bar. The backtest never uses these — it ranks members
-only. Two intervals are
-published and switchable on the chart: 36 month ends for the long shape, and 78 week ends (~18
-months) when the monthly bars are too coarse to see a turn. The weekly files are roughly three times
-the size, so they load only when that view is opened. The weekly axis keeps the in-progress week —
-a bar is a cross-section taken on a date, not a return over a period, so a partial week still reads
-correctly and the last bar stays close to today.
+Two switches in Settings change how the one cross-section is read, never which names are in it.
+Both persist per device in local storage.
 
-### Known limitation
+| Switch | Off (default) | On |
+| --- | --- | --- |
+| Score within sector | Rank against the whole universe (`w`) | Rank only against the name's GICS sector (`s`) |
+| Divide each leg by its volatility | Rank the return itself (`r`) | Rank return ÷ volatility (`v`) |
 
-The peer set is today's index membership at every historical date. Names that have since left the
-index are absent from older cross-sections, so historical bars carry some survivorship bias. Fixing
-this properly needs point-in-time constituent snapshots, which the current data plan doesn't expose.
-Present-day rankings are unaffected.
+The combination is a two-letter key: `wr`, `wv`, `sr`, `sv`. All four ship in every ranking file.
+Sectors with fewer than five names would be left unscored, but none currently are.
 
-## Universe, and how it's scored
+Sector labels are normalised to GICS names. FMP labels S&P 500 sectors with a different taxonomy
+("Technology", "Healthcare"); `scripts/universes.py` maps those onto the GICS names Wikipedia uses
+for the MidCap 400, otherwise names would be ranked against their data source instead of their sector.
 
-The score is a percentile, so it only means anything relative to a peer group. **The universe is
-not a setting.** There is one: the S&P MidCap 400 as it stood on the day, plus the 250 smallest
-S&P 500 members by that day's market caps. Every name is always ranked against all ~650 of them.
+### Recent joiners
 
-Two switches on the Settings page (the gear in the header) change how that one cross-section is
-read, never which names are in it:
+A name that joined the index recently is scored on earlier dates as an "outsider": inserted into
+that day's member distribution to find where it would have ranked, without changing the members'
+own percentiles. Those bars are dimmed on the chart and labelled "not yet a member". The backtest
+and portfolio never use outsider scores.
 
-- **Score within sector** — rank a name only against its own GICS sector rather than the whole
-  universe. Strips out the sector bet the whole-universe ranking otherwise takes.
-- **Divide each leg by its volatility** — rank the return over the annualised standard deviation of
-  its own formation window rather than the return itself. Off by default.
+## Evidence
 
-Both persist per device, and the four resulting combinations all ship in `latest.json` keyed
-`w`/`s` + `r`/`v`.
+Both evidence scripts import the momentum maths from `scripts/build.py`, so the test and the live
+site cannot diverge. Both rank the whole universe only; the within-sector basis is untested.
 
-The universe used to be a third axis, switched by tapping the title. Removing it took out more than
-a control. Every name is now a member of every peer set and every sector clears the five-name
-minimum, so a row's placement can never be missing — which deleted the "this name is outside the
-universe you picked" branch from the list, the watchlist empty state, the per-ticker page and the
-sector counts, halved `latest.json`, and let the backtest cover the universe the app actually ranks
-instead of carrying a standing caveat that it did not.
+- **Backtest** (`scripts/backtest.py`): at each of the last 36 usable month ends, rebuild
+  point-in-time membership, rank, split into deciles, and measure 1-, 3- and 6-month forward
+  returns. Reports decile means, top-minus-bottom spread, hit rate, and t-statistics with the
+  overlap correction. Delisted names are held at their last print and then treated as cash.
+- **Portfolio** (`scripts/portfolio.py`): buy the top decile equally weighted at each month end,
+  hold untouched until the next, repeat for up to 48 months. Records a daily NAV for the top
+  decile, bottom decile and the whole universe equally weighted (the benchmark), plus return,
+  volatility, drawdown, and sector concentration (Herfindahl and effective number of sectors) at
+  each rebalance. No costs or taxes, so every figure is better than real life.
 
-**Why the extended universe.** The 400/500 boundary is an index-construction artefact, not an
-economic one: a $50B S&P 500 laggard and a $36B MidCap 400 leader are competing for the same
-capital. The name is loose — those 250 are large-cap by index membership and mid-cap by size — so
-they are badged in the list and the methodology dialog says exactly what they are. Adding the S&P 500's small tail measures a name against everything of roughly its size.
-Membership and the market caps that pick the tail are both point-in-time, so a bar from 2024 uses
-the universe as it stood in 2024, not today's.
+The evidence page reads the numbers from the data files, so it never carries a stale claim. As of
+September 2026 the honest summary is: the ranking is ordered (returns fall almost monotonically
+from decile 1 to 10), the top decile beats the equal-weight universe by well under a point a year
+while carrying more risk, and the return-ranked top decile is concentrated in roughly 5.4 effective
+sectors against 8.5 for the universe. Volatility adjustment spreads it to about 6.2 and cuts
+drawdown more than it changes return.
 
-**Why within-sector.** The whole-universe ranking takes large implicit sector positions — at the
-time of writing, zero of the top 40 are Utilities, Staples or Communication Services, and nearly
-half of Consumer Staples sits in the worst decile. Ranking inside the sector strips that bet out,
-which is what you want if sector weights are already controlled elsewhere. Sectors thinner than
-five names are left unscored: a percentile across four names says nothing.
+## How it is built
 
-A per-ticker card shows both bases for the active universe side by side, which is where the sector
-basis earns its keep — a name can be 6th of 649 against the whole universe and 1st of 51 inside its
-sector.
-
-One taxonomy note: FMP labels S&P 500 sectors with the Yahoo/Morningstar scheme
-("Technology", "Healthcare") while Wikipedia's MidCap 400 table uses GICS
-("Information Technology", "Health Care"). `universes.py` maps the former onto the latter — without
-it the extended universe would rank each name against others from its own *data source* rather than
-its own sector.
-
-## What the top decile actually did
-
-`portfolio.py` chains a real portfolio out of the rankings: at each month end it buys the top decile
-equally weighted, holds it untouched until the next month end, and repeats. Membership is
-point-in-time, a name that stops trading is held at its last price, and there are no costs or tax —
-so every figure is better than the same strategy would have been in an account.
-
-It also records how concentrated each basket was. Equal weights make a sector's weight its share of
-the names, so the sector Herfindahl is the sum of those squared shares, and its reciprocal is the
-number of equally sized sectors that would be just as concentrated — the form worth reading. The
-same figure for the whole universe is recorded beside it, so the gap between them is the
-concentration the ranking itself introduces rather than the market's.
-
-The benchmark is the only fair one: the same universe, equally weighted, rebalanced the same way.
-Over the four years to Sep 2026 the top decile beat it by well under a point a year while carrying
-noticeably more risk, and most of that margin came from a single calendar year. The ordering is far
-more visible between the two ends — top decile minus bottom decile — than between the top decile and
-simply owning everything. The evidence view says all of this on the page rather than in this file.
-
-Concentration is the other thing to watch, and it has drifted the wrong way: the return-ranked
-decile now sits at roughly 5.4 effective sectors against 8.5 for the universe it is drawn from, with
-close to a third of it in one sector. Ranking on volatility-adjusted returns instead lands nearer
-6.2 — the same screen, spread across visibly more of the market.
-
-## Layout
+### Files
 
 ```
-index.html  styles.css  app.js   the site (vanilla JS, no build step, no dependencies)
-data/latest.json                 current ranking, all four peer sets + key stats  (~330 KB)
-data/spark/<key>.json            last 12 month-end scores; the strip in each list row, one per set
-data/history/<key>.json          score per month end (36), one file per peer set, lazy-loaded
-data/history/<key>w.json         score per week end (78 ~ 18 months), loaded only if asked for
-data/bars/<SYMBOL>.json          756 adjusted daily bars (~3 years) per ranked name, ~28 KB each,
-                                 for the price chart; ~18 MB in all, and git stores each day's
-                                 rewrite as a delta of roughly 0.1 MB across the whole set
-chart.js                         the price chart: canvas bars, pan / pinch / axis-stretch gestures,
-                                 and a 200-day linear regression channel
-data/universe.json               MidCap 400 constituents + change log; the offline fallback
-data/sp500.json                  S&P 500 constituents + change log; the offline fallback
+index.html  styles.css  app.js     the site: vanilla JS, no build step, no dependencies
+chart.js                           the price chart: canvas bars, pan / pinch / axis-stretch,
+                                   200-day linear regression channel
+chart.html                         legacy redirect into the in-app chart view
 manifest.webmanifest  icon-*.png   home-screen install
-scripts/build.py                 the whole pipeline, standard library only
-scripts/universes.py             universe definitions + point-in-time membership
-scripts/backtest.py              point-in-time membership + forward-return test
-data/backtest.json               decile returns, spreads and the spread time series, both rankings
-scripts/portfolio.py             daily equal-weight top-decile curves, point-in-time
-data/portfolio.json              daily NAV for top decile / whole universe / bottom decile + stats,
-                                 and the sector mix at each rebalance
-data/portfolio-brief.json        the same headline numbers, small enough to load with the ranking
+
+scripts/build.py                   the whole ranking pipeline, standard library only
+scripts/universes.py               universe definition, point-in-time membership, market caps
+scripts/backtest.py                decile forward-return test
+scripts/portfolio.py               daily top-decile portfolio curves
+
+data/latest.json                   current ranking, all four peer sets, quotes, key stats (~330 KB)
+data/spark/<key>.json              last 12 month-end scores per name, one file per peer set
+data/history/<key>.json            36 month-end scores per name, one file per peer set
+data/history/<key>w.json           78 week-end scores per name, loaded only when asked for
+data/bars/<SYMBOL>.json            756 adjusted daily bars per ranked name (~19 MB in all)
+data/backtest.json                 decile returns, spreads, per-year breakdown, both rankings
+data/portfolio.json                daily NAV curves, stats, sector mix at each rebalance
+data/portfolio-brief.json          headline portfolio numbers, small enough to load with the list
+data/universe.json                 MidCap 400 constituents + change log; also the offline fallback
+data/sp500.json                    S&P 500 constituents + change log; also the offline fallback
+
+.github/workflows/refresh.yml      weekday-morning rebuild + commit
 ```
 
-A peer-set key is two letters: the cross-section (`w` = the whole universe, `s` = the name's own
-sector) and what is ranked (`r` = the return, `v` = the return divided by its own volatility). So
-`wr` is the whole universe ranked on returns, and `sv` is within-sector on volatility-adjusted
-returns.
+### App routes
 
-```
-.github/workflows/refresh.yml    weekday-morning rebuild + commit
-```
+The app is a single page routed by URL hash: the list at `/`, a ticker at `#/t/SYMBOL`, its price
+chart at `#/t/SYMBOL/chart`, `#/evidence`, and `#/settings`. Files beyond the ranking are fetched
+lazily and memoised; a failed optional fetch leaves that piece out rather than breaking the page.
+Watchlist, sector filter, both switches and the chart interval persist in local storage.
 
-The API key never reaches the browser: everything is computed server-side in the refresh job and
-served as static JSON.
+### Data sources
 
-## Data
+All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 
-- **S&P 500 membership** — FMP `stable/sp500-constituent` and `stable/historical-sp500-constituent`
-  (Wikipedia no longer carries a changes table for the 500).
-- **Market caps** — FMP `stable/historical-market-capitalization`, used to pick the small tail on
-  the day rather than approximating it from today's share counts.
-- **Universe** — scraped from Wikipedia's *List of S&P 400 companies* (there is no MidCap 400
-  constituent endpoint on this FMP plan). Each successful scrape rewrites `data/universe.json`,
-  which doubles as the fallback if the scrape ever fails.
-- **Prices** — FMP `stable/historical-price-eod/dividend-adjusted`, 6 years per ticker,
-  ~1,100 symbols (both indices plus former members still inside the history window). The same
-  payload supplies the open, high and low for the price chart, so the bars cost no extra calls
-  and are adjusted exactly as the closes the score is built on.
-- **Quotes** — FMP `stable/batch-quote` for market cap, 52-week range and last change.
+| Data | Source |
+| --- | --- |
+| MidCap 400 members and change log | Scraped from Wikipedia's *List of S&P 400 companies* |
+| S&P 500 members and change log | FMP `sp500-constituent` and `historical-sp500-constituent` |
+| Market caps (to pick the tail, point-in-time) | FMP `historical-market-capitalization` |
+| Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,100 symbols |
+| Quotes (market cap, 52-week range, last change) | FMP `batch-quote` |
 
-## What the app does when things go wrong
+Responses are cached under `.cache/` (gitignored) for 12 hours, so local re-runs are fast and a
+failed run does not re-pay for what already succeeded.
 
-- **Stale data.** The refresh is daily and silent, so a failed job would leave an old ranking
-  looking fresh. If the published data is more than four days old — longer than any long weekend —
-  the list shows an amber banner saying so.
-- **Sources down.** Each membership source (Wikipedia for the 400, FMP for the 500 and its change
-  log) persists to a committed snapshot on success and falls back to it on failure, so an outage
-  degrades the refresh to the last successful run's membership rather than failing it.
+### Safeguards
+
+- **Sources down.** Each membership source writes a committed snapshot on success and falls back
+  to it on failure, so an outage degrades the refresh to the last good membership.
 - **Degraded output.** `build.py` refuses to publish if fewer than 380 of the 400 priced, the
-  extended universe is under 620 names, the ranked count fell more than 5% from the last run, or
-  a monthly cross-section went missing — the vendor throttles in alphabetical blocks, and a partial
-  outage would otherwise commit a quietly wrong ranking.
-- **Home screen.** Ships a manifest and icons; "Add to Home Screen" on iOS gives a standalone app
-  with safe-area padding.
+  universe is under 620 names, the ranked count fell more than 5% from last run, or a monthly
+  cross-section went missing. The vendor throttles in alphabetical blocks, and a partial outage
+  would otherwise commit a quietly wrong ranking.
+- **Intraday prints.** A bar dated today is dropped when the run happens before 21:00 UTC, so a
+  manual daytime run never plots an unsettled close.
+- **Stale data.** If the published data is more than four days old the list shows an amber banner.
+- **Reproducibility.** Ties and set iteration are sorted deterministically, so identical inputs
+  produce byte-identical files and the job does not commit no-op diffs.
 
-## Refreshing
+## Automation
 
-Automatic: `.github/workflows/refresh.yml` runs Tuesday to Saturday at 10:00 UTC — the morning
-after each weekday close, once the vendor's adjusted bars have settled — rebuilds the ranking, the
-backtest and the price bars, and commits `data/`. A market holiday adds no new bar, so the scores
-and bars come out identical; the run still commits, because every payload carries the timestamp of
-the run that produced it. That is deliberate: it is what keeps the staleness banner from tripping
-over a quiet week. Use **Actions → Refresh momentum data → Run workflow** for an on-demand rebuild.
+`.github/workflows/refresh.yml` runs Tuesday to Saturday at 10:00 UTC, the morning after each
+weekday close. It runs the three scripts in order (ranking, backtest, portfolio) and commits
+`data/` if anything changed. Each script exits non-zero on a degraded result, which stops the job
+before the commit. A market holiday yields identical scores, but the run still commits because
+every payload carries its generation timestamp; that is what keeps the staleness banner quiet over
+a long weekend.
 
-**One-time setup:** add the FMP key as a repository secret named `FMP_API_KEY`
-(*Settings → Secrets and variables → Actions*). Without it the scheduled job fails and the site
-keeps serving the last committed data.
+On-demand rebuild: **Actions → Refresh momentum data → Run workflow**.
 
-## Publishing
+Publishing is GitHub Pages serving the `main` branch root directly. There is no deploy workflow;
+every push to `main`, including the daily data commit, republishes the site.
 
-The site is plain static files at the repository root, so Pages serves it directly from the branch —
-no deploy workflow, no build step.
+### One-time setup already done
 
-**One-time setup:** *Settings → Pages → Build and deployment* → source **Deploy from a branch**,
-branch **`main`**, folder **`/ (root)`**. GitHub's built-in `pages-build-deployment` then republishes
-on every push to `main`, including the daily data commit.
+- Repository secret `FMP_API_KEY` for the workflow.
+- Pages configured to deploy from branch `main`, folder `/ (root)`. This cannot be set from CI.
 
-This toggle cannot be set from CI: `POST /repos/{owner}/{repo}/pages` requires a token with the
-`pages` scope, and neither the Actions `GITHUB_TOKEN` (`Resource not accessible by integration`) nor
-an automation environment can create the site. It is a one-time click.
-
-Locally:
+### Running locally
 
 ```sh
-FMP_API_KEY=your_key python3 scripts/build.py   # ~15s for 400 tickers
-python3 -m http.server 8000                     # then open http://localhost:8000
+FMP_API_KEY=your_key python3 scripts/build.py
+python3 scripts/backtest.py
+python3 scripts/portfolio.py
+python3 -m http.server 8000        # then open http://localhost:8000
 ```
 
-Responses are cached under `.cache/` (gitignored) for 12 hours, so re-runs while iterating are
-instant.
+## Things that affect future work
 
-## Does the score actually predict anything?
-
-**Scope: the universe ranked as a whole, both ways.** The within-sector basis is a display option
-and is not tested — it is a different signal and would need its own test. `scripts/backtest.py`
-rebuilds month-by-month membership the same way the site does — Wikipedia's *Selected changes*
-table walked backwards from today's list, plus the S&P 500 tail picked on each date's market caps
-(~649 members at every month end) — re-ranks only the names alive on each date, and measures
-forward returns on both the return-ranked and volatility-adjusted blends. It imports `build.py` for
-the momentum maths, so the test and the site cannot diverge.
-
-The results are in the app too, at `#/evidence` — reachable from the Settings page, the footer,
-and a decile tag on every ticker page. Settings (`#/settings`) also carries the methodology, the
-universe definitions, and a data card showing the as-of date, last refresh, and universe sizes. Over 36 month ends (Mar 2023 – Feb 2026),
-equal-weighted:
-
-| Horizon | Top decile | Bottom decile | Spread | Hit rate | Non-overlapping t |
-| --- | --- | --- | --- | --- | --- |
-| 1 month | +1.50% | +0.53% | +0.97% | 53% | 1.21 (n=36) |
-| 3 months | +6.09% | +1.47% | +4.62% | 78% | 1.65 (n=12) |
-| 6 months | +12.32% | +2.83% | +9.49% | 78% | 2.02 (n=6) |
-
-Mean return falls almost monotonically from D1 to D10 (rank correlation −0.93), which matters more
-than any single bucket: the whole ranking is ordered, not just its ends.
-
-**Read the caveats with the table.** Sampling 3- and 6-month returns monthly makes the windows
-overlap, so the naive t-stats (3.18 and 4.10) are inflated; the honest counts are 12 and 6
-independent windows. The sample is three years of a mostly rising market — every decile is positive
-at 6 months — and the 6-month spread decays across it: +12.0% for 2023 ranking dates, +10.8% for
-2024, +7.6% for 2025. This is evidence the ranking is ordered, not proof it will pay.
-
-Using today's membership instead of point-in-time *understates* the 6-month spread (+6.5% vs
-+9.3%), because names dropped from the index are disproportionately the losers that belong in the
-bottom decile. Delisted names are held to their last print and then treated as cash; that path
-affects 0.03% of observations, so acquisition premia don't move the result.
+- **No dependencies anywhere.** The scripts use only the Python standard library and the site is
+  plain HTML, CSS and JS. Adding a package or a build step is a real decision, not a detail.
+- **Everything is pre-computed.** A new feature that needs a number the JSON does not carry means a
+  change to `build.py` and a refresh, not a browser-side calculation.
+- **Repository size grows daily.** The bars folder is rewritten on every run; git stores each
+  rewrite as a small delta, but the history is still growing.
+- **The universe is fixed by design.** Re-introducing a universe switch was tried and removed
+  because it created a "not in this universe" state throughout the app.
+- **Sector-relative and within-sector portfolios are untested.** Presenting them as evidence would
+  need their own backtest.
+- **Minor stale wording remains** in `index.html` (the list footer still says "within the current
+  S&P MidCap 400") and in `manifest.webmanifest` (the description still says "volatility-adjusted"
+  and "MidCap 400"). Neither affects behaviour.
 
 ## Not investment advice
 
