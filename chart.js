@@ -1,10 +1,6 @@
-/* Price chart prototype: daily bars on a canvas with the three gestures a phone
+/* Price chart: daily bars on a canvas with the three gestures a phone
    needs — drag to pan time, pinch to zoom time, drag the price axis to stretch
-   it — plus a linear regression channel over the last 200 bars.
-
-   Written as one function, priceChart(canvas, bars, opts), with no dependency
-   on the rest of the app so it can be lifted into app.js once the feel is
-   right. Everything tunable sits in TUNE at the top. */
+   it — plus a linear regression channel over the last 200 bars. */
 (function () {
   'use strict';
 
@@ -53,7 +49,7 @@
     return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
   }
 
-  function priceChart(canvas, bars, opts = {}) {
+  function priceChart(canvas, bars) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
     const ctx = canvas.getContext('2d');
@@ -234,7 +230,6 @@
         ctx.textAlign = 'left';
         ctx.fillText(fmtPrice(last), plotR + 8, ly);
       }
-      if (opts.onDraw) opts.onDraw(view);
     }
 
     /* ---------- gestures ---------- */
@@ -387,5 +382,4 @@
   }
 
   window.priceChart = priceChart;
-  window.priceChart.TUNE = TUNE;
 })();

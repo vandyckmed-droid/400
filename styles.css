@@ -77,12 +77,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .ghost:active { background: var(--line); }
 
 .controls { display: grid; gap: 8px; }
-#search {
-  width: 100%; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--line); background: var(--bg-soft);
-  -webkit-appearance: none; appearance: none;
-}
-#search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .segmented { display: flex; gap: 4px; padding: 3px; background: var(--bg-soft); border-radius: 10px; border: 1px solid var(--line); }
 .segmented button {
@@ -99,7 +93,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
    count is still readable in the open list and in the line below. */
 @media (min-width: 380px) { .selects { grid-template-columns: 1.6fr 1fr; } }
 .sel { display: block; position: relative; }
-.sel.wide { grid-column: 1 / -1; }
 /* Direct child only: the sector trigger nests a second span (its value text)
    inside .sel-btn, and an unscoped .sel span would pull that into the same
    absolutely-positioned label slot, overlapping the two. */
@@ -208,7 +201,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .spark line { stroke: var(--line); stroke-width: 1; }
 .sc { min-width: 42px; text-align: right; display: block; }
 .sc b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.rows.nonames .who small { display: none; }
 .star {
   width: 38px; height: 38px; border: 0; background: transparent;
   color: var(--ink-3); font-size: 18px; line-height: 1; border-radius: 50%;
@@ -282,31 +274,19 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .leg + .leg { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
 .leg h4 { margin: 0 0 9px; font-size: 13px; font-weight: 700; }
 .leg h4 small { font-weight: 500; color: var(--ink-3); font-size: 11px; margin-left: 6px; }
-.leg .stats, .stats.trio { grid-template-columns: repeat(3, 1fr); }
+.leg .stats { grid-template-columns: repeat(3, 1fr); }
 .leg .stats.quad { grid-template-columns: repeat(2, 1fr); }
 .leg .stats div.on dt { color: var(--ink); font-weight: 650; }
 .leg .stats div.on dt::after { content: ' ·'; }
 
-.ctrl { padding: 0 12px 14px; }
-.scope { margin: 12px 12px 0; padding: 10px 12px; border-radius: 10px; background: var(--bg-soft);
-         border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); line-height: 1.45; }
-.scope b { color: var(--ink); }
-.badge {
-  font-style: normal; font-size: 9.5px; font-weight: 700; letter-spacing: .03em;
-  padding: 1px 4px; border-radius: 4px; background: var(--track); color: var(--ink-3);
-}
 .peers { width: 100%; border-collapse: collapse; font-size: 13px; }
 .peers td { padding: 7px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
 .peers tr:last-child td { border-bottom: 0; }
 .peers tr.on td { color: var(--ink); font-weight: 650; }
 .peers tr.on td:first-child::before { content: '▸ '; color: var(--accent); }
-.peers i { font-style: normal; color: var(--ink-3); font-weight: 400; }
 .peers .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; width: 58px; }
 .peers .k { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3);
             font-size: 11.5px; width: 78px; }
-dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
-.tag.link { color: var(--accent); border-color: var(--accent); }
-.foot a { color: var(--accent); white-space: nowrap; }
 
 /* Settings: a labelled switch row, and a card that is itself a link. */
 .switch { display: flex; align-items: center; gap: 14px; cursor: pointer; }
@@ -342,39 +322,17 @@ dialog h2.sub { font-size: 14px; margin: 16px 0 8px; }
 .fine { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0 0 10px; }
 .fine:last-child { margin-bottom: 0; }
 .fine a { color: var(--accent); }
-.fine.research { margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--line-soft); }
-
-.dlg-actions { display: grid; gap: 8px; }
-.dlg-actions .primary {
-  display: block; text-align: center; padding: 11px; border-radius: 10px;
-  background: var(--accent); color: #fff; font-weight: 650; font-size: 14px;
-}
 
 .chartwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart .grid { stroke: var(--line); stroke-width: 1; }
 .chart .mid { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
 .chart text { fill: var(--ink-3); font-size: 9px; font-family: inherit; }
-.chart .cur { fill: var(--ink); font-size: 11px; font-weight: 700; }
 .chart .ma { stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; opacity: .95; }
 .chart .ma-dot { fill: var(--accent); stroke: var(--card); stroke-width: 1.5; }
 .readout { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 2px 0; font-size: 12px; color: var(--ink-3); }
 .readout b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .legend { margin: 10px 2px 0; font-size: 11px; color: var(--ink-3); line-height: 1.4; }
-
-/* ---------- dialog ---------- */
-dialog {
-  border: 1px solid var(--line); border-radius: 16px; padding: 18px;
-  max-width: 34rem; width: calc(100% - 32px); max-height: 85vh; overflow-y: auto;
-  color: var(--ink); background: var(--card);
-}
-dialog::backdrop { background: rgba(0, 0, 0, .5); }
-dialog h2 { margin: 0 0 12px; font-size: 17px; }
-.method { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
-.method li { margin-bottom: 9px; }
-.method b { color: var(--ink); }
-.fine { font-size: 12px; color: var(--ink-3); margin: 14px 0 16px; }
-#about-close { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-soft); font-weight: 600; }
 
 @media (min-width: 720px) {
   #list-view, #detail-view { max-width: 760px; margin: 0 auto; }

@@ -58,7 +58,7 @@ HISTORY_MONTHS = 36     # month-end snapshots to publish
 SPARK_MONTHS = 12       # months of score strip drawn inline in each list row
 HISTORY_WEEKS = 78      # week-end snapshots (18 months) for the finer-grained view
 YEARS_OF_PRICES = 6     # history depth to request from FMP
-BARS_DAYS = 756         # ~3 trading years of daily bars per name for the price chart
+BARS_DAYS = 378         # ~18 trading months of daily bars per name for the price chart
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
 WEIGHT_LONG = 0.5       # 12-1 weight in the blend
 WEIGHT_MID = 0.5        # 6-1 weight in the blend
@@ -180,12 +180,6 @@ def snapshot(name: str, fetch, describe: str) -> dict:
             raise
         log(f"{describe}: fetch failed ({exc}); using committed snapshot")
         return json.loads(path.read_text())
-
-
-def load_universe() -> list[dict]:
-    """Current MidCap 400 constituents. Kept for backtest.py's import."""
-    import universes
-    return universes.load_core()[0]
 
 
 def guard(condition: bool, message: str) -> None:
@@ -691,7 +685,6 @@ def main() -> None:
                 "name": q.get("name") or info.get("name", symbol),
                 "sector": info.get("sector", ""),
                 "industry": info.get("industry", ""),
-                "idx": "400" if symbol in core_at[as_of] else "500",
                 "m12": round(long_leg[0], 6),
                 "m6": round(mid_leg[0], 6),
                 "vol12": round(long_leg[1], 6),
