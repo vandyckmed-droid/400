@@ -28,7 +28,7 @@ from bisect import bisect_right
 import build
 
 SIZE_TAIL = 250          # S&P 500 names, smallest by market cap, added to core
-CAP_YEARS = 4            # depth of market-cap history to request
+CAP_YEARS = 6            # depth of market-cap history to request; matches the price window
 
 
 def strip_tags(fragment: str) -> str:

@@ -1187,11 +1187,13 @@
           ${sp.tNeweyWest.toFixed(2)} (Newey–West), or ${sp.tIndependent.toFixed(2)} across the
           ${sp.nIndependent} genuinely independent window${sp.nIndependent === 1 ? '' : 's'}.
           A mean is not a proven edge.</li>
-        <li><b>One regime.</b> A few years of a mostly rising market. Momentum is known to work in
-          trends and break at reversals; this sample contains no reversal.</li>
-        <li><b>It is decaying.</b> Spread by ranking-date year —
+        <li><b>Regime.</b> Momentum is known to work in trends and break at reversals, so read
+          the years before the mean. Spread by ranking-date year —
           ${sp.byYear.map((y) => `${y.year} ${signed(y.mean * 100, 1)}%` +
-            (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.</li>
+            (y.n < 6 ? ` <i>(only ${y.n})</i>` : '')).join(' · ')}.
+          ${(() => { const bad = sp.byYear.filter((y) => y.mean < 0).map((y) => y.year);
+            return bad.length ? `The ranking went the wrong way in ${bad.join(' and ')}.`
+                              : 'Every year in the sample was positive.'; })()}</li>
         <li><b>Scope.</b> Both tests rank across the whole universe on ${RANKED_ON[state.adjust]}.
           The within-sector basis on the list is a different signal and is not tested.</li>
         <li><b>Not modelled.</b> Costs, spreads, tax, and the price impact of trading

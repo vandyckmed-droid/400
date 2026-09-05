@@ -36,6 +36,7 @@ WIKI = build.WIKI
 HORIZONS = (1, 3, 6)      # forward-return horizons, in months
 DECILES = 10
 MIN_MEMBERS = 400         # skip a month end whose reconstructed universe looks broken
+MONTHS = 60               # ranking dates to test; the price window (6 years) sets the real floor
 ADJUSTS = ("raw", "vol")  # rank the return itself, or the return over its own vol
 
 
@@ -103,7 +104,7 @@ def main() -> None:
     log(f"change logs: {len(core_changes)} MidCap 400, {len(sp500_changes)} S&P 500")
 
     # Every symbol that was a member at any point in the window we care about.
-    horizon_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
+    horizon_start = (dt.date.today() - dt.timedelta(days=365 * build.YEARS_OF_PRICES)).isoformat()
     ever = core_now | sp500_now
     for change in core_changes + sp500_changes:
         if change["date"] >= horizon_start and change["removed"]:
@@ -117,7 +118,7 @@ def main() -> None:
     # Month ends we can both rank at and measure a 6-month forward return from.
     all_month_ends = build.month_end_dates(calendar, 96)
     last_usable = add_months(calendar[-1], -max(HORIZONS))
-    ranking_dates = [d for d in all_month_ends if d <= last_usable][-build.HISTORY_MONTHS:]
+    ranking_dates = [d for d in all_month_ends if d <= last_usable][-MONTHS:]
     log(f"{len(ranking_dates)} ranking dates, {ranking_dates[0]} → {ranking_dates[-1]}")
 
     # The same universe the site ranks, rebuilt at each date: the MidCap 400 as
