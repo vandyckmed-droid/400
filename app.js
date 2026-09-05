@@ -29,8 +29,6 @@
   const state = {
     rows: [],
     meta: null,
-    history: null,
-    historyPromise: null,
     watch: loadWatch(),
     scope: 'all',
     sectors: loadSectors(),

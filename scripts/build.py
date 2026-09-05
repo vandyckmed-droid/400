@@ -182,12 +182,6 @@ def snapshot(name: str, fetch, describe: str) -> dict:
         return json.loads(path.read_text())
 
 
-def load_universe() -> list[dict]:
-    """Current MidCap 400 constituents. Kept for backtest.py's import."""
-    import universes
-    return universes.load_core()[0]
-
-
 def guard(condition: bool, message: str) -> None:
     """Refuse to publish a degraded ranking. A partial vendor outage that drops
     a chunk of names would otherwise commit a quietly wrong cross-section."""

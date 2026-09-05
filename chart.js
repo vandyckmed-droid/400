@@ -53,7 +53,7 @@
     return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
   }
 
-  function priceChart(canvas, bars, opts = {}) {
+  function priceChart(canvas, bars) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
     const ctx = canvas.getContext('2d');
@@ -234,7 +234,6 @@
         ctx.textAlign = 'left';
         ctx.fillText(fmtPrice(last), plotR + 8, ly);
       }
-      if (opts.onDraw) opts.onDraw(view);
     }
 
     /* ---------- gestures ---------- */
@@ -387,5 +386,4 @@
   }
 
   window.priceChart = priceChart;
-  window.priceChart.TUNE = TUNE;
 })();
