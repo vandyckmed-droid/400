@@ -6,49 +6,9 @@ Not part of the site. Nothing here is imported by build.py, backtest.py or
 portfolio.py, and nothing here writes under data/. It writes results.json and
 REPORT.md next to itself.
 
-The question
-------------
-A moving-average cross is the oldest chart signal there is: hold a name while
-its fast average sits above its slow average, step aside when it drops below.
-Chart software ships it at textbook settings (50/200, 20/50, 10/30) that were
-never tuned to anything. This script asks, for this universe and this history,
-which two durations come closest to buying every valley and selling every peak,
-how close that is, and whether the answer survives out of sample.
-
-Method
-------
-1. Prices. With a vendor key set: the same six-year, point-in-time universe
-   the backtest uses (MidCap 400 as it stood, plus the S&P 500 size tail
-   picked on the day's market caps), fetched through build.py's cached client.
-   Without a key: the three years of committed bars in data/bars/, which cover
-   today's members only, so that run is a survivorship-biased preview.
-2. Candidates. Every pair of a fast and a slow length from the grids below,
-   fast shorter than slow, as simple and as exponential averages. A fast
-   length of 1 is the close itself crossing the slow average. Every pair is
-   judged from the same bar (the longest slow length) so none gets extra days.
-3. Signal. At each close, long if fast > slow, otherwise in cash. The position
-   applies to the next day's return, and each switch pays a one-way cost.
-   Long/flat only: this is a holder's tool, not a short seller's.
-4. Perfect timing, defined. A zigzag with a minimum reversal (10%, 20%, 30%)
-   marks every peak and valley of each name after the fact. A trader who
-   bought every valley and sold every peak earns the "ideal" return. The
-   share of that the crossover keeps, net of costs, is its CAPTURE. Capture
-   penalises both faults of a crossover at once: buying late after a valley
-   and selling late after a peak (lag), and switching on moves that were not
-   turns (whipsaw).
-5. Timing, measured. For every real valley: was the crossover already long
-   (held through the dip), did it buy before the next peak (and how many days
-   later, how far above the low), or did it miss the whole leg. For every
-   real peak: the mirror. Crosses that matched no turn are whipsaws.
-6. Portfolio. For each pair, an equal-weight curve across every member: each
-   name contributes its own crossover return on the days it is a member.
-   Annualised return, volatility, worst fall, against the same universe held
-   outright.
-7. Guard against overfitting. The window is split in two by date. The pair is
-   chosen on the first half only and reported on the second untouched. The
-   whole grid is printed so a real optimum shows as a ridge and a fluke as a
-   lone cell. A per-name fit (each name's own best pair on the first half) is
-   judged on the second half against the one universal pair.
+README.md beside this file is the design note: the question, the method
+(candidates, signal, the zigzag definition of a real turn, capture, the
+train/test split) and the findings. REPORT.md is the generated result.
 
 Only the standard library is used, in keeping with the rest of the project.
 """
@@ -62,7 +22,8 @@ import os
 import statistics as st
 import sys
 from bisect import bisect_left, bisect_right
-from operator import add, mul
+from itertools import compress
+from operator import add, gt, mul, ne
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -107,9 +68,9 @@ COST = 0.001              # one-way cost per switch, 0.1%: mid-cap spread plus s
 SWINGS = (0.10, 0.20, 0.30)   # zigzag reversal thresholds that define a real peak or valley
 PRIMARY = 0.20            # the threshold the pair is chosen on; see README.md for why
 MIN_DAYS = WARMUP + 126   # a name needs six months after warm-up to count
-CLASSICS = [("SMA", 50, 200), ("SMA", 20, 50), ("SMA", 10, 30), ("EMA", 12, 26)]
-DETAIL_TOP = 5            # pairs given the full timing distribution in the report
-DETAIL_EXTRA = [("SMA", 50, 200), ("SMA", 20, 50), ("SMA", 10, 30)]
+CLASSICS = [("SMA", 50, 200), ("SMA", 20, 50), ("SMA", 10, 30), ("EMA", 12, 26)]   # textbook settings, for comparison
+DETAIL_TOP = 5            # leaders given the full timing distribution in the report, plus the classics
+HALVES = ("train", "test")
 
 log = build.log
 
@@ -210,6 +171,20 @@ def ema(c: list[float], n: int) -> list:
     return out
 
 
+AVG = {"SMA": sma, "EMA": ema}
+
+
+def signal(fa: list, sl: list):
+    """-> (pos, switches, ups, downs) for a fast and a slow average over the
+    same bars: long (1) while fast > slow, else flat (0); the bars where the
+    position changes, split by direction."""
+    pos = list(map(gt, fa, sl))
+    switches = list(compress(range(1, len(pos)), map(ne, pos[1:], pos)))
+    ups = [i for i in switches if pos[i]]
+    downs = [i for i in switches if not pos[i]]
+    return pos, switches, ups, downs
+
+
 def zigzag(c: list[float], threshold: float) -> list[tuple[int, str]]:
     """Confirmed peaks ('H') and valleys ('L') of a close series: a peak is the
     highest close before a fall of at least `threshold` from it, a valley the
@@ -261,77 +236,80 @@ def ideal_legs(c: list[float], pivots: list[tuple[int, str]]) -> list[tuple[int,
 
 # --- Accumulators -------------------------------------------------------------
 
+def zero_timing():
+    """Turn-matching counters for one threshold. Held-through valleys, sat-out
+    peaks and matched crosses are differences of these, taken in pooled()."""
+    return {"valleys": 0, "signalled": 0, "missed": 0, "entryLag": 0.0, "entryPremium": 0.0,
+            "peaks": 0, "sold": 0, "rodeDown": 0, "exitLag": 0.0, "exitDiscount": 0.0,
+            "crosses": 0}
+
+
 def zero_sums():
     return {"gross": 0.0, "net": 0.0, "bh": 0.0, "switches": 0, "days": 0, "names": 0,
             "beat": 0, "ideal": {t: 0.0 for t in SWINGS},
-            "timing": {t: {"valleys": 0, "held": 0, "signalled": 0, "missed": 0,
-                           "entryLag": 0.0, "entryPremium": 0.0,
-                           "peaks": 0, "satOut": 0, "sold": 0, "rodeDown": 0,
-                           "exitLag": 0.0, "exitDiscount": 0.0,
-                           "crosses": 0, "matched": 0} for t in SWINGS}}
+            "timing": {t: zero_timing() for t in SWINGS}}
+
+
+def add_sums(a, b):
+    """Elementwise sum of two accumulators of the same shape (numbers and nested dicts)."""
+    if isinstance(a, dict):
+        return {k: add_sums(a[k], b[k]) for k in a}
+    return a + b
 
 
 def match_turns(c, pos, ups, downs, pivots, acc, split_at, detail=None):
     """Score one name's crossover against its real turns. `acc` maps
-    'train'/'test'/'all' to timing accumulators for one threshold."""
+    'train'/'test' to timing accumulators for one threshold."""
     for n, (i, kind) in enumerate(pivots):
         nxt = pivots[n + 1][0] if n + 1 < len(pivots) else len(c)
-        halves = ("all", "train" if i < split_at else "test")
+        t = acc["train" if i < split_at else "test"]
         before = pos[i - 1] if i > 0 else pos[0]
         if kind == "L":
-            for h in halves:
-                acc[h]["valleys"] += 1
-            if before == 1:
-                for h in halves:
-                    acc[h]["held"] += 1
-                continue
+            t["valleys"] += 1
+            if before:
+                continue                             # already long: held through the dip
             k = bisect_left(ups, i)
             if k < len(ups) and ups[k] < nxt:
                 b = ups[k]
-                prem = c[b] / c[i] - 1
-                for h in halves:
-                    t = acc[h]
-                    t["signalled"] += 1
-                    t["matched"] += 1
-                    t["entryLag"] += b - i
-                    t["entryPremium"] += prem
+                t["signalled"] += 1
+                t["entryLag"] += b - i
+                t["entryPremium"] += c[b] / c[i] - 1
                 if detail is not None:
                     detail["entryLag"].append(b - i)
-                    detail["entryPremium"].append(prem)
+                    detail["entryPremium"].append(c[b] / c[i] - 1)
             else:
-                for h in halves:
-                    acc[h]["missed"] += 1
+                t["missed"] += 1
         else:
-            for h in halves:
-                acc[h]["peaks"] += 1
-            if before == 0:
-                for h in halves:
-                    acc[h]["satOut"] += 1
-                continue
+            t["peaks"] += 1
+            if not before:
+                continue                             # already flat: sat the fall out
             k = bisect_left(downs, i)
             if k < len(downs) and downs[k] < nxt:
                 s_ = downs[k]
-                disc = 1 - c[s_] / c[i]
-                for h in halves:
-                    t = acc[h]
-                    t["sold"] += 1
-                    t["matched"] += 1
-                    t["exitLag"] += s_ - i
-                    t["exitDiscount"] += disc
+                t["sold"] += 1
+                t["exitLag"] += s_ - i
+                t["exitDiscount"] += 1 - c[s_] / c[i]
                 if detail is not None:
                     detail["exitLag"].append(s_ - i)
-                    detail["exitDiscount"].append(disc)
+                    detail["exitDiscount"].append(1 - c[s_] / c[i])
             else:
-                for h in halves:
-                    acc[h]["rodeDown"] += 1
-    n_cross = len(ups) + len(downs)
-    acc["all"]["crosses"] += n_cross
-    tr = sum(1 for u in ups if u < split_at) + sum(1 for d in downs if d < split_at)
+                t["rodeDown"] += 1
+    tr = bisect_left(ups, split_at) + bisect_left(downs, split_at)
     acc["train"]["crosses"] += tr
-    acc["test"]["crosses"] += n_cross - tr
+    acc["test"]["crosses"] += len(ups) + len(downs) - tr
 
 
 # --- The study ----------------------------------------------------------------
+
+def scatter_add(target: list, idx: list[int], values) -> None:
+    """target[idx[j]] += values[j]; one slice when idx is a run of consecutive days."""
+    a, b = idx[0], idx[-1] + 1
+    if b - a == len(idx):
+        target[a:b] = map(add, target[a:b], values)
+    else:
+        for i, x in zip(idx, values):
+            target[i] += x
+
 
 def run(prices, calendar, members_at):
     cal_index = {d: i for i, d in enumerate(calendar)}
@@ -340,7 +318,7 @@ def run(prices, calendar, members_at):
     split_date = calendar[split_cal]
     cost_log = -math.log(1 - COST)
 
-    sums = {p: {h: zero_sums() for h in ("all", "train", "test")} for p in PAIRS}
+    sums = {p: {h: zero_sums() for h in HALVES + ("all",)} for p in PAIRS}
     port = {p: [0.0] * N for p in PAIRS}          # summed net simple returns by calendar day
     port_bh = [0.0] * N
     count = [0] * N
@@ -356,36 +334,23 @@ def run(prices, calendar, members_at):
             continue
         ci = [cal_index[d] for d in dates]
         split_local = bisect_left(ci, split_cal)     # first local index in the test half
-        if split_local <= WARMUP + 21 or split_local >= n - 21:
-            pass                                     # a name may sit mostly in one half; still counts
         lr = [0.0] + [math.log(c[i] / c[i - 1]) for i in range(1, n)]
         sr = [0.0] + [c[i] / c[i - 1] - 1 for i in range(1, n)]
         # Evaluation region: positions at bars WARMUP..n-1, returns at WARMUP+1..n-1.
         e0 = WARMUP
         sp = max(split_local, e0 + 1)                # first return bar of the test half
         lr_eval = lr[e0 + 1:]
-        sr_eval = sr[e0 + 1:]
+        ci_eval = ci[e0 + 1:]
         m = n - e0                                   # positions
-        # Membership mask for the portfolio, per return bar.
+        # Membership, per return bar: a name counts toward the universe curve
+        # only on the days it was a member (offline: always).
         if ONLINE:
-            mask = [1 if sym in members_at(dates[i]) else 0 for i in range(e0 + 1, n)]
+            mem = [1 if sym in members_at(dates[i]) else 0 for i in range(e0 + 1, n)]
         else:
-            mask = None
-        contiguous = ci[n - 1] - ci[e0 + 1] == n - e0 - 2
-        a, b = ci[e0 + 1], ci[n - 1] + 1
-        if mask is None:
-            if contiguous:
-                count[a:b] = [x + 1 for x in count[a:b]]
-                port_bh[a:b] = map(add, port_bh[a:b], sr_eval)
-            else:
-                for i, x in zip(ci[e0 + 1:], sr_eval):
-                    count[i] += 1
-                    port_bh[i] += x
-        else:
-            for i, x, mk in zip(ci[e0 + 1:], sr_eval, mask):
-                if mk:
-                    count[i] += 1
-                    port_bh[i] += x
+            mem = [1] * (n - e0 - 1)
+        sr_port = list(map(mul, sr[e0 + 1:], mem))
+        scatter_add(count, ci_eval, mem)
+        scatter_add(port_bh, ci_eval, sr_port)
         bh_train = sum(lr[e0 + 1:sp])
         bh_test = sum(lr[sp:])
         bh_by_name[sym] = (bh_train, bh_test)
@@ -408,23 +373,16 @@ def run(prices, calendar, members_at):
             ideal[t] = (tr, te)
         ideal_by_name[sym] = ideal
         # Averages, once per length.
-        avg = {"SMA": {}, "EMA": {}}
-        for L in sorted(set(FAST) | set(SLOW)):
-            avg["SMA"][L] = sma(c, L)[e0:]
-            avg["EMA"][L] = ema(c, L)[e0:]
+        avg = {k: {L: AVG[k](c, L)[e0:] for L in sorted(set(FAST) | set(SLOW))} for k in KINDS}
         split_pos = sp - e0                          # position index whose return bar starts the test half
         name_row = {}
         for p in PAIRS:
             kind, f, s = p
-            fa, sl = avg[kind][f], avg[kind][s]
-            pos = [1 if x > y else 0 for x, y in zip(fa, sl)]
-            switches = [i for i in range(1, m) if pos[i] != pos[i - 1]]
-            ups = [i for i in switches if pos[i] == 1]
-            downs = [i for i in switches if pos[i] == 0]
+            pos, switches, ups, downs = signal(avg[kind][f], avg[kind][s])
             held = pos[:-1]                          # position applied to return bar e0+1+i
             gross_tr = sum(map(mul, held[:split_pos - 1], lr_eval[:split_pos - 1]))
             gross_te = sum(map(mul, held[split_pos - 1:], lr_eval[split_pos - 1:]))
-            sw_tr = sum(1 for i in switches if i < split_pos)
+            sw_tr = bisect_left(switches, split_pos)
             sw_te = len(switches) - sw_tr
             net_tr = gross_tr - sw_tr * cost_log
             net_te = gross_te - sw_te * cost_log
@@ -444,64 +402,50 @@ def run(prices, calendar, members_at):
             for t in SWINGS:
                 sums[p]["train"]["ideal"][t] += ideal[t][0]
                 sums[p]["test"]["ideal"][t] += ideal[t][1]
-                sums[p]["all"]["ideal"][t] += ideal[t][0] + ideal[t][1]
                 match_turns(c_eval, pos, ups, downs, pivots[t],
-                            {h: sums[p][h]["timing"][t] for h in ("all", "train", "test")},
-                            split_pos)
+                            {h: sums[p][h]["timing"][t] for h in HALVES}, split_pos)
             # Portfolio contribution: net simple return per return bar.
-            contrib = list(map(mul, held, sr_eval))
+            contrib = list(map(mul, held, sr_port))
             for i in switches:
-                contrib[i - 1] -= COST               # the switch at close i is paid on that bar
-            if mask is not None:
-                contrib = list(map(mul, contrib, mask))
-                pr = port[p]
-                for i, x in zip(ci[e0 + 1:], contrib):
-                    pr[i] += x
-            elif contiguous:
-                port[p][a:b] = map(add, port[p][a:b], contrib)
-            else:
-                pr = port[p]
-                for i, x in zip(ci[e0 + 1:], contrib):
-                    pr[i] += x
+                if mem[i - 1]:
+                    contrib[i - 1] -= COST           # the switch at close i is paid on that bar
+            scatter_add(port[p], ci_eval, contrib)
         per_name[sym] = name_row
         if n_done % 100 == 0:
             log(f"  {n_done}/{len(symbols)} names")
 
+    for S in sums.values():                       # turns and ideal legs: whole sample = both halves
+        for k in ("ideal", "timing"):
+            S["all"][k] = add_sums(S["train"][k], S["test"][k])
+
     return {"sums": sums, "port": port, "portBH": port_bh, "count": count,
             "perName": per_name, "ideal": ideal_by_name, "bh": bh_by_name,
-            "splitCal": split_cal, "splitDate": split_date, "costLog": cost_log}
+            "splitCal": split_cal, "splitDate": split_date}
 
 
 # --- Detail pass for a few pairs: full timing distributions ------------------
 
 def detail_pass(prices, pairs, threshold):
-    out = {}
-    for p in pairs:
-        kind, f, s = p
-        d = {"entryLag": [], "entryPremium": [], "exitLag": [], "exitDiscount": [],
-             "netByName": [], "bhByName": [], "switchesByName": []}
-        dummy = {h: zero_sums()["timing"][threshold] for h in ("all", "train", "test")}
-        for sym in sorted(prices):
-            dates, c = prices[sym]
-            n = len(c)
-            if n < MIN_DAYS:
-                continue
-            e0 = WARMUP
-            c_eval = c[e0:]
-            fa = (sma if kind == "SMA" else ema)(c, f)[e0:]
-            sl = (sma if kind == "SMA" else ema)(c, s)[e0:]
-            pos = [1 if x > y else 0 for x, y in zip(fa, sl)]
-            m = len(pos)
-            switches = [i for i in range(1, m) if pos[i] != pos[i - 1]]
-            ups = [i for i in switches if pos[i] == 1]
-            downs = [i for i in switches if pos[i] == 0]
-            match_turns(c_eval, pos, ups, downs, zigzag(c_eval, threshold), dummy, m + 1, d)
-            lr = [math.log(c_eval[i] / c_eval[i - 1]) for i in range(1, m)]
-            net = sum(map(mul, pos[:-1], lr)) + len(switches) * math.log(1 - COST)
-            d["netByName"].append(net)
+    out = {p: {"entryLag": [], "entryPremium": [], "exitLag": [], "exitDiscount": [],
+               "netByName": [], "bhByName": [], "switchesByName": []} for p in pairs}
+    for sym in sorted(prices):
+        dates, c = prices[sym]
+        if len(c) < MIN_DAYS:
+            continue
+        c_eval = c[WARMUP:]
+        m = len(c_eval)
+        pivots = zigzag(c_eval, threshold)
+        lr = [math.log(c_eval[i] / c_eval[i - 1]) for i in range(1, m)]
+        avg = {(k, L): AVG[k](c, L)[WARMUP:] for k, f, s in pairs for L in (f, s)}
+        for p in pairs:
+            kind, f, s = p
+            d = out[p]
+            pos, switches, ups, downs = signal(avg[(kind, f)], avg[(kind, s)])
+            unused = {h: zero_timing() for h in HALVES}
+            match_turns(c_eval, pos, ups, downs, pivots, unused, m + 1, d)
+            d["netByName"].append(sum(map(mul, pos[:-1], lr)) + len(switches) * math.log(1 - COST))
             d["bhByName"].append(sum(lr))
             d["switchesByName"].append(len(switches))
-        out[p] = d
     return out
 
 
@@ -510,7 +454,7 @@ def detail_pass(prices, pairs, threshold):
 def series_stats(daily: list[float]) -> dict:
     """Annualised return, volatility, Sharpe and worst fall of a daily simple-return series."""
     if not daily:
-        return {"annReturn": None, "annVol": None, "sharpe": None, "maxDrawdown": None, "days": 0}
+        return {"annReturn": None, "annVol": None, "sharpe": None, "maxDrawdown": None}
     nav = 1.0
     peak = 1.0
     mdd = 0.0
@@ -525,8 +469,7 @@ def series_stats(daily: list[float]) -> dict:
     vol = st.pstdev(logs) * math.sqrt(252) if len(logs) > 1 else None
     mean = sum(logs) / len(logs) * 252
     sharpe = mean / vol if vol else None
-    return {"annReturn": ann, "annVol": vol, "sharpe": sharpe, "maxDrawdown": mdd,
-            "days": len(daily), "final": nav}
+    return {"annReturn": ann, "annVol": vol, "sharpe": sharpe, "maxDrawdown": mdd}
 
 
 def portfolio_daily(summed: list[float], count: list[int], lo: int, hi: int) -> list[float]:
@@ -538,35 +481,34 @@ def pooled(S: dict) -> dict:
     days = S["days"] or 1
     out = {
         "annNet": math.exp(S["net"] / days * 252) - 1,
-        "annGross": math.exp(S["gross"] / days * 252) - 1,
         "annBH": math.exp(S["bh"] / days * 252) - 1,
         "switchesPerYear": S["switches"] / days * 252,
         "shareBeatingBH": S["beat"] / S["names"] if S["names"] else None,
         "capture": {str(t): (S["net"] / S["ideal"][t] if S["ideal"][t] else None) for t in SWINGS},
-        "idealAnn": {str(t): math.exp(S["ideal"][t] / days * 252) - 1 for t in SWINGS},
+        "bhCapture": {str(t): (S["bh"] / S["ideal"][t] if S["ideal"][t] else None) for t in SWINGS},
         "timing": {},
     }
     for t in SWINGS:
         T = S["timing"][t]
         v, pk = T["valleys"] or 1, T["peaks"] or 1
+        turns = T["valleys"] + T["peaks"]
+        matched = T["signalled"] + T["sold"]        # crosses that were the first after a real turn
+        precision = matched / T["crosses"] if T["crosses"] else None
+        recall = matched / turns if turns else None
         out["timing"][str(t)] = {
             "valleys": T["valleys"], "peaks": T["peaks"],
-            "heldThrough": T["held"] / v, "signalled": T["signalled"] / v, "missed": T["missed"] / v,
+            "heldThrough": (T["valleys"] - T["signalled"] - T["missed"]) / v,
+            "signalled": T["signalled"] / v, "missed": T["missed"] / v,
             "entryLag": T["entryLag"] / T["signalled"] if T["signalled"] else None,
             "entryPremium": T["entryPremium"] / T["signalled"] if T["signalled"] else None,
-            "satOut": T["satOut"] / pk, "sold": T["sold"] / pk, "rodeDown": T["rodeDown"] / pk,
+            "satOut": (T["peaks"] - T["sold"] - T["rodeDown"]) / pk,
+            "sold": T["sold"] / pk, "rodeDown": T["rodeDown"] / pk,
             "exitLag": T["exitLag"] / T["sold"] if T["sold"] else None,
             "exitDiscount": T["exitDiscount"] / T["sold"] if T["sold"] else None,
-            "crosses": T["crosses"], "matched": T["matched"],
-            "whipsawPerTurn": (T["crosses"] - T["matched"]) / (T["valleys"] + T["peaks"])
-            if T["valleys"] + T["peaks"] else None,
+            "whipsawPerTurn": (T["crosses"] - matched) / turns if turns else None,
+            "precision": precision, "recall": recall,
+            "f1": 2 * precision * recall / (precision + recall) if precision and recall else None,
         }
-        d = out["timing"][str(t)]
-        turns = T["valleys"] + T["peaks"]
-        d["precision"] = T["matched"] / T["crosses"] if T["crosses"] else None
-        d["recall"] = T["matched"] / turns if turns else None
-        pr, rc = d["precision"], d["recall"]
-        d["f1"] = 2 * pr * rc / (pr + rc) if pr and rc else None
     return out
 
 
@@ -594,17 +536,19 @@ def key(p) -> str:
     return f"{p[0]} {p[1]}/{p[2]}"
 
 
+PAIR_OF = {key(p): p for p in PAIRS}
+
+
 def median(xs):
     return st.median(xs) if xs else None
 
 
-def quantile(xs, q):
-    if not xs:
-        return None
-    s = sorted(xs)
-    k = (len(s) - 1) * q
-    lo, hi = math.floor(k), math.ceil(k)
-    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+def quartiles(xs):
+    """-> (Q1, median, Q3), interpolated; None for an empty list."""
+    if len(xs) < 2:
+        v = xs[0] if xs else None
+        return v, v, v
+    return tuple(st.quantiles(xs, n=4, method="inclusive"))
 
 
 # --- Main ---------------------------------------------------------------------
@@ -634,10 +578,12 @@ def main() -> None:
     def capture(k, h, t=P):
         return table[k][h]["capture"][t] or -9
 
+    def f1(k, h, t=P):
+        return table[k][h]["timing"][t]["f1"] or -9
+
     # Picks on the training half, by several objectives.
     keys = list(table)
     picks = {
-        "capture": max(keys, key=lambda k: capture(k, "train")),
         "captureSMA": max([k for k in keys if k.startswith("SMA")], key=lambda k: capture(k, "train")),
         "captureEMA": max([k for k in keys if k.startswith("EMA")], key=lambda k: capture(k, "train")),
         "sharpe": max(keys, key=lambda k: table[k]["train"]["portfolio"]["sharpe"] or -9),
@@ -646,15 +592,14 @@ def main() -> None:
     }
     for t in SWINGS:
         picks[f"capture@{t}"] = max(keys, key=lambda k: capture(k, "train", str(t)))
-        picks[f"f1@{t}"] = max(keys, key=lambda k: table[k]["train"]["timing"][str(t)]["f1"] or -9)
-    picks["turnF1"] = max(keys, key=lambda k: table[k]["train"]["timing"][P]["f1"] or -9)
-    pick = picks["capture"]
-    # Ranks on test, to say where the training pick landed out of sample.
+        picks[f"f1@{t}"] = max(keys, key=lambda k: f1(k, "train", str(t)))
+    pick = picks[f"capture@{PRIMARY}"]
+    turn_pick = picks[f"f1@{PRIMARY}"]
+    # Orderings on test, to say where the training picks landed out of sample.
     test_order = sorted(keys, key=lambda k: -capture(k, "test"))
-    test_rank = {k: i + 1 for i, k in enumerate(test_order)}
     all_order = sorted(keys, key=lambda k: -capture(k, "all"))
-    f1_test_order = sorted(keys, key=lambda k: -(table[k]["test"]["timing"][P]["f1"] or -9))
-    f1_test_rank = {k: i + 1 for i, k in enumerate(f1_test_order)}
+    f1_test_order = sorted(keys, key=lambda k: -f1(k, "test"))
+    f1_all_order = sorted(keys, key=lambda k: -f1(k, "all"))
     stability = {
         "captureRankCorrelation": rank_correlation([capture(k, "train") for k in keys],
                                                    [capture(k, "test") for k in keys]),
@@ -663,86 +608,79 @@ def main() -> None:
         "curveRankCorrelation": rank_correlation(
             [table[k]["train"]["portfolio"]["annReturn"] or 0 for k in keys],
             [table[k]["test"]["portfolio"]["annReturn"] or 0 for k in keys]),
-        "testRankOfF1Pick": f1_test_rank[picks["turnF1"]],
+        "testRankOfF1Pick": f1_test_order.index(turn_pick) + 1,
     }
     # The speed ladder: within each band of whipsaws per turn, the pair with the
     # best capture over the whole sample, so the trade-off can be read as a menu.
     ladder = []
     for lo_w, hi_w in LADDER:
-        band = [k for k in keys
-                if (table[k]["all"]["timing"][P]["whipsawPerTurn"] or 0) >= lo_w
-                and (table[k]["all"]["timing"][P]["whipsawPerTurn"] or 0) < hi_w]
+        band = [k for k in keys if lo_w <= (table[k]["all"]["timing"][P]["whipsawPerTurn"] or 0) < hi_w]
         if band:
             ladder.append({"band": [lo_w, hi_w], "pairs": len(band),
                            "best": max(band, key=lambda k: capture(k, "all"))})
 
     # Per-name fit: each name's own best pair on train, judged on test.
-    per_name_fit = {"names": 0, "fitNetTest": 0.0, "universalNetTest": 0.0, "bhTest": 0.0,
-                    "idealTest": 0.0, "fitBeatsUniversal": 0, "fast": [], "slow": [], "kinds": {}}
-    pk = (table[pick]["kind"], table[pick]["fast"], table[pick]["slow"])
+    fit = {"names": 0, "fitNetTest": 0.0, "universalNetTest": 0.0, "bhTest": 0.0,
+           "idealTest": 0.0, "fitBeatsUniversal": 0, "fast": [], "slow": [], "kinds": {}}
+    pk = PAIR_OF[pick]
     for sym, row in R["perName"].items():
-        best = max(PAIRS, key=lambda p: row[p][0] / (R["ideal"][sym][PRIMARY][0] or 1e-9)
-                   if R["ideal"][sym][PRIMARY][0] > 0 else row[p][0])
-        per_name_fit["names"] += 1
-        per_name_fit["fitNetTest"] += row[best][1]
-        per_name_fit["universalNetTest"] += row[pk][1]
-        per_name_fit["bhTest"] += R["bh"][sym][1]
-        per_name_fit["idealTest"] += R["ideal"][sym][PRIMARY][1]
-        per_name_fit["fitBeatsUniversal"] += 1 if row[best][1] > row[pk][1] else 0
-        per_name_fit["fast"].append(best[1])
-        per_name_fit["slow"].append(best[2])
-        per_name_fit["kinds"][best[0]] = per_name_fit["kinds"].get(best[0], 0) + 1
-    fits = per_name_fit
-    fits["summary"] = {
-        "fitCaptureTest": fits["fitNetTest"] / fits["idealTest"] if fits["idealTest"] else None,
-        "universalCaptureTest": fits["universalNetTest"] / fits["idealTest"] if fits["idealTest"] else None,
-        "bhCaptureTest": fits["bhTest"] / fits["idealTest"] if fits["idealTest"] else None,
-        "shareFitBeatsUniversal": fits["fitBeatsUniversal"] / fits["names"] if fits["names"] else None,
-        "fastMedian": median(fits["fast"]), "fastQ1": quantile(fits["fast"], 0.25),
-        "fastQ3": quantile(fits["fast"], 0.75),
-        "slowMedian": median(fits["slow"]), "slowQ1": quantile(fits["slow"], 0.25),
-        "slowQ3": quantile(fits["slow"], 0.75),
-        "kinds": fits["kinds"],
+        ideal_train = R["ideal"][sym][PRIMARY][0]
+        best = max(PAIRS, key=lambda p: row[p][0] / ideal_train if ideal_train > 0 else row[p][0])
+        fit["names"] += 1
+        fit["fitNetTest"] += row[best][1]
+        fit["universalNetTest"] += row[pk][1]
+        fit["bhTest"] += R["bh"][sym][1]
+        fit["idealTest"] += R["ideal"][sym][PRIMARY][1]
+        fit["fitBeatsUniversal"] += 1 if row[best][1] > row[pk][1] else 0
+        fit["fast"].append(best[1])
+        fit["slow"].append(best[2])
+        fit["kinds"][best[0]] = fit["kinds"].get(best[0], 0) + 1
+    fast_q1, fast_med, fast_q3 = quartiles(fit["fast"])
+    slow_q1, slow_med, slow_q3 = quartiles(fit["slow"])
+    per_name_fit = {
+        "fitCaptureTest": fit["fitNetTest"] / fit["idealTest"] if fit["idealTest"] else None,
+        "universalCaptureTest": fit["universalNetTest"] / fit["idealTest"] if fit["idealTest"] else None,
+        "bhCaptureTest": fit["bhTest"] / fit["idealTest"] if fit["idealTest"] else None,
+        "shareFitBeatsUniversal": fit["fitBeatsUniversal"] / fit["names"] if fit["names"] else None,
+        "fastMedian": fast_med, "fastQ1": fast_q1, "fastQ3": fast_q3,
+        "slowMedian": slow_med, "slowQ1": slow_q1, "slowQ3": slow_q3,
+        "kinds": fit["kinds"],
     }
-    del fits["fast"], fits["slow"]
 
     # Per-year portfolio returns for the pick, the classics and buy-and-hold.
-    years = sorted({d[:4] for d in calendar[lo:]})
+    year_idx = {}
+    for i in range(lo, N):
+        if count[i] > 0:
+            year_idx.setdefault(calendar[i][:4], []).append(i)
+    classics = [key(c) for c in CLASSICS if key(c) in table]
     year_rows = {}
     for label, series in [("universe held outright", R["portBH"])] + \
-            [(k, port[(table[k]["kind"], table[k]["fast"], table[k]["slow"])])
-             for k in [pick] + [key(c) for c in CLASSICS if key(c) in table and key(c) != pick]]:
+            [(k, port[PAIR_OF[k]]) for k in dict.fromkeys([pick] + classics)]:
         year_rows[label] = {}
-        for y in years:
-            idx = [i for i in range(lo, N) if calendar[i][:4] == y and count[i] > 0]
+        for y, idx in year_idx.items():
             nav = 1.0
             for i in idx:
                 nav *= 1 + series[i] / count[i]
             year_rows[label][y] = nav - 1
 
     # Full timing distributions for the leaders and the classics.
-    detail_pairs = []
-    f1_all_order = sorted(keys, key=lambda k: -(table[k]["all"]["timing"][P]["f1"] or -9))
-    for k in all_order[:DETAIL_TOP] + [pick, picks["turnF1"], f1_all_order[0]] + \
-            [key(c) for c in DETAIL_EXTRA]:
-        p = (table[k]["kind"], table[k]["fast"], table[k]["slow"])
-        if p in PAIRS and p not in detail_pairs:
-            detail_pairs.append(p)
-    log(f"detail pass on {len(detail_pairs)} pairs")
+    detail_keys = list(dict.fromkeys(all_order[:DETAIL_TOP] + [pick, turn_pick, f1_all_order[0]] + classics))
+    log(f"detail pass on {len(detail_keys)} pairs")
     details = {}
-    for p, d in detail_pass(prices, detail_pairs, PRIMARY).items():
+    for p, d in detail_pass(prices, [PAIR_OF[k] for k in detail_keys], PRIMARY).items():
+        entry_lag = quartiles(d["entryLag"])
+        entry_premium = quartiles(d["entryPremium"])
+        exit_lag = quartiles(d["exitLag"])
+        exit_discount = quartiles(d["exitDiscount"])
         details[key(p)] = {
-            "entryLagMedian": median(d["entryLag"]), "entryLagQ3": quantile(d["entryLag"], 0.75),
-            "entryPremiumMedian": median(d["entryPremium"]),
-            "entryPremiumQ3": quantile(d["entryPremium"], 0.75),
-            "exitLagMedian": median(d["exitLag"]), "exitLagQ3": quantile(d["exitLag"], 0.75),
-            "exitDiscountMedian": median(d["exitDiscount"]),
-            "exitDiscountQ3": quantile(d["exitDiscount"], 0.75),
+            "entryLagMedian": entry_lag[1], "entryLagQ3": entry_lag[2],
+            "entryPremiumMedian": entry_premium[1], "entryPremiumQ3": entry_premium[2],
+            "exitLagMedian": exit_lag[1], "exitLagQ3": exit_lag[2],
+            "exitDiscountMedian": exit_discount[1], "exitDiscountQ3": exit_discount[2],
             "netMedianByName": median(d["netByName"]),
             "bhMedianByName": median(d["bhByName"]),
             "excessMedianByName": median([a - b for a, b in zip(d["netByName"], d["bhByName"])]),
             "switchesMedianByName": median(d["switchesByName"]),
-            "names": len(d["netByName"]),
         }
 
     # Neighbourhood grids: capture over the whole sample, by kind.
@@ -751,24 +689,25 @@ def main() -> None:
         grids[kind] = {h: {str(f): {str(s): (table[key((kind, f, s))][h]["capture"][P]
                                              if (kind, f, s) in PAIRS else None)
                                     for s in SLOW} for f in FAST}
-                       for h in ("all", "train", "test")}
+                       for h in HALVES + ("all",)}
 
-    eval_days = sum(1 for i in range(lo, N) if count[i] > 0)
     results = {
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "mode": mode, "online": ONLINE, "note": note,
+        "mode": mode, "note": note,
         "from": calendar[lo], "to": calendar[-1], "split": R["splitDate"],
-        "evalDays": eval_days, "names": len(R["perName"]),
+        "evalDays": sum(1 for i in range(lo, N) if count[i] > 0), "names": len(R["perName"]),
         "design": {"fast": FAST, "slow": SLOW, "kinds": list(KINDS), "warmup": WARMUP,
-                   "cost": COST, "swings": list(SWINGS), "primarySwing": PRIMARY},
+                   "cost": COST, "swings": list(SWINGS), "primarySwing": PRIMARY,
+                   "classics": classics},
         "buyAndHold": bh_curve,
-        "picks": picks, "pick": pick, "testRankOfPick": test_rank[pick],
+        "picks": picks, "pick": pick, "turnPick": turn_pick,
+        "testRankOfPick": test_order.index(pick) + 1,
         "stability": stability, "ladder": ladder,
-        "testOrder": test_order[:10], "allOrder": all_order[:10],
+        "testOrder": test_order[:10], "allOrder": all_order[:DETAIL_TOP],
         "table": table, "grids": grids, "details": details, "years": year_rows,
-        "perNameFit": fits["summary"],
+        "perNameFit": per_name_fit,
     }
-    (HERE / "results.json").write_text(json.dumps(results, indent=1, sort_keys=True) + "\n")
+    (HERE / "results.json").write_text(json.dumps(results, sort_keys=True, separators=(",", ":")) + "\n")
     (HERE / "REPORT.md").write_text(report(results))
     log(f"pick {pick}; wrote results.json and REPORT.md")
 
@@ -789,6 +728,17 @@ def num(x, digits=2):
 
 def days(x):
     return "n/a" if x is None else f"{x:.0f}d"
+
+
+def grid_table(g: dict, design: dict) -> list[str]:
+    """Markdown table of a fast-by-slow grid of capture ratios."""
+    fast, slow = design["fast"], design["slow"]
+    lines = ["| fast \\ slow | " + " | ".join(str(s) for s in slow) + " |",
+             "| --- | " + " | ".join("---" for _ in slow) + " |"]
+    for f in fast:
+        cells = ["" if g[str(f)][str(s)] is None else f"{g[str(f)][str(s)]:.0%}" for s in slow]
+        lines.append(f"| {f} | " + " | ".join(cells) + " |")
+    return lines
 
 
 def report(r: dict) -> str:
@@ -831,13 +781,8 @@ def report(r: dict) -> str:
     w("| --- | --- | --- | --- | --- |")
     for h in ("train", "test", "all"):
         b = r["buyAndHold"][h]
-        any_row = T[pick][h]
-        bh_cap = None
-        if any_row["idealAnn"][P] is not None:
-            ideal_log = math.log(1 + any_row["idealAnn"][P])
-            bh_cap = math.log(1 + any_row["annBH"]) / ideal_log if ideal_log else None
         w(f"| {h} | {pct(b['annReturn'])} | {upct(b['annVol'])} | {pct(b['maxDrawdown'])} | "
-          f"{upct(bh_cap)} |")
+          f"{upct(T[pick][h]['bhCapture'][P])} |")
     w("")
     w("## The pick, and where it stands")
     w("")
@@ -847,13 +792,8 @@ def report(r: dict) -> str:
     w("| pair | capture train | capture test | capture all | curve a year (train) | (test) | "
       "(all) | volatility | worst fall | switches a year |")
     w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    rows = [pick] + [k for k in r["allOrder"][:5] if k != pick] + \
-           [k for k in [f"SMA 50/200", "SMA 20/50", "SMA 10/30", "EMA 12/26"] if k in T and k != pick]
-    seen = set()
+    rows = list(dict.fromkeys([pick] + r["allOrder"] + r["design"]["classics"]))
     for k in rows:
-        if k in seen:
-            continue
-        seen.add(k)
         t = T[k]
         w(f"| {k}{' **(pick)**' if k == pick else ''} | {upct(t['train']['capture'][P])} | "
           f"{upct(t['test']['capture'][P])} | {upct(t['all']['capture'][P])} | "
@@ -862,7 +802,7 @@ def report(r: dict) -> str:
           f"{pct(t['all']['portfolio']['maxDrawdown'])} | {num(t['all']['switchesPerYear'], 1)} |")
     w("")
     w("Best on train by other yardsticks: " + "; ".join(
-        f"{k}: {v}" for k, v in r["picks"].items() if k != "capture") + ".")
+        f"{k}: {v}" for k, v in r["picks"].items() if k != f"capture@{P}") + ".")
     w("")
     w("Top ten on test by capture: " + ", ".join(r["testOrder"]) + ".")
     w("")
@@ -878,20 +818,13 @@ def report(r: dict) -> str:
     w("A cross counts as a hit when it is the first cross after a real turn, in the right "
       "direction, before the next turn. **Precision** is hits over all crosses, **recall** hits "
       "over all turns, **F1** their harmonic mean. Chosen on train by F1: "
-      f"**{r['picks']['turnF1']}**, which ranked {sb['testRankOfF1Pick']} of {len(T)} on test.")
+      f"**{r['turnPick']}**, which ranked {sb['testRankOfF1Pick']} of {len(T)} on test.")
     w("")
     w("| pair | precision | recall | F1 train | F1 test | F1 all | above the low | below the top "
       "| whipsaw per turn |")
     w("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    f1_rows = [r["picks"]["turnF1"]] + sorted(
-        [k for k in T if k != r["picks"]["turnF1"]],
-        key=lambda k: -(T[k]["all"]["timing"][P]["f1"] or -9))[:4] + \
-        [k for k in rows if k != r["picks"]["turnF1"]]
-    seen = set()
-    for k in f1_rows:
-        if k in seen:
-            continue
-        seen.add(k)
+    by_f1 = sorted(T, key=lambda k: -(T[k]["all"]["timing"][P]["f1"] or -9))
+    for k in dict.fromkeys([r["turnPick"]] + by_f1[:5] + rows):
         t = T[k]["all"]["timing"][P]
         w(f"| {k} | {upct(t['precision'])} | {upct(t['recall'])} | "
           f"{num(T[k]['train']['timing'][P]['f1'])} | {num(T[k]['test']['timing'][P]['f1'])} | "
@@ -923,11 +856,7 @@ def report(r: dict) -> str:
     w("| pair | valleys | held through | bought late | missed | entry lag | above the low | "
       "peaks | sat out | sold late | rode down | exit lag | below the top | whipsaw per turn |")
     w("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    seen = set()
     for k in rows:
-        if k in seen:
-            continue
-        seen.add(k)
         t = T[k]["all"]["timing"][P]
         w(f"| {k} | {t['valleys']} | {upct(t['heldThrough'])} | {upct(t['signalled'])} | "
           f"{upct(t['missed'])} | {days(t['entryLag'])} | {pct(t['entryPremium'])} | {t['peaks']} | "
@@ -957,12 +886,10 @@ def report(r: dict) -> str:
     for t in r["design"]["swings"]:
         k = r["picks"][f"capture@{t}"]
         row = T[k]
-        ideal_log = math.log(1 + row["all"]["idealAnn"][str(t)])
-        bh_cap = math.log(1 + row["all"]["annBH"]) / ideal_log if ideal_log else None
         kf = r["picks"][f"f1@{t}"]
         tf = T[kf]["all"]["timing"][str(t)]
         w(f"| {t:.0%} | {k} | {upct(row['train']['capture'][str(t)])} | "
-          f"{upct(row['test']['capture'][str(t)])} | {upct(bh_cap)} | {kf} | "
+          f"{upct(row['test']['capture'][str(t)])} | {upct(row['all']['bhCapture'][str(t)])} | {kf} | "
           f"{num(T[kf]['train']['timing'][str(t)]['f1'])} | {num(T[kf]['test']['timing'][str(t)]['f1'])} | "
           f"{pct(tf['entryPremium'])} | {pct(tf['exitDiscount'])} |")
     w("")
@@ -994,15 +921,7 @@ def report(r: dict) -> str:
         w("")
         w(f"### {kind}")
         w("")
-        g = r["grids"][kind]["all"]
-        w("| fast \\ slow | " + " | ".join(str(s) for s in r["design"]["slow"]) + " |")
-        w("| --- | " + " | ".join("---" for _ in r["design"]["slow"]) + " |")
-        for f_ in r["design"]["fast"]:
-            cells = []
-            for s in r["design"]["slow"]:
-                v = g[str(f_)][str(s)]
-                cells.append("" if v is None else f"{v:.0%}")
-            w(f"| {f_} | " + " | ".join(cells) + " |")
+        lines += grid_table(r["grids"][kind]["all"], r["design"])
     w("")
     w("### Train and test, side by side (SMA)")
     w("")
@@ -1010,15 +929,7 @@ def report(r: dict) -> str:
         w("")
         w(f"**{h}**")
         w("")
-        g = r["grids"]["SMA"][h]
-        w("| fast \\ slow | " + " | ".join(str(s) for s in r["design"]["slow"]) + " |")
-        w("| --- | " + " | ".join("---" for _ in r["design"]["slow"]) + " |")
-        for f_ in r["design"]["fast"]:
-            cells = []
-            for s in r["design"]["slow"]:
-                v = g[str(f_)][str(s)]
-                cells.append("" if v is None else f"{v:.0%}")
-            w(f"| {f_} | " + " | ".join(cells) + " |")
+        lines += grid_table(r["grids"]["SMA"][h], r["design"])
     w("")
     w("## Every pair")
     w("")

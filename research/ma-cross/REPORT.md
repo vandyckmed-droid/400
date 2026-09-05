@@ -37,7 +37,7 @@ Chosen on train by capture at 20%: **SMA 8/15**. On test it ranked 232 of 254 pa
 | SMA 20/50 | -9% | 5% | -2% | -3.7% | +4.1% | +0.2% | 9% | -19.8% | 5.8 |
 | SMA 10/30 | -4% | 3% | -0% | -0.5% | +3.0% | +1.2% | 9% | -17.6% | 9.8 |
 
-Best on train by other yardsticks: captureSMA: SMA 8/15; captureEMA: EMA 50/200; sharpe: SMA 20/25; return: SMA 8/15; drawdown: SMA 50/200; capture@0.1: SMA 8/15; f1@0.1: EMA 15/25; capture@0.2: SMA 8/15; f1@0.2: EMA 40/50; capture@0.3: SMA 8/15; f1@0.3: EMA 50/200; turnF1: EMA 40/50.
+Best on train by other yardsticks: captureSMA: SMA 8/15; captureEMA: EMA 50/200; sharpe: SMA 20/25; return: SMA 8/15; drawdown: SMA 50/200; capture@0.1: SMA 8/15; f1@0.1: EMA 15/25; f1@0.2: EMA 40/50; capture@0.3: SMA 8/15; f1@0.3: EMA 50/200.
 
 Top ten on test by capture: SMA 30/200, SMA 50/60, SMA 25/200, SMA 40/200, SMA 40/60, EMA 50/200, EMA 30/200, EMA 40/200, SMA 50/200, EMA 40/150.
 
