@@ -12,6 +12,9 @@ Files:
 | `REPORT.md` | Every table the script produces, regenerated on each run. |
 | `results.json` | The same numbers, machine-readable, plus the weekly series the chart page draws. |
 | `index.html` | A phone-sized chart of the recommended oscillator against the universe, reading `results.json`. |
+| `derived.py` | The second study: an oscillator derived from the data itself, no textbook formula assumed. |
+| `DERIVED.md` | Every table the second study produces, regenerated on each run. |
+| `results-derived.json` | The same numbers, machine-readable, plus the weekly universe series. |
 
 ## What was tested
 
@@ -85,12 +88,69 @@ quarter, which is easy to explain.
 Why bands at 25% and 75%: they are round numbers that split off roughly the outer tenth of
 readings on each side. They were fixed before looking at the results and were not tuned.
 
+## Second study: derived from the data, not borrowed
+
+The first study only asked whether the textbook oscillators work. The second (`derived.py`) assumes
+no formula at all. For every name at every week end it takes sixteen plain descriptors of its own
+recent behaviour, each in the name's own units: its return over 5, 10, 21, 42, 63, 126 and 252
+days divided by its own volatility ("how many sigmas has it moved"), where it sits in its 63-day
+and 252-day range, its drawdown from the yearly high, whether its volatility is rising, its biggest
+up and down day of the month, where its closes sat inside each day's range, and two volume
+readings. Then, week by week, it lets the data say which of those predicted the next month
+(one cross-sectional regression per week, coefficients averaged, on the first half of the sample
+only), and builds the reading as the weighted sum of a name's descriptor ranks, expressed as a
+0–100 percentile against the universe that day. Weights are also refitted walk-forward every
+quarter using only weeks whose outcome was already known.
+
+**At the stock level, the data rediscovers momentum and nothing else.** Of sixteen descriptors,
+training kept two: the one-year sigma-scaled return and a short-term volume surge. The full
+sixteen-descriptor model fitted noise (rank correlation +0.042 in training, −0.005 out of
+sample). The sparse model held up out of sample (+0.041, t 2.1) and walk-forward (+0.027 a month,
++0.043 a quarter), but that is the same signal the site already ranks on, in a different coat, and
+its top-minus-bottom decile spread walk-forward (+0.9% a month, +2.1% a quarter) is no better than
+the momentum score's (+1.0%, +3.0%). Every short-horizon descriptor, the ones an oscillator in the
+"stretched, due to snap back" sense would be built from, had a mean-reversion sign in the first
+half and the opposite sign in the second. There is no per-stock oscillator to be derived from this
+data, textbook or otherwise.
+
+**At the universe level, the data produced a clean new reading.** Aggregating the same descriptors
+across members and testing each against the universe's own forward return, with bands set from the
+training half's own distribution rather than by hand, the strongest and most stable is the
+**share of members sitting in the bottom tenth of their own 52-week range** (the "near yearly
+lows" share):
+
+| near-lows share | weeks | mean next 1 month | mean next 3 months |
+| --- | --- | --- | --- |
+| under 2% (almost nobody at a low) | 12 | −2.3% | −3.4% |
+| 2% to 24% | 220 | +0.7% | +2.0% |
+| over 24% (a quarter of the universe at lows) | 14 | +4.7% | +8.5% |
+
+Rank correlation with the next quarter +0.32 (t 3.4), and the same figure in both halves of the
+sample (+0.34 and +0.32). Unlike the 63-day breadth reading, which only speaks at the washed-out
+end, this one carries information in both tails: a universe where almost nothing is at a yearly
+low has gone on to disappoint. The reading today is 12%, ordinary.
+
+A combined reading (near-lows share, the median name's one-month stretch, and the share of names
+that fell more than two sigmas in a month, each as a percentile of the training distribution and
+averaged) reads above 80% in twelve spells, ten of which were followed by a higher universe a month
+later (+3.0% on average) and nine a quarter later (+5.1%); below 20% in seven spells, five of which
+were followed by a lower universe a month later (−2.5%). The single near-lows share is simpler and
+nearly as good, so it is the design to prefer.
+
+**Recommended design, second study.** Each trading day, the share of universe members whose close
+sits in the bottom tenth of their own 252-day high-low range, on a 0–100% scale, with bands at
+about 2% (complacent: expect less) and about 25% (capitulated: expect more), both taken from the
+data. It complements the momentum ranking rather than competing with it: the ranking says which
+names, this says whether the tide is going out or coming in. Both readings, this and the 63-day
+breadth, come from the prices already in the build, so either would cost one number a day.
+
 ## Caveats, in order of importance
 
 1. **Six years is a short record for a market-timing claim.** Ten washouts is a small sample and
-   they are not independent: five of them fall inside the 2022 bear market. The effect is well
-   documented in longer histories of the broad market, which is why this reading of it deserves
-   some trust, but it has been tested here on one cycle.
+   they are not independent: five of them fall inside the 2022 bear market. The near-lows reading
+   has 14 weeks in its upper band and 12 in its lower. The effect is well documented in longer
+   histories of the broad market, which is why these readings deserve some trust, but they have
+   been tested here on one cycle.
 2. **It says nothing about which names to hold**, only whether the tide is coming in. The
    momentum ranking and the breadth oscillator answer different questions.
 3. **A washout is by construction a moment when the account is already down.** Acting on it
@@ -111,10 +171,11 @@ because the data above says it would be decoration.
 ```sh
 # Six-year, point-in-time run (the real test). Same key the refresh job uses.
 FMP_API_KEY=your_key python3 prototypes/oscillator/oscillator.py
+FMP_API_KEY=your_key python3 prototypes/oscillator/derived.py      # the second study
 
 # Without a key: a three-year preview from the committed bars, today's members only.
 python3 prototypes/oscillator/oscillator.py
 ```
 
-About three minutes once prices are cached. It rewrites `REPORT.md` and `results.json` in this
-folder and nothing else.
+A few minutes each once prices are cached. They rewrite `REPORT.md`, `DERIVED.md` and the two
+`results*.json` files in this folder and nothing else.
