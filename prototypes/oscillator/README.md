@@ -168,6 +168,13 @@ with the reading, the two bands and the last few years. No new data source, no d
 no change to the ranking itself. A per-stock oscillator on the detail chart is not recommended,
 because the data above says it would be decoration.
 
+## For later
+
+- **63-day breadth as a second indicator pane.** The share of members above their 63-day average
+  (the first study's reading, charted in `index.html`) belongs under the near-lows share in the
+  interactive chart, so the two universe readings can be read against each other. Same gestures,
+  same bands treatment (25% / 75%), same crosshair.
+
 ## Running it
 
 ```sh
