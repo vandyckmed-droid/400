@@ -219,6 +219,12 @@ python3 -m http.server 8000        # then open http://localhost:8000
   because it created a "not in this universe" state throughout the app.
 - **Sector-relative and within-sector portfolios are untested.** Presenting them as evidence would
   need their own backtest.
+- **`prototypes/` holds design studies, not features.** Nothing under it is loaded by the site or
+  run by the refresh job. `prototypes/oscillator/` tested classic per-stock oscillators against
+  six years of the universe (none predicts anything useful), then derived one from the data with
+  no formula assumed (per stock it rediscovers momentum, nothing more) and found that two
+  universe-level readings, 63-day breadth and the share of names near yearly lows, do carry
+  information; its `README.md` has the designs and the verdicts.
 - **Minor stale wording remains** in `index.html` (the list footer still says "within the current
   S&P MidCap 400") and in `manifest.webmanifest` (the description still says "volatility-adjusted"
   and "MidCap 400"). Neither affects behaviour.
