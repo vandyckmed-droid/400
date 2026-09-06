@@ -7,9 +7,7 @@
   const PAGE = 60;                         // rows appended per scroll chunk
   const WATCH_KEY = 'sp400.watchlist.v1';
   const SECTORS_KEY = 'sp400.sectors.v1';
-  const BASIS_KEY = 'sp400.basis.v1';
-  const ADJUST_KEY = 'sp400.adjust.v1';
-  const GRAIN_KEY = 'sp400.grain.v1';
+  const SCORE_KEY = 'sp400.score.v1';      // the score's four choices
   const CHART_KEY = 'sp400.chart.v1';      // the price chart's own settings
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -17,15 +15,26 @@
   /* One universe: the MidCap 400 plus the smallest 250 of the S&P 500 by market
      cap, ~650 names. It is not a setting — a name is measured against
      everything of roughly its size, and which index committee happens to hold
-     it is not a fact about the name. What remains are two ways of looking at
-     that one universe: `basis` (against all of it, or against the name's own
-     sector) and `adjust` (the return, the return over its own volatility, or
-     the return net of the market). All six combinations ship in latest.json,
-     keyed w/s + r/v/m. */
+     it is not a fact about the name. */
   const UNIVERSE = { label: 'MidCap 650', size: '650' };
-  const ADJ = { raw: 'r', vol: 'v', resid: 'm' };
-  const keyFor = (basis, adjust) =>
-    (basis === 'sector' ? 's' : 'w') + (ADJ[adjust] || 'r');
+
+  /* ---------- the score ----------
+     One definition, built here step for step as scripts/build.py builds it,
+     on the same rounded inputs, so what this scores in the browser (the list)
+     and what the pipeline published (every day's cross-section, for the
+     score pane) agree to the last digit. Four choices:
+       period   '12' (12–1), '6' (6–1) or 'blend' (the two averaged 50/50)
+       vol      divide each period's return by its own volatility
+       resid    use the return net of the market instead of the return
+       basis    z-score against the whole 'universe' or the name's 'sector'
+     and one reading of the completed score, `display`: its 'value', its
+     integer 'rank' across the whole universe (1 = best), or its percentile
+     'pct' across the whole universe (100 = best). Display never changes the
+     order, only the number shown. */
+  const SCORE_DEFAULTS = { period: 'blend', vol: false, resid: false, basis: 'universe', display: 'pct' };
+  const PERIODS = { 12: '12–1', 6: '6–1', blend: 'Blend' };
+  const DISPLAYS = { value: 'Score value', rank: 'Rank', pct: 'Percentile' };
+  const BASES = { universe: 'Universe', sector: 'Sector' };
 
   const state = {
     rows: [],
@@ -36,30 +45,73 @@
     sort: 'score',
     view: [],
     shown: 0,
-    basis: (() => {
-      try { return localStorage.getItem(BASIS_KEY) === 'sector' ? 'sector' : 'whole'; }
-      catch { return 'whole'; }
-    })(),
-    /* Default is the return itself. The other two are real choices about what
-       "momentum" means, not details, so they are opt-in. */
-    adjust: (() => {
-      try { const v = localStorage.getItem(ADJUST_KEY); return v in ADJ ? v : 'raw'; }
-      catch { return 'raw'; }
-    })(),
-    grain: (() => {
-      try { return localStorage.getItem(GRAIN_KEY) === 'w' ? 'w' : 'm'; } catch { return 'm'; }
-    })(),
+    score: loadScoreSettings(),
     chart: loadChartPrefs(),
   };
 
-  const peerKey = () => keyFor(state.basis, state.adjust);
-  const volAdjusted = () => state.adjust === 'vol';
-
-  /* This row's placement in the active peer set. Every published name is a
-     member of the universe and every sector clears MIN_SECTOR, so unlike when
-     the universe was a choice, this never comes back undefined. */
-  const place = (r) => r.r[peerKey()];
-  const sectorBasis = () => state.basis === 'sector';
+  const adjustKey = (s) => (s.vol && s.resid ? 'volresid' : s.vol ? 'vol' : s.resid ? 'resid' : 'none');
+  const scoreKey = (s = state.score) => `${s.period}-${adjustKey(s)}-${s.basis}`;
+  const round2 = (v) => Math.floor(v * 100 + 0.5) / 100;         // as build.py's round2
+  /* What one period measures under the adjustments, from its legs: r the
+     return, v its volatility, e the return net of the market, w the residual
+     volatility. Null where the name has no legs for that period. */
+  function measure(legs, period, s) {
+    const r = legs['r' + period], v = legs['v' + period], e = legs['e' + period], w = legs['w' + period];
+    if (r == null) return null;
+    return s.resid ? (s.vol ? e / w : e) : (s.vol ? r / v : r);
+  }
+  const zOf = (x, st) => (x == null || !st ? null : st[1] > 0 ? round2((x - st[0]) / st[1]) : 0);
+  /* The completed score from a name's legs and a lookup of the peer statistics
+     ([mean, sd]) for a period. */
+  function scoreFrom(legs, statFor, s = state.score) {
+    const per = (p) => zOf(measure(legs, p, s), statFor(p));
+    if (s.period === 'blend') {
+      const a = per('12'), b = per('6');
+      return { z12: a, z6: b, s: a == null || b == null ? null : round2((a + b) / 2) };
+    }
+    const z = per(s.period);
+    return { z12: s.period === '12' ? z : null, z6: s.period === '6' ? z : null, s: z };
+  }
+  const groupOf = (row, s = state.score) => (s.basis === 'universe' ? '*' : row.sector || '');
+  /* Today's peer statistics, from latest.json, for one row. */
+  const statToday = (row, s = state.score) => (p) => {
+    const by = state.meta.stats[p] && state.meta.stats[p][adjustKey(s)];
+    return by ? by[groupOf(row, s)] || null : null;
+  };
+  /* Rank against a ladder — the members' scores × 100, ascending — as
+     1 + the number strictly better, so ties share the better position. */
+  function rankIn(ladder, score) {
+    const v = Math.round(score * 100);
+    let lo = 0, hi = ladder.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (ladder[m] <= v) lo = m + 1; else hi = m; }
+    return 1 + ladder.length - lo;
+  }
+  const pctOf = (rank, n) => (n > 1 ? 100 * (n - rank) / (n - 1) : 100);
+  /* Score every row under `s`: {symbol: {s, z12, z6, rank, pct}}, plus the
+     ladder and member count the ranks came from. */
+  function scoreAll(s = state.score) {
+    const by = {};
+    for (const r of state.rows) by[r.symbol] = scoreFrom(r.legs, statToday(r, s), s);
+    const ladder = Object.values(by).filter((x) => x.s != null).map((x) => Math.round(x.s * 100)).sort((a, b) => a - b);
+    for (const x of Object.values(by)) {
+      x.rank = x.s == null ? null : rankIn(ladder, x.s);
+      x.pct = x.rank == null ? null : pctOf(x.rank, ladder.length);
+    }
+    return { by, ladder, n: ladder.length };
+  }
+  const rescore = () => { state.scored = scoreAll(); };
+  const scoreOf = (r) => state.scored.by[r.symbol];
+  const displayed = (sc, d = state.score.display) => (d === 'value' ? sc.s : d === 'rank' ? sc.rank : sc.pct);
+  const FMT = {
+    value: (v) => (v == null ? '—' : `${v < 0 ? '−' : v > 0 ? '+' : ''}${Math.abs(v).toFixed(2)}`),
+    rank: (v) => (v == null ? '—' : String(v)),
+    pct: (v) => (v == null ? '—' : v.toFixed(1)),
+  };
+  const fmtShown = (sc, d = state.score.display) => FMT[d](displayed(sc, d));
+  /* One line naming the score as built: "Blend · ÷ volatility · vs universe". */
+  const scoreSummary = (s = state.score) => [
+    PERIODS[s.period], s.vol ? '÷ volatility' : '', s.resid ? 'net of market' : '', `vs ${s.basis}`,
+  ].filter(Boolean).join(' · ');
 
   /* ---------- persistence ---------- */
   function loadWatch() {
@@ -80,6 +132,31 @@
   function saveSectors() {
     try { localStorage.setItem(SECTORS_KEY, JSON.stringify([...state.sectors])); } catch { /* private mode */ }
   }
+  /* The score's four choices. Anything unreadable falls back to the defaults;
+     the two settings the app had before (basis, adjustment) carry over. */
+  function loadScoreSettings() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(SCORE_KEY)); } catch { /* absent or malformed */ }
+    if (!raw || typeof raw !== 'object') {
+      raw = {};
+      try {
+        if (localStorage.getItem('sp400.basis.v1') === 'sector') raw.basis = 'sector';
+        const adj = localStorage.getItem('sp400.adjust.v1');
+        if (adj === 'vol') raw.vol = true;
+        if (adj === 'resid') raw.resid = true;
+      } catch { /* private mode */ }
+    }
+    const s = { ...SCORE_DEFAULTS };
+    if (raw.period in PERIODS) s.period = String(raw.period);
+    s.vol = !!raw.vol;
+    s.resid = !!raw.resid;
+    if (raw.basis === 'sector') s.basis = 'sector';
+    if (raw.display in DISPLAYS) s.display = raw.display;
+    return s;
+  }
+  function saveScoreSettings() {
+    try { localStorage.setItem(SCORE_KEY, JSON.stringify(state.score)); } catch { /* private mode */ }
+  }
   /* Chart settings: one object keyed by indicator, in the shape chart.js
      declares, so a new indicator or setting is a new key rather than a new
      store. Anything unreadable falls back to the chart's defaults. */
@@ -88,6 +165,7 @@
     try { raw = JSON.parse(localStorage.getItem(CHART_KEY)) || {}; } catch { /* absent or malformed */ }
     // The first version stored only { fill }; that choice carries into the channel.
     if (typeof raw.fill === 'number' && !raw.channel) raw = { channel: { fill: raw.fill } };
+    if (raw.rank && !raw.score) raw.score = raw.rank;     // the pane was called Rank for a while
     return priceChart.normalize(raw);
   }
   function saveChartPrefs() {
@@ -105,15 +183,17 @@
     for (const [size, suffix] of units) if (v >= size) return '$' + (v / size).toFixed(v / size >= 100 ? 0 : 1) + suffix;
     return '$' + v.toLocaleString();
   }
-  /* Score colour ramp: cold (0) → neutral (50) → hot (100). The scheme is
+  /* Colour ramp over the percentile: cold (0) → neutral (50) → hot (100), so
+     a name's colour is its standing whatever the display shows. The scheme is
      read once and refreshed on change rather than queried per bar; a theme
      flip mid-session (auto dark mode at dusk) re-renders the open view. */
   const scheme = matchMedia('(prefers-color-scheme: dark)');
   let dark = scheme.matches;
   scheme.addEventListener('change', (e) => { dark = e.matches; if (state.rows.length) route(); });
 
-  function tone(score) {
-    const t = Math.max(0, Math.min(100, score)) / 100;
+  function tone(pctl) {
+    if (pctl == null) return 'var(--ink-3)';
+    const t = Math.max(0, Math.min(100, pctl)) / 100;
     // Piecewise so that 50 lands on a genuinely neutral amber rather than a
     // greenish midpoint: 0 = red, 0.5 = amber, 1 = green.
     const hue = t < 0.5 ? 4 + (t / 0.5) * 38 : 42 + ((t - 0.5) / 0.5) * 103;
@@ -123,17 +203,6 @@
   const cls = (v) => v == null ? '' : v > 0 ? 'pos' : v < 0 ? 'neg' : '';
   // pct() above is unsigned; a return needs its sign, and a real minus sign.
   const spct = (v, d = 1) => v == null ? '—' : `${v >= 0 ? '+' : '−'}${pct(Math.abs(v), d)}`;
-  const ADJUST_NOTE = {
-    raw: 'The return itself over each formation window. The simplest reading, and the one the '
-      + 'published tests use by default.',
-    vol: 'The return divided by the annualised standard deviation of its own window, so a steady '
-      + 'climb outranks an equally large but erratic one. Historically a calmer ride at a similar '
-      + 'return.',
-    resid: 'The part of the return the market does not explain: each name\'s daily moves are '
-      + 'regressed on the equal-weight universe over the window, and only what is left over is '
-      + 'ranked. Stops rewarding names that merely rode the market.',
-  };
-
   /* ---------- data files ----------
      Everything past latest.json is fetched once and memoised on state, so a
      view can ask for what it needs without tracking whether it already has
@@ -153,13 +222,13 @@
     }
     return state[cached];
   }
-  /* Monthly and weekly ship as separate files; the weekly one is three times
-     the size and most visits never open it, so it loads only when asked for. */
-  const loadHistory = (key, grain) =>
-    loadJSON(`data/history/${key}${grain === 'w' ? 'w' : ''}.json`, `hist_${key}${grain}`);
-  /* One strip file per peer set: the list only ever draws the active one, and
-     eight sets in one payload would be seven wasted downloads. */
-  const loadSpark = () => loadJSON(`data/spark/${peerKey()}.json`, `spark_${peerKey()}`);
+  /* One strip file per score definition: the list only ever draws the
+     active one, and 24 in one payload would be 23 wasted downloads. */
+  const loadSpark = () => loadJSON(`data/spark/${scoreKey()}.json`, `spark_${scoreKey()}`);
+  /* Every day's cross-section under one score definition, for the score pane:
+     member counts, peer statistics and the ladders of member scores. About
+     1.5 MB, fetched once per definition per session. */
+  const loadScoreFile = () => loadJSON(`data/score/${scoreKey()}.json`, `score_${scoreKey()}`);
 
   /* ---------- boot ---------- */
   Promise.all([
@@ -170,6 +239,7 @@
       state.rows = payload.rows;
       state.meta = payload.meta;
       state.bySymbol = new Map(payload.rows.map((r) => [r.symbol, r]));
+      rescore();
       syncControls();
       $('asof').textContent = `prices through ${fmtDate(payload.meta.asOf)}`;
       // The refresh job runs each weekday morning and is silent; stale data is
@@ -259,90 +329,113 @@
     setTimeout(() => { $('sector-backdrop').hidden = true; $('sector-sheet').hidden = true; }, 200);
   }
 
+  const NOTES = {
+    period: {
+      12: 'The return over the 12 months ending one month ago.',
+      6: 'The return over the 6 months ending one month ago.',
+      blend: 'Both periods, each standardized on its own, then averaged 50/50.',
+    },
+    basis: {
+      universe: `Each period's measure is z-scored against all of ${UNIVERSE.label}.`,
+      sector: 'Each period\'s measure is z-scored against the name\'s own GICS sector, so a strong '
+        + 'name in a weak sector still scores well.',
+    },
+    display: {
+      value: 'The completed score, in standard deviations from the peer mean: 0 is average, '
+        + 'negative is below it.',
+      rank: `Integer position across the whole universe, 1 = best.`,
+      pct: `Position across the whole universe on a 0–100 scale, 100 = best.`,
+    },
+  };
   function syncControls() {
-    $('basis').checked = sectorBasis();
-    for (const b of $('adjust-seg').querySelectorAll('button')) {
-      const on = b.dataset.adjust === state.adjust;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-checked', on);
-    }
-    $('adjust-note').textContent = ADJUST_NOTE[state.adjust];
+    const seg = (id, attr, value) => {
+      for (const b of $(id).querySelectorAll('button')) {
+        const on = b.dataset[attr] === value;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', on);
+      }
+    };
+    seg('period-seg', 'period', state.score.period);
+    seg('basis-seg', 'basis', state.score.basis);
+    seg('display-seg', 'display', state.score.display);
+    $('adj-vol').checked = state.score.vol;
+    $('adj-resid').checked = state.score.resid;
+    $('period-note').textContent = NOTES.period[state.score.period];
+    $('basis-note').textContent = NOTES.basis[state.score.basis];
+    $('display-note').textContent = NOTES.display[state.score.display];
   }
 
-  /* Everything that has to happen when the peer set changes, in one place so no
-     control can forget a step. The strips live in a per-set file, so rows are
-     redrawn once now on whatever is cached and again when the new file lands. */
-  function peerSetChanged() {
+  /* Everything that has to happen when the score changes, in one place so no
+     control can forget a step. The strips live in a per-definition file, so
+     rows are redrawn once now on whatever is cached and again when the new
+     file lands. */
+  function scoreChanged(patch) {
+    Object.assign(state.score, patch);
+    saveScoreSettings();
+    rescore();
     syncControls();
-    fillSectors();
     applyFilters();
-    const key = peerKey();
-    loadSpark().then(() => { if (peerKey() === key) applyFilters(); });
+    const key = scoreKey();
+    loadSpark().then(() => { if (scoreKey() === key) applyFilters(); });
+    if (!$('settings-view').hidden) showSettings();   // the method text follows the settings
   }
 
   /* ---------- settings ---------- */
   function showSettings() {
     showView('settings-view');
     scrollTo(0, 0);
-    const m = state.meta;
+    const m = state.meta, s = state.score;
     $('data-stats').innerHTML = [
       ['Prices through', fmtDate(m.asOf)],
       ['Last refresh', fmtDate(m.generatedAt.slice(0, 10))],
-      ['Names ranked', m.members],
-      ['Chart history', `${m.params.historyMonths} months or ${m.params.historyWeeks} weeks`],
+      ['Names scored', state.scored.n],
+      ['Daily scores', `${m.params.dailyDays} trading days`],
       ['From the MidCap 400', m.fromCore],
       ['From the S&P 500 tail', m.members - m.fromCore],
-      ['Blend', `${m.params.weights[0] * 100}/${m.params.weights[1] * 100} · skip ${m.params.skipDays}d`],
+      ['Skip', `${m.params.skipDays} trading days`],
     ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 
     /* The method has to describe the score the reader is actually getting, so
-       the volatility step appears only when it is switched on. */
+       each step appears only when it is switched on. */
+    const periods = s.period === 'blend' ? ['12', '6'] : [s.period];
+    const against = s.basis === 'sector' ? 'the name\'s own GICS sector' : `all of ${UNIVERSE.label}`;
     $('method').innerHTML = [
-      ['12–1 momentum', 'Total return on dividend- and split-adjusted closes over the 12 months '
-        + 'ending one month ago. The most recent month is skipped to sidestep short-term reversal.'],
-      ['6–1 momentum', 'Same idea over the trailing 6 months, again ending one month ago.'],
-      ...(volAdjusted() ? [['Volatility adjustment', 'Each leg is divided by the annualised standard '
-        + 'deviation of daily log returns measured over that same formation window, so a steady '
-        + 'climb outranks an equally large but erratic one.']] : []),
-      ...(state.adjust === 'resid' ? [['Market stripped out', 'Over that same window each name\'s '
-        + 'daily log returns are regressed on the equal-weight average of every priced name. The '
-        + 'leg becomes the return that regression leaves unexplained — the name\'s own move, net of '
-        + 'its beta times the market\'s.']] : []),
-      ['Cross-sectional percentile', `Each ${state.adjust === 'raw' ? '' : 'adjusted '}leg is ranked against `
-        + 'every other name in the peer set on the same day and mapped to 0–100.'],
-      ['Blend', `Final score = ${m.params.weights[0] * 100}% × 12–1 percentile + `
-        + `${m.params.weights[1] * 100}% × 6–1 percentile.`],
+      ...periods.map((p) => [`${PERIODS[p]} return`, `Total return on dividend- and split-adjusted closes over the `
+        + `${p} months ending one month ago. The most recent month is skipped to sidestep short-term reversal.`]),
+      ...(s.resid ? [['Market residualization', 'Over that same window each name\'s daily log returns are '
+        + 'regressed on the equal-weight average of every priced name. The measure becomes the return that '
+        + 'regression leaves unexplained — the name\'s own move, net of its beta times the market\'s.']] : []),
+      ...(s.vol ? [['Volatility adjustment', `The ${s.resid ? 'residual ' : ''}return is divided by the `
+        + `annualised standard deviation of the ${s.resid ? 'residual ' : ''}daily log returns over that same `
+        + 'window, so a steady climb outscores an equally large but erratic one.']] : []),
+      ['Standardize', `Each period's measure is turned into a z-score against ${against} on the same day: `
+        + '(measure − peer mean) ÷ peer standard deviation, to two decimals.'],
+      [s.period === 'blend' ? 'Blend' : 'Score', s.period === 'blend'
+        ? 'The score is the 50/50 average of the 12–1 and 6–1 z-scores.'
+        : `The score is the ${PERIODS[s.period]} z-score.`],
+      ['Display', `${DISPLAYS[s.display]}: ${NOTES.display[s.display].charAt(0).toLowerCase()}${NOTES.display[s.display].slice(1)} `
+        + 'Rank and percentile are read across the whole universe whatever the score is standardized against, '
+        + 'and all three displays keep the same order.'],
     ].map(([k, v]) => `<li><b>${k}.</b> ${v}</li>`).join('');
   }
 
-  const sortValue = (r, key) => {
-    if (key === 'mktCap') return r.mktCap;
-    const p = place(r);
-    return key === 'score' ? p.s : key === 'p12' ? p.p12 : p.p6;
-  };
-
-  /* What the two numbers on a row mean. They always describe whatever the list
-     is ordered by: showing a blended rank and a blended score while the list is
-     ordered by something else made the column read 1, 297, 2, 14 and the score
-     beside it run 99.8, 53.8, 98.7, with nothing on screen explaining why.
-     Ticker A-Z is the exception — it is a lookup order, not a ranking, so the
-     rows keep the standing they have in the ranking proper. */
+  /* What the two numbers on a row mean. The left column is the name's position
+     in whatever the list is ordered by; the right column is the score in the
+     chosen display, or the market cap when that is the order. Ticker A–Z is
+     a lookup order, not a ranking, so rows keep their score standing. */
   const SORTS = {
-    score: { label: 'blended score', value: (r) => place(r).s.toFixed(1) },
-    p12: { label: '12–1 percentile', value: (r) => place(r).p12.toFixed(1) },
-    p6: { label: '6–1 percentile', value: (r) => place(r).p6.toFixed(1) },
+    score: { label: 'score', value: (r) => fmtShown(scoreOf(r)) },
     mktCap: { label: 'market cap', value: (r) => cap(r.mktCap) },
-    symbol: { label: 'ticker', value: (r) => place(r).s.toFixed(1) },
+    symbol: { label: 'ticker', value: (r) => fmtShown(scoreOf(r)) },
   };
+  const byScore = (a, b) => ((scoreOf(b).s ?? -Infinity) - (scoreOf(a).s ?? -Infinity)) || a.symbol.localeCompare(b.symbol);
 
-  /* Rank on the active metric, over the whole universe rather than the filtered
-     view: with a sector chosen, "8th" should still mean eighth of 649, which is
-     the more useful fact and what the list has always shown. */
+  /* Position on the active order, over the whole universe rather than the
+     filtered view: with a sector chosen, "8th" should still mean eighth of
+     649, which is the more useful fact and what the list has always shown. */
   function rankOn(key) {
-    if (key === 'score' || key === 'symbol') return null;   // place().k already is it
-    const ordered = state.rows.slice().sort(
-      (a, b) => ((sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity))
-                || a.symbol.localeCompare(b.symbol));
+    if (key !== 'mktCap') return null;       // the score's own rank already is it
+    const ordered = state.rows.slice().sort((a, b) => ((b.mktCap ?? -Infinity) - (a.mktCap ?? -Infinity)) || a.symbol.localeCompare(b.symbol));
     return new Map(ordered.map((r, i) => [r.symbol, i + 1]));
   }
 
@@ -354,14 +447,10 @@
 
     const key = state.sort;
     state.ranks = rankOn(key);
-    // Scores ship rounded to 2dp, so names can tie on the value the list sorts
-    // by while the pipeline ranked them on the unrounded one. Break ties on
-    // rank so the number in the left column never runs 3, 2, 4.
     out = out.slice().sort(
-      key === 'symbol'
-        ? (a, b) => a.symbol.localeCompare(b.symbol)
-        : (a, b) => ((sortValue(b, key) ?? -Infinity) - (sortValue(a, key) ?? -Infinity))
-                    || (place(a).k - place(b).k)
+      key === 'symbol' ? (a, b) => a.symbol.localeCompare(b.symbol)
+        : key === 'mktCap' ? (a, b) => ((b.mktCap ?? -Infinity) - (a.mktCap ?? -Infinity)) || a.symbol.localeCompare(b.symbol)
+        : byScore
     );
 
     state.view = out;
@@ -373,21 +462,13 @@
     $('empty').textContent = !watching ? 'No matches.'
       : state.watch.size === 0 ? 'Tap ☆ on any name to keep it here.'
       : 'No watched names match.';
-    /* One line, naming whatever actually decides the order on screen. Two
-       things had to agree with the rows and did not: saying "ranked across the
-       whole universe" beside a list ordered by market cap described two
-       different orderings at once, and the within-sector wording claimed the
-       left column was a position inside the sector, which stops being true the
-       moment another metric decides the order. */
-    const ordered = key !== 'score' && key !== 'symbol';
-    const metric = SORTS[key].label
-      + (sectorBasis() && (key === 'p12' || key === 'p6') ? ', within sector' : '');
+    /* One line, naming whatever actually decides the order on screen and how
+       the score on the right is built. */
     $('count').textContent = out.length
       ? `${out.length} of ${state.rows.length} · ` + (
-          ordered ? `ordered by ${metric}`
-          : sectorBasis()
-            ? 'scored within each sector, so the number on the left is the position inside that sector'
-            : 'ranked across the whole universe')
+          key === 'mktCap' ? 'ordered by market cap'
+          : key === 'symbol' ? `A–Z · ${DISPLAYS[state.score.display].toLowerCase()} on the right`
+          : `ranked by score · ${scoreSummary()} · ${DISPLAYS[state.score.display].toLowerCase()}`)
       : '';
     $('watch-count').textContent = state.watch.size ? `(${state.watch.size})` : '';
     appendChunk();
@@ -402,44 +483,43 @@
   }
 
   function rowNode(r) {
-    const p = place(r);
+    const sc = scoreOf(r);
     const li = document.createElement('li');
     li.className = 'row';
     li.dataset.symbol = r.symbol;
     li.innerHTML =
-      `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : p.k}</span>` +
+      `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : (sc.rank ?? '—')}</span>` +
       `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
       `<small>${esc(r.name)}</small></a>` +
       sparkline(r.symbol) +
-      `<span class="sc"><b>${SORTS[state.sort].value(r)}</b></span>` +
+      `<span class="sc"><b style="color:${state.sort === 'mktCap' ? 'inherit' : tone(sc.pct)}">${SORTS[state.sort].value(r)}</b></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
       `${state.watch.has(r.symbol) ? '★' : '☆'}</button>`;
     return li;
   }
 
-  /* A year of month-end scores as a strip of tone-coloured bars, the same
-     ramp the detail chart uses, with a hairline at 50 so above/below the
-     median reads at a glance. Months scored as an outsider (before the name
-     joined the index) are dimmed, as in the detail chart. */
+  /* A year of month-end standings as a strip of tone-coloured bars: each
+     bar's height and colour is that month's percentile, so the strip reads
+     the same whatever the display shows, and the label carries the display. */
   const SPARK = { w: 6, gap: 2, h: 22 };
   function sparkline(symbol) {
-    const sp = state[`spark_${peerKey()}`];
-    const scores = sp && sp.scores[symbol];
+    const sp = state[`spark_${scoreKey()}`];
+    const scores = sp && sp.s[symbol], ranks = sp && sp.k[symbol];
     const n = sp ? sp.dates.length : 12;
     const width = n * (SPARK.w + SPARK.gap) - SPARK.gap;
-    const outside = (sp && sp.outside[symbol]) || [];
-    let bars = '';
+    let bars = '', label = '';
     if (scores) {
-      scores.forEach((v, i) => {
-        if (v == null) return;
-        const h = Math.max(1.5, v / 100 * SPARK.h);
+      const pcts = scores.map((v, i) => (v == null ? null : pctOf(ranks[i], sp.n[i])));
+      pcts.forEach((p, i) => {
+        if (p == null) return;
+        const h = Math.max(1.5, p / 100 * SPARK.h);
         bars += `<rect x="${i * (SPARK.w + SPARK.gap)}" y="${(SPARK.h - h).toFixed(1)}" `
-          + `width="${SPARK.w}" height="${h.toFixed(1)}" rx="1" fill="${tone(v)}"`
-          + `${outside.includes(i) ? ' opacity=".4"' : ''}/>`;
+          + `width="${SPARK.w}" height="${h.toFixed(1)}" rx="1" fill="${tone(p)}"/>`;
       });
+      const d = state.score.display;
+      const at = (i) => (scores[i] == null ? '—' : FMT[d](d === 'value' ? scores[i] / 100 : d === 'rank' ? ranks[i] : pcts[i]));
+      label = `${DISPLAYS[d]} over the last ${n} months: ${at(0)} to ${at(n - 1)}`;
     }
-    const first = scores && scores.find((v) => v != null);
-    const label = scores ? `Score over the last ${n} months: ${first} to ${scores[scores.length - 1]}` : '';
     return `<svg class="spark" viewBox="0 0 ${width} ${SPARK.h}" width="${width}" height="${SPARK.h}" `
       + `role="img" aria-label="${label}"><line x1="0" x2="${width}" y1="${SPARK.h / 2}" y2="${SPARK.h / 2}"/>${bars}</svg>`;
   }
@@ -457,19 +537,15 @@
 
   /* ---------- events ---------- */
   function wire() {
-    $('basis').addEventListener('change', (e) => {
-      state.basis = e.target.checked ? 'sector' : 'whole';
-      try { localStorage.setItem(BASIS_KEY, state.basis); } catch { /* private mode */ }
-      peerSetChanged();
-    });
-    $('adjust-seg').addEventListener('click', (e) => {
-      const b = e.target.closest('button[data-adjust]');
-      if (!b || b.dataset.adjust === state.adjust) return;
-      state.adjust = b.dataset.adjust;
-      try { localStorage.setItem(ADJUST_KEY, state.adjust); } catch { /* private mode */ }
-      peerSetChanged();
-      showSettings();                       // the method text below it changes too
-    });
+    for (const [id, attr] of [['period-seg', 'period'], ['basis-seg', 'basis'], ['display-seg', 'display']]) {
+      $(id).addEventListener('click', (e) => {
+        const b = e.target.closest(`button[data-${attr}]`);
+        if (!b || b.dataset[attr] === state.score[attr]) return;
+        scoreChanged({ [attr]: b.dataset[attr] });
+      });
+    }
+    $('adj-vol').addEventListener('change', (e) => scoreChanged({ vol: e.target.checked }));
+    $('adj-resid').addEventListener('change', (e) => scoreChanged({ resid: e.target.checked }));
     $('sback').addEventListener('click', goBack);
     $('sector-btn').addEventListener('click', openSectorSheet);
     $('sector-done').addEventListener('click', closeSectorSheet);
@@ -490,9 +566,9 @@
     });
     $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyFilters(); });
 
-    for (const tab of document.querySelectorAll('.segmented button')) {
+    for (const tab of document.querySelectorAll('.segmented button[data-scope]')) {
       tab.addEventListener('click', () => {
-        for (const other of document.querySelectorAll('.segmented button')) {
+        for (const other of document.querySelectorAll('.segmented button[data-scope]')) {
           const on = other === tab;
           other.classList.toggle('on', on);
           other.setAttribute('aria-selected', String(on));
@@ -559,12 +635,6 @@
   }
 
 
-  /* ---------- detail ---------- */
-  const ordinal = (n) => {
-    const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  };
-
   /* ---------- previous / next ---------- */
   /* The names either side of this one in the list as it stands (sort, sector,
      watchlist), so the arrows walk the order on screen. A name the current
@@ -594,8 +664,7 @@
   }
 
   function showDetail(r) {
-    const key = peerKey();
-    const p = r.r[key];
+    const s = state.score, sc = scoreOf(r), n = state.scored.n;
     if (!$('list-view').hidden) sessionStorage.setItem('sp400.scroll', String(scrollY));
     for (const v of VIEWS) if (v !== 'detail-view') $(v).hidden = true;
     const el = $('detail-view');
@@ -604,14 +673,11 @@
       ? ((r.price - r.yearLow) / (r.yearHigh - r.yearLow)) * 100 : null;
 
     const meta = [r.sector, r.industry, cap(r.mktCap)].filter(Boolean).map(esc).join(' · ');
-    const rankText = `${ordinal(p.k)} of ${p.n}${key[0] === 's' ? ` in ${esc(r.sector)}` : ''}`;
-    // The peer set the headline is not ranked against goes in the peers summary,
-    // so the two ranks are never shown twice.
-    const qWhole = r.r[keyFor('whole', state.adjust)], qSector = r.r[keyFor('sector', state.adjust)];
-    const otherRank = key[0] === 's'
-      ? (qWhole ? `${ordinal(qWhole.k)} of ${qWhole.n} overall` : '')
-      : (qSector ? `${ordinal(qSector.k)} of ${qSector.n} in ${esc(r.sector) || 'its sector'}` : '');
-    const comp = components(r, p, key);
+    // The headline is the chosen display; the other two readings sit beside it.
+    const others = ['rank', 'pct', 'value'].filter((d) => d !== s.display).map((d) =>
+      d === 'rank' ? `rank ${FMT.rank(sc.rank)} of ${n}` : d === 'pct' ? `${FMT.pct(sc.pct)} percentile` : `score ${FMT.value(sc.s)}`);
+    const comp = components(r, sc);
+    const peers = againstPeers(r);
 
     el.innerHTML = `
       <div class="dtop">
@@ -623,23 +689,16 @@
 
       <section class="card focus" aria-label="Score">
         <div class="hero">
-          <span class="big" id="hero-score" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
-          <span class="lbl"><b id="hero-rank">${rankText}</b><span id="hero-sub">blended score · ${fmtDate(state.meta.asOf)}</span></span>
+          <span class="big" style="color:${tone(sc.pct)}">${fmtShown(sc)}</span>
+          <span class="lbl"><b>${DISPLAYS[s.display]}${s.display === 'rank' ? ` of ${n}` : ''}</b>
+            <span>${others.join(' · ')}</span>
+            <span>${scoreSummary()} · ${fmtDate(state.meta.asOf)}</span></span>
         </div>
         ${meta ? `<p class="meta">${meta}</p>` : ''}
-        <div class="chart-head">
-          <h3>Score through time</h3>
-          <span class="segmented mini" id="grain" role="tablist" aria-label="Chart interval">
-            ${[['m', 'Monthly'], ['w', 'Weekly']].map(([g, label]) =>
-              `<button role="tab" data-g="${g}" class="${g === state.grain ? 'on' : ''}"
-                 aria-selected="${g === state.grain}">${label}</button>`).join('')}
-          </span>
-        </div>
-        <div id="chart"><p class="legend">Loading history…</p></div>
       </section>
 
       <a class="sect link" href="#/t/${r.symbol}/chart"><b>Price chart</b>
-        <small>3 years of daily bars</small><i>›</i></a>
+        <small>3 years of daily bars, with the score beneath</small><i>›</i></a>
 
       <details class="sect">
         <summary><b>Score components</b><small>${comp.summary}</small><i>›</i></summary>
@@ -647,22 +706,8 @@
       </details>
 
       <details class="sect">
-        <summary><b>Against its peers</b><small>${otherRank}</small><i>›</i></summary>
-        <div class="body">
-          <table class="peers">
-            <tbody>${[['whole', `All of ${UNIVERSE.label}`],
-                      ['sector', `Within ${esc(r.sector) || 'its sector'}`]].map(([b, label]) => {
-              const q = r.r[keyFor(b, state.adjust)];
-              const active = (b === 'sector') === (key[0] === 's');
-              return `<tr class="${active ? 'on' : ''}">
-                <td>${label}</td>
-                <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
-                <td class="k">${q ? `${q.k} / ${q.n}` : '—'}</td></tr>`;
-            }).join('')}</tbody>
-          </table>
-          <p class="legend">A name can look ordinary against the whole universe and strong against its
-            own sector, or the reverse. The marked row is the one the headline uses.</p>
-        </div>
+        <summary><b>Against its peers</b><small>${peers.summary}</small><i>›</i></summary>
+        <div class="body">${peers.body}</div>
       </details>
 
       <details class="sect">
@@ -673,8 +718,8 @@
             <div><dt>Price</dt><dd>${money(r.price)}</dd></div>
             <div><dt>Change</dt><dd class="${cls(r.chg)}">${r.chg == null ? '—' : signed(r.chg, 2) + '%'}</dd></div>
             <div><dt>Market cap</dt><dd>${cap(r.mktCap)}</dd></div>
-            <div><dt>Ann. vol (12m)</dt><dd>${pct(r.vol12)}</dd></div>
-            <div><dt>Ann. vol (6m)</dt><dd>${pct(r.vol6)}</dd></div>
+            <div><dt>Ann. vol (12m)</dt><dd>${pct(r.legs.v12)}</dd></div>
+            <div><dt>Ann. vol (6m)</dt><dd>${pct(r.legs.v6)}</dd></div>
             <div><dt>In 52w range</dt><dd>${range == null ? '—' : num(range, 0) + '%'}</dd></div>
           </dl>
         </div>
@@ -684,224 +729,75 @@
     wirePager(el, '');
     $('dstar').addEventListener('click', (e) => toggleWatch(r.symbol, e.currentTarget));
     scrollTo(0, 0);
-    el.querySelector('#grain').addEventListener('click', (e) => {
-      const tab = e.target.closest('button[data-g]');
-      if (!tab || tab.dataset.g === state.grain) return;
-      state.grain = tab.dataset.g;
-      try { localStorage.setItem(GRAIN_KEY, state.grain); } catch { /* private mode */ }
-      for (const b of el.querySelectorAll('#grain button')) {
-        const on = b === tab;
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-selected', String(on));
-      }
-      renderTickerChart(r, key);
-    });
-    renderTickerChart(r, key);
   }
 
-  /* One momentum leg: percentile, then the three things a leg can measure.
-     The one the active setting ranks on is marked. */
-  /* The score, taken apart: the two legs side by side, one row per measure
-     with the measure that feeds the percentile marked, the weights, and the
-     blend written out. Weights come from the data file, so the card follows
-     the pipeline if they ever change. */
-  function components(r, p, key) {
-    const [w1, w2] = state.meta.params.weights;
-    const wt = (w) => `${Math.round(w * 100)}%`;
-    const on = (k) => (state.adjust === k ? ' class="on"' : '');
+  /* The score, taken apart: the two periods side by side, one row per step —
+     the legs, the measure the adjustments pick, the peer statistics it is
+     standardized against, the z-score — and the blend written out. Only the
+     rows the settings use are marked; the others are shown for reference. */
+  function components(r, sc) {
+    const s = state.score, legs = r.legs;
+    const used = (p) => s.period === 'blend' || s.period === p;
     const cell = (v, klass) => `<td class="${klass || ''}">${v}</td>`;
-    // The written sum uses the one-decimal percentiles on show; the score is
-    // the stored blend of the unrounded ones, so the two can differ by 0.1.
-    const shown = +p.p12.toFixed(1) * w1 + +p.p6.toFixed(1) * w2;
-    const eq = Math.abs(shown - p.s) < 0.05 ? '=' : '≈';
-    const peers = key[0] === 's' ? (r.sector ? `its ${esc(r.sector)} peers` : 'its sector') : 'the whole universe';
-    const summary = `${num(p.p12)} × ${wt(w1)} + ${num(p.p6)} × ${wt(w2)}`;
+    const th = (p) => `<th class="${used(p) ? 'on' : ''}">${PERIODS[p]}<small>${p} months</small></th>`;
+    const row = (label, f12, f6, on) => `<tr${on ? ' class="on"' : ''}><td>${label}</td>${f12}${f6}</tr>`;
+    const stat = (p) => statToday(r)(p);
+    const x = (p) => measure(legs, p, s);
+    const fmtX = (v) => (v == null ? '—' : s.vol ? signed(v, 2) : spct(v));
+    const z = { 12: sc.z12, 6: sc.z6 };
     const body = `
-        <p class="sub">Both periods skip the most recent month.</p>
+        <p class="sub">Both periods end one month ago; the most recent month is skipped.</p>
         <table class="comp">
-          <thead><tr><th></th><th>12–1<small>12 months</small></th><th>6–1<small>6 months</small></th></tr></thead>
+          <thead><tr><th></th>${th('12')}${th('6')}</tr></thead>
           <tbody>
-            <tr${on('raw')}><td>Return</td>${cell(pct(r.m12), cls(r.m12))}${cell(pct(r.m6), cls(r.m6))}</tr>
-            <tr${on('vol')}><td>Return ÷ volatility</td>${cell(signed(r.va12, 2), cls(r.va12))}${cell(signed(r.va6, 2), cls(r.va6))}</tr>
-            <tr${on('resid')}><td>Net of market</td>${cell(r.rm12 == null ? '—' : spct(r.rm12), cls(r.rm12))}${cell(r.rm6 == null ? '—' : spct(r.rm6), cls(r.rm6))}</tr>
-            <tr class="pct"><td>Percentile</td>
-              <td style="color:${tone(p.p12)}">${num(p.p12)}</td><td style="color:${tone(p.p6)}">${num(p.p6)}</td></tr>
-            <tr><td>Blend weight</td><td>${wt(w1)}</td><td>${wt(w2)}</td></tr>
+            ${row('Return', cell(spct(legs.r12), cls(legs.r12)), cell(spct(legs.r6), cls(legs.r6)), !s.resid)}
+            ${row('Net of market', cell(spct(legs.e12), cls(legs.e12)), cell(spct(legs.e6), cls(legs.e6)), s.resid)}
+            ${row(s.resid ? 'Residual volatility' : 'Volatility (ann.)', cell(pct(s.resid ? legs.w12 : legs.v12)), cell(pct(s.resid ? legs.w6 : legs.v6)), s.vol)}
+            ${row('Measure', cell(fmtX(x('12')), cls(x('12'))), cell(fmtX(x('6')), cls(x('6'))), true)}
+            ${row('Peer mean', cell(fmtX(stat('12') && stat('12')[0])), cell(fmtX(stat('6') && stat('6')[0])), true)}
+            ${row('Peer std dev', cell(stat('12') ? (s.vol ? num(stat('12')[1], 2) : pct(stat('12')[1])) : '—'), cell(stat('6') ? (s.vol ? num(stat('6')[1], 2) : pct(stat('6')[1])) : '—'), true)}
+            <tr class="pct"><td>z-score</td>
+              <td class="${used('12') ? 'on' : ''}">${used('12') ? FMT.value(z[12]) : '·'}</td>
+              <td class="${used('6') ? 'on' : ''}">${used('6') ? FMT.value(z[6]) : '·'}</td></tr>
           </tbody>
         </table>
         <div class="blend">
-          <div><b>Blended score</b><small>${summary} ${eq} ${p.s.toFixed(1)}</small></div>
-          <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
+          <div><b>Score</b><small>${s.period === 'blend'
+            ? `(${FMT.value(sc.z12)} + ${FMT.value(sc.z6)}) ÷ 2`
+            : `the ${PERIODS[s.period]} z-score`}</small></div>
+          <span class="big" style="color:${tone(sc.pct)}">${FMT.value(sc.s)}</span>
         </div>
-        <p class="legend">The marked row is the measure the percentiles rank, against ${peers}; both
-          are chosen in Settings.</p>
+        <p class="legend">Marked rows are the steps in use: ${scoreSummary()}. The score's rank
+          (${FMT.rank(sc.rank)} of ${state.scored.n}) and percentile (${FMT.pct(sc.pct)}) are read across the
+          whole universe. All four choices are made in Settings.</p>
         <a class="more" href="#/settings">Calculation details ›</a>`;
+    return { summary: s.period === 'blend' ? `(${FMT.value(sc.z12)} + ${FMT.value(sc.z6)}) ÷ 2 = ${FMT.value(sc.s)}` : `${PERIODS[s.period]} z-score ${FMT.value(sc.s)}`, body };
+  }
+
+  /* The same name standardized the other way: against the universe and
+     against its sector, with the rank and percentile each gives. The marked
+     row is the one the headline uses. */
+  function againstPeers(r) {
+    const s = state.score;
+    const rows = ['universe', 'sector'].map((basis) => {
+      const alt = basis === s.basis ? state.scored : scoreAll({ ...s, basis });
+      const sc = alt.by[r.symbol];
+      return { basis, sc, n: alt.n, on: basis === s.basis };
+    });
+    const other = rows.find((x) => !x.on);
+    const summary = other && other.sc.s != null
+      ? `vs ${other.basis}: ${FMT.value(other.sc.s)} · rank ${other.sc.rank} of ${other.n}` : '';
+    const body = `
+          <table class="peers">
+            <tbody>${rows.map(({ basis, sc, n, on }) => `<tr class="${on ? 'on' : ''}">
+                <td>${basis === 'universe' ? `Against all of ${UNIVERSE.label}` : `Against ${esc(r.sector) || 'its sector'}`}</td>
+                <td class="v" style="color:${tone(sc.pct)}">${FMT.value(sc.s)}</td>
+                <td class="k">${sc.rank == null ? '—' : `${sc.rank} / ${n}`}</td></tr>`).join('')}</tbody>
+          </table>
+          <p class="legend">A name can look ordinary against the whole universe and strong against its
+            own sector, or the reverse. Rank and percentile are always across the whole universe; the
+            marked row is the standardization the headline uses.</p>`;
     return { summary, body };
-  }
-
-  /* ---------- bar chart ----------
-     Bars rising from a baseline with a tap-and-drag selection; the caller is
-     told which bar is selected (onSelect) and shows it wherever it likes. An
-     optional one-line key sits under the chart, and a longer note behind a
-     "How this is measured" disclosure. */
-  function barChart(host, cfg) {
-    const W = 340, H = cfg.height || 150, PAD_L = 4, PAD_R = cfg.padAxis || 26, PAD_B = 16, PAD_T = 6;
-    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
-    const pts = cfg.points;
-    const step = plotW / pts.length;
-    const barW = Math.max(2, step * (cfg.barRatio || 0.68));
-    const span = (cfg.max - cfg.min) || 1;
-    const y = (v) => PAD_T + plotH * (1 - (v - cfg.min) / span);
-    const base = y(cfg.baseline ?? cfg.min);
-    const barX = (i) => PAD_L + i * step + (step - barW) / 2;
-
-    const bars = pts.map((p, i) => {
-      const top = Math.min(y(p.value), base), bottom = Math.max(y(p.value), base);
-      return `<rect data-i="${i}" x="${barX(i).toFixed(2)}" y="${top.toFixed(2)}" ` +
-             `width="${barW.toFixed(2)}" height="${Math.max(1, bottom - top).toFixed(2)}" ` +
-             `rx="1" fill="${p.color}"${p.opacity != null ? ` fill-opacity="${p.opacity}"` : ''}/>`;
-    }).join('');
-
-    const guides = (cfg.guides || []).map((g) =>
-      `<line class="${g.dashed ? 'mid' : 'grid'}" x1="${PAD_L}" y1="${y(g.at).toFixed(1)}" ` +
-      `x2="${W - PAD_R}" y2="${y(g.at).toFixed(1)}"/>` +
-      `<text x="${W - PAD_R + 4}" y="${(y(g.at) + 3).toFixed(1)}">${g.label}</text>`
-    ).join('');
-
-    // Optional smoothed line over the bars, one value per bar (null = gap).
-    const ov = cfg.overlay && cfg.overlay.values;
-    const cx = (i) => barX(i) + barW / 2;
-    const line = ov && ov.some((v) => v != null)
-      ? `<polyline class="ma" fill="none" points="${ov.map((v, i) =>
-          v == null ? null : `${cx(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(' ')}"/>
-         <circle class="ma-dot" r="3" opacity="0"/>`
-      : '';
-
-    const labels = pts.map((p, i) => {
-      const text = cfg.xLabel ? cfg.xLabel(p, i, pts) : '';
-      if (!text) return '';
-      return `<text x="${(PAD_L + i * step + step / 2).toFixed(1)}" y="${H - 4}" ` +
-             `text-anchor="middle">${text}</text>`;
-    }).join('');
-
-    host.innerHTML =
-      `<div class="chartwrap"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${cfg.aria}">
-        ${guides}${bars}${line}${labels}
-        <rect class="cursor" x="0" y="${PAD_T}" width="${barW.toFixed(2)}" height="${plotH}"
-              fill="currentColor" opacity="0" pointer-events="none"/>
-      </svg></div>
-      ${cfg.key ? `<p class="legend key">${cfg.key}</p>` : ''}
-      ${cfg.note ? `<details class="disc"><summary>How this is measured</summary>
-        <p class="legend">${cfg.note}</p></details>` : ''}`;
-
-    const svg = host.querySelector('svg');
-    const cursor = host.querySelector('.cursor');
-
-    const dot = host.querySelector('.ma-dot');
-    const select = (i) => {
-      if (cfg.onSelect) cfg.onSelect(pts[i], i, i === pts.length - 1);
-      cursor.setAttribute('x', barX(i).toFixed(2));
-      cursor.setAttribute('opacity', '0.12');
-      if (dot) {
-        const v = ov[i];
-        dot.setAttribute('opacity', v == null ? '0' : '1');
-        if (v != null) { dot.setAttribute('cx', cx(i).toFixed(1)); dot.setAttribute('cy', y(v).toFixed(1)); }
-      }
-    };
-    select(cfg.initial ?? pts.length - 1);
-
-    const pick = (event) => {
-      const box = svg.getBoundingClientRect();
-      const x = (event.clientX - box.left) / box.width * W;
-      const i = Math.round((x - PAD_L - step / 2) / step);
-      if (i >= 0 && i < pts.length) select(i);
-    };
-    svg.addEventListener('pointerdown', pick);
-    svg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') pick(e); });
-  }
-
-  function renderTickerChart(r, key) {
-    const host = $('chart');
-    const grain = state.grain;
-    host.innerHTML = '<p class="legend">Loading history…</p>';
-    loadHistory(key, grain).then((h) => {
-      if (location.hash !== `#/t/${r.symbol}` || state.grain !== grain) return;
-      drawChart(host, h, r, key, grain);
-    });
-  }
-
-  /* Per-ticker score history: fixed 0-100 domain, 50 marks the peer-set median. */
-  function drawChart(host, history, r, key, grain) {
-    const series = history && history.scores[r.symbol];
-    // Bars from before the name joined this universe: scored as an outsider
-    // against that day's members, so the chart still shows its trajectory.
-    const outside = new Set((history && history.outside && history.outside[r.symbol]) || []);
-    const points = (series || [])
-      .map((value, i) => ({ value, date: history.dates[i], pre: outside.has(i) }))
-      .filter((p) => p.value != null)
-      .map((p) => ({ ...p, color: tone(p.value), opacity: p.pre ? 0.38 : null }));
-    const joined = points.find((p) => !p.pre);
-    const joinedNote = joined && points.some((p) => p.pre)
-      ? ` Dimmed bars are from before ${r.symbol} joined ${UNIVERSE.label}
-         (${fmtDate(joined.date)}) and show where it would have ranked against that day's members.`
-      : '';
-    if (!points.length) {
-      host.innerHTML = '<p class="legend">No score history for this name yet.</p>';
-      return;
-    }
-    // Trailing 4-period simple average: 4 weeks or 4 months depending on the
-    // interval. Smooths the week-to-week noise without lagging so far that a
-    // turn only shows up after it's over.
-    const MA = 4;
-    const avg = points.map((_, i) => i < MA - 1 ? null
-      : points.slice(i - MA + 1, i + 1).reduce((t, p) => t + p.value, 0) / MA);
-    const unit = grain === 'w' ? 'wk' : 'mo';
-    const period = grain === 'w' ? 'week' : 'month';
-    const peers = key[0] === 's' ? `other ${r.sector} names` : `all of ${UNIVERSE.label}`;
-    const cur = r.r[key];
-    const rankText = `${ordinal(cur.k)} of ${cur.n}${key[0] === 's' ? ` in ${esc(r.sector)}` : ''}`;
-    barChart(host, {
-      points, min: 0, max: 100, baseline: 0,
-      overlay: { values: avg },
-      guides: [{ at: 100, label: '100' }, { at: 50, label: '50', dashed: true }, { at: 0, label: '0' }],
-      xLabel: grain === 'w' ? weeklyLabel : (p, i, all) =>
-        i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
-      aria: `Blended momentum score for ${r.symbol} over ${points.length} ` +
-            `${grain === 'w' ? 'weeks' : 'months'}`,
-      // The headline number is the chart's readout: the latest bar shows
-      // today's score and rank; any other bar shows that period's score, its
-      // date and the trailing average, so the two always read as one thing.
-      onSelect: (p, i, latest) => {
-        const score = $('hero-score'), rank = $('hero-rank'), sub = $('hero-sub');
-        if (!score) return;
-        if (latest) {
-          score.textContent = cur.s.toFixed(1); score.style.color = tone(cur.s);
-          rank.textContent = rankText;
-          sub.textContent = `blended score · ${fmtDate(state.meta.asOf)}`;
-          return;
-        }
-        score.textContent = p.value.toFixed(1); score.style.color = tone(p.value);
-        rank.textContent = `${period} ending ${fmtDate(p.date)}`;
-        sub.textContent = [avg[i] == null ? '' : `${MA}-${unit} avg ${avg[i].toFixed(1)}`,
-                           p.pre ? 'not yet a member' : ''].filter(Boolean).join(' · ') || 'blended score';
-      },
-      key: `Percentile rank vs ${peers}, each ${period} end · dashed line 50 = median · blue line ${MA}-${period} average`,
-      note: `Each bar re-ranks ${r.symbol} against ${peers} at that ${period} end, using the membership
-             that was live on the day, and colours it by rank. Above the dashed line means the better
-             half of that peer set. The blue line is the trailing ${MA}-${period} average. Tap or drag
-             across the bars to read any ${period}; the headline shows that ${period}'s score.${joinedNote}`,
-    });
-  }
-
-  /* 78 weekly bars is too many to label every month: mark each quarter, and the
-     year where it turns over. */
-  function weeklyLabel(p, i, all) {
-    if (i === 0) return p.date.slice(0, 4);
-    if (i < 6) return '';                       // don't crowd the origin label
-    const prev = all[i - 1].date;
-    if (p.date.slice(0, 4) !== prev.slice(0, 4)) return p.date.slice(0, 4);
-    const month = +p.date.slice(5, 7);
-    return month !== +prev.slice(5, 7) && (month - 1) % 3 === 0 ? MONTHS[month - 1] : '';
   }
 
   /* ---------- shared bits of the detail and chart views ---------- */
@@ -951,6 +847,7 @@
       </div>`;
     $('cback').addEventListener('click', () => (fromDetail ? history.back() : location.replace(`#/t/${r.symbol}`)));
     wirePager(el, '/chart', () => { if (chart) chartZoom = chart.zoom(); });
+    const scoreFile = loadScoreFile();
     loadBars(r.symbol).then((bars) => {
       if (!location.hash.startsWith(`#/t/${r.symbol}/chart`)) return;
       if (!bars) {
@@ -965,14 +862,48 @@
       let panel = null;
       chart = priceChart($('price-chart'), bars, {
         indicators: state.chart, view: chartZoom,
-        rank: bars.score ? bars.score[peerKey()] : null,   // the daily score in the peer set in use
         onChange: (cfg) => { state.chart = cfg; saveChartPrefs(); },
         onOpen: (id) => panel && panel.openTo(id),
+      });
+      // The score pane fills in when its file lands; the bars never wait for it.
+      scoreFile.then((file) => {
+        if (chart && file && bars.legs && location.hash.startsWith(`#/t/${r.symbol}/chart`)) chart.setSeries(seriesFor(r, bars, file));
       });
       // The gesture hint shows once per session, not on every name stepped to.
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, chartZoom ? 0 : 6000);
       panel = wireChartPanel(chart, r.symbol);
     });
+  }
+
+  /* The name's daily score, one entry per bar, in the chosen display: each
+     day's legs from the bar file scored against that day's peer statistics
+     from the score file, then read off that day's ladder for the rank or
+     percentile. The last day is the same arithmetic the list did, on the same
+     numbers, so the pane's last point and the row agree. */
+  function seriesFor(r, bars, file) {
+    const s = state.score, kind = s.display;
+    const at = new Map(file.dates.map((d, i) => [d, i]));
+    if (!file.decoded) file.decoded = file.ladder.map(unpackLadder);
+    const group = file.stats[groupOf(r)] || {};
+    const values = bars.dates.map((d, i) => {
+      const k = at.get(d);
+      if (k == null) return null;
+      const legs = {};
+      for (const key of Object.keys(bars.legs)) legs[key] = bars.legs[key][i];
+      const sc = scoreFrom(legs, (p) => (group[p] ? group[p][k] : null));
+      if (sc.s == null) return null;
+      if (kind === 'value') return sc.s;
+      const rank = rankIn(file.decoded[k], sc.s);
+      return kind === 'rank' ? rank : pctOf(rank, file.n[k]);
+    });
+    const n = bars.dates.map((d) => { const k = at.get(d); return k == null ? null : file.n[k]; });
+    return { kind, values, n, label: kind === 'value' ? 'Score' : kind === 'rank' ? 'Score rank' : 'Score pctl' };
+  }
+  /* A ladder ships as base64 little-endian int16. */
+  function unpackLadder(b64) {
+    const bin = atob(b64), out = new Int16Array(bin.length >> 1);
+    for (let i = 0; i < out.length; i++) out[i] = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+    return out;
   }
 
   /* How each indicator's settings read in the panel. The numbers themselves
@@ -1001,13 +932,16 @@
       fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
       summary: (m) => `Simple · ${m.period} days`,
     },
-    rank: {
-      blurb: 'The momentum score on each day, 0–100: where the name ranked in the peer set chosen in '
-        + 'Settings, 100 being the top. Drawn beneath the price on the same dates, so a move in the '
-        + 'rank reads against the bars that made it. The divider between the panes drags too.',
+    score: {
+      get blurb() {
+        return `The score on each day as Settings define it (${scoreSummary()}), shown as its `
+          + `${DISPLAYS[state.score.display].toLowerCase()}, drawn beneath the price on the same dates so a move `
+          + 'in the score reads against the bars that made it. Each day is a full cross-section of the universe '
+          + 'as it stood that day. The divider between the panes drags too.';
+      },
       choices: [{ key: 'style', label: 'Draw as', labels: { line: 'Line', bars: 'Bars' } }],
       fields: [{ key: 'height', label: 'Height', scale: 100, fmt: (v) => `${Math.round(v * 100)}% of the chart` }],
-      summary: (r) => `${r.style === 'bars' ? 'Bars' : 'Line'} · daily · 0–100 · peer set from Settings`,
+      summary: (c) => `${c.style === 'bars' ? 'Bars' : 'Line'} · ${DISPLAYS[state.score.display].toLowerCase()} · ${scoreSummary()}`,
     },
     axis: {
       blurb: 'Linear spaces prices evenly. Log spaces them so equal percentage moves are equal '

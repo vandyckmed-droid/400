@@ -28,9 +28,10 @@
       color: '--ma2',
     },
     /* Drawn in its own pane beneath the price (`pane: 'below'`), on the same
-       dates: the name's daily score in the peer set the app hands in. */
-    rank: {
-      name: 'Rank',
+       dates: the name's daily score, in whichever definition and display the
+       app hands in. */
+    score: {
+      name: 'Score',
       pane: 'below',
       defaults: { on: true, style: 'line', height: 0.24 },
       limits: { height: [0.12, 0.6, 0.01] },     // share of the canvas the pane takes
@@ -142,20 +143,23 @@
     return out;
   }
 
-  /* opts: { indicators, view, rank, onChange, onOpen }. `indicators` is the
-     whole settings object — one entry per indicator plus `axis` — in the
+  /* opts: { indicators, view, series, onChange, onOpen }. `indicators` is
+     the whole settings object — one entry per indicator plus `axis` — in the
      shape of SPECS' defaults; the app owns where it is stored, hands it in,
      and changes it later through set(). `view` is a zoom() snapshot from a
      previous chart, so stepping between names keeps the same bar width and
-     right edge. `rank` is the daily score, one value (or null) per bar;
-     without it the lower pane stays closed whatever the switch says.
-     `onChange(settings)` is called when a gesture changes a setting (a drag
-     of the pane divider), so the app can store it; `onOpen(id)` when the
-     reader taps an indicator's label on the chart. */
+     right edge. `series` is the daily score for the lower pane, also settable
+     later through setSeries(): { kind, values, n, label }, where kind is
+     'value' (a signed number, zero in the middle), 'rank' (1 at the top, n
+     at the bottom) or 'pct' (0–100), values has one entry (or null) per bar,
+     and n the member count per bar. Without it the lower pane stays closed
+     whatever the switch says. `onChange(settings)` is called when a gesture
+     changes a setting (a drag of the pane divider), so the app can store it;
+     `onOpen(id)` when the reader taps an indicator's label on the chart. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
-    const rank = Array.isArray(opts.rank) && opts.rank.length === n ? opts.rank : null;
+    let series = null, dom = null;           // the lower pane's data and its scale
     const ctx = canvas.getContext('2d');
     let cfg = normalize(opts.indicators);
     let channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
@@ -180,14 +184,40 @@
     const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
     const barAt = (x) => clamp(Math.floor(indexAt(x)), 0, n - 1);
 
-    /* The lower pane: open when the rank is switched on and there is one to
-       draw. A fixed 0–100 scale with a little head and foot room. */
-    const lowerOn = () => !!(rank && cfg.rank.on);
-    const lowerH = () => (lowerOn() ? clamp(Math.round(H * cfg.rank.height), 60, Math.round(H * 0.6)) : 0);
+    /* The lower pane: open when the score is switched on and there is one to
+       draw. Its scale follows the series' kind: a percentile is 0–100, a rank
+       runs from 1 at the top to the member count at the bottom, a value spans
+       the series with zero drawn as the baseline. Head and foot room either
+       way. */
+    const lowerOn = () => !!(series && cfg.score.on);
+    const lowerH = () => (lowerOn() ? clamp(Math.round(H * cfg.score.height), 60, Math.round(H * 0.6)) : 0);
     const lowSpan = () => lowB - lowT - TUNE.lowerPadT - TUNE.lowerPadB;
-    const yR = (v) => lowB - TUNE.lowerPadB - (v / 100) * lowSpan();
-    const rankAt = (y) => 100 * (lowB - TUNE.lowerPadB - y) / lowSpan();
-    const LABEL = { w: 64, h: 24 };          // the tappable label at the pane's top left
+    // Series value -> y. `dom` maps the kind onto a top and a bottom value.
+    const yR = (v) => lowB - TUNE.lowerPadB - ((v - dom.bottom) / (dom.top - dom.bottom)) * lowSpan();
+    const valueAt = (y) => dom.bottom + (dom.top - dom.bottom) * (lowB - TUNE.lowerPadB - y) / lowSpan();
+    const LABEL = { w: 96, h: 24 };          // the tappable label at the pane's top left
+
+    function domainOf(sr) {
+      const vals = sr.values.filter((v) => v != null);
+      const whole = (v) => String(Math.round(v));
+      if (sr.kind === 'pct') return { top: 100, bottom: 0, base: 0, guides: [0, 50, 100], fmt: whole, sign: false };
+      if (sr.kind === 'rank') {
+        const most = Math.max(2, ...(sr.n || []).filter((v) => v != null), ...vals);
+        return { top: 1, bottom: most, base: most, guides: [1, Math.round(most / 2), most], fmt: whole, sign: false };
+      }
+      let lo = Math.min(-0.5, ...vals), hi = Math.max(0.5, ...vals);
+      lo = Math.floor(lo * 2) / 2; hi = Math.ceil(hi * 2) / 2;
+      const step = hi - lo > 6 ? 2 : 1, guides = [];
+      for (let g = Math.ceil(lo); g <= hi; g += step) guides.push(g);
+      const fmt = (v) => `${v < 0 ? '−' : v > 0 ? '+' : ''}${Math.abs(v).toFixed(2)}`;
+      return { top: hi, bottom: lo, base: 0, guides, fmt, sign: true };
+    }
+    function setSeries(next) {
+      series = next && Array.isArray(next.values) && next.values.length === n ? next : null;
+      dom = series ? domainOf(series) : null;
+      if (W) { layout(); clampView(); schedule(); }
+    }
+    setSeries(opts.series);
 
     /* Price <-> pixel goes through one transform: identity on a linear axis,
        natural log on a log axis. view.lo and view.hi stay prices on both, so
@@ -419,54 +449,55 @@
       drawCrosshair();
     }
 
-    /* The rank pane: guide lines at 0, 50 and 100, the daily score as a line
-       with a light fill beneath it or as bars from 0, broken where a day has
-       no score, the latest value tagged on the axis, a grip on the divider
-       that drags the pane taller or shorter, and a label that opens the
-       settings when tapped. */
+    /* The score pane: guide lines for the kind, the daily score as a line
+       with a light fill between it and the baseline or as bars from the
+       baseline, broken where a day has no score, the latest value tagged on
+       the axis, a grip on the divider that drags the pane taller or shorter,
+       and a label that opens the settings when tapped. */
     function drawLower(from, to) {
-      const color = css(INDICATORS.rank.color);
+      const color = css(INDICATORS.score.color), vals = series.values;
+      const yBase = yR(dom.base);
       ctx.save();
       ctx.beginPath(); ctx.rect(plotL, lowT, plotW(), lowB - lowT); ctx.clip();
-      ctx.strokeStyle = colors.grid;
-      for (const v of [0, 50, 100]) {
+      for (const v of dom.guides) {
         const y = Math.round(yR(v)) + 0.5;
+        ctx.strokeStyle = v === dom.base && dom.sign ? colors.ink3 : colors.grid;
         ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
       }
-      if (cfg.rank.style === 'bars') {
-        const w = Math.max(1, view.barW * 0.7), y0 = yR(0);
+      if (cfg.score.style === 'bars') {
+        const w = Math.max(1, view.barW * 0.7);
         ctx.fillStyle = color; ctx.globalAlpha = 0.85;
         for (let i = Math.max(0, from); i <= to; i++) {
-          if (rank[i] == null) continue;
-          const y = yR(rank[i]);
-          ctx.fillRect(xOf(i) - w / 2, y, w, Math.max(1, y0 - y));
+          if (vals[i] == null) continue;
+          const y = yR(vals[i]);
+          ctx.fillRect(xOf(i) - w / 2, Math.min(y, yBase), w, Math.max(1, Math.abs(yBase - y)));
         }
         ctx.globalAlpha = 1;
       } else {
         const runs = [];                       // stretches of consecutive scored bars
         for (let i = Math.max(0, from); i <= to; i++) {
-          if (rank[i] == null) continue;
+          if (vals[i] == null) continue;
           if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
           else runs.push([i, i]);
         }
         ctx.fillStyle = color; ctx.globalAlpha = 0.08;
         for (const [a, b] of runs) {
-          ctx.beginPath(); ctx.moveTo(xOf(a), yR(0));
-          for (let i = a; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
-          ctx.lineTo(xOf(b), yR(0)); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(xOf(a), yBase);
+          for (let i = a; i <= b; i++) ctx.lineTo(xOf(i), yR(vals[i]));
+          ctx.lineTo(xOf(b), yBase); ctx.closePath(); ctx.fill();
         }
         ctx.globalAlpha = 1;
         ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
         ctx.beginPath();
         for (const [a, b] of runs) {
-          ctx.moveTo(xOf(a), yR(rank[a]));
-          for (let i = a + 1; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
+          ctx.moveTo(xOf(a), yR(vals[a]));
+          for (let i = a + 1; i <= b; i++) ctx.lineTo(xOf(i), yR(vals[i]));
         }
         ctx.stroke();
         ctx.lineWidth = 1;
       }
       ctx.fillStyle = colors.ink3; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(`${INDICATORS.rank.name} ›`, plotL + 8, lowT + 6);
+      ctx.fillText(`${series.label || INDICATORS.score.name} ›`, plotL + 8, lowT + 6);
       ctx.restore();
 
       // The grip on the divider.
@@ -475,18 +506,18 @@
       ctx.beginPath(); ctx.roundRect(gx - 16, plotB - 1.5, 32, 4, 2); ctx.fill();
 
       let lastI = n - 1;
-      while (lastI >= 0 && rank[lastI] == null) lastI--;
-      const tagY = lastI >= 0 ? Math.round(yR(rank[lastI])) + 0.5 : -1e9;
+      while (lastI >= 0 && vals[lastI] == null) lastI--;
+      const tagY = lastI >= 0 ? Math.round(yR(vals[lastI])) + 0.5 : -1e9;
       ctx.fillStyle = colors.ink3; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      for (const v of [100, 50, 0]) {
+      for (const v of dom.guides) {
         const y = yR(v);
-        if (Math.abs(y - tagY) > 13) ctx.fillText(String(v), plotR + 8, y);
+        if (Math.abs(y - tagY) > 13 && y > lowT + 6 && y < lowB - 2) ctx.fillText(dom.fmt(v).replace(/\.00$/, ''), plotR + 8, y);
       }
       if (lastI >= 0) {
         ctx.fillStyle = color;
         ctx.fillRect(plotR + 1, tagY - 10, axisW - 1, 20);
         ctx.fillStyle = '#fff';
-        ctx.fillText(String(Math.round(rank[lastI])), plotR + 8, tagY);
+        ctx.fillText(dom.fmt(vals[lastI]), plotR + 8, tagY);
       }
     }
 
@@ -519,7 +550,7 @@
       };
       const cy = yOf(c[i]);
       if (cy > plotT && cy < plotB) dot(x, cy, colors.ink);
-      if (lowerOn() && rank[i] != null) dot(x, yR(rank[i]), css(INDICATORS.rank.color));
+      if (lowerOn() && series.values[i] != null) dot(x, yR(series.values[i]), css(INDICATORS.score.color));
       ctx.restore();
 
       // Tags: the date on the time axis, the value under the finger on the price axis.
@@ -530,7 +561,7 @@
       ctx.fillRect(lx, timeY + 3, lw, timeH - 6);
       ctx.fillStyle = colors.bg; ctx.textAlign = 'center';
       ctx.fillText(label, lx + lw / 2, timeY + timeH / 2);
-      const value = inLower ? String(Math.round(clamp(rankAt(y), 0, 100))) : fmtPrice(priceAt(y));
+      const value = inLower ? dom.fmt(clamp(valueAt(y), Math.min(dom.top, dom.bottom), Math.max(dom.top, dom.bottom))) : fmtPrice(priceAt(y));
       ctx.fillStyle = colors.ink;
       ctx.fillRect(plotR + 1, y - 10, axisW - 1, 20);
       ctx.fillStyle = colors.bg; ctx.textAlign = 'left';
@@ -541,7 +572,7 @@
       const chg = i > 0 ? c[i] / c[i - 1] - 1 : 0;
       const line1 = [fmtDate(dates[i]), fmtPrice(c[i])], chgText = fmtPct(chg);
       const line2 = `O ${fmtPrice(o[i])}   H ${fmtPrice(h[i])}   L ${fmtPrice(l[i])}`
-        + (rank ? `   Rank ${rank[i] == null ? '–' : rank[i].toFixed(1)}` : '');
+        + (lowerOn() ? `   ${series.label || 'Score'} ${series.values[i] == null ? '–' : dom.fmt(series.values[i])}` : '');
       const w1 = ctx.measureText(line1.join('   ')).width + ctx.measureText('   ' + chgText).width;
       const bw = Math.max(w1, ctx.measureText(line2).width) + 16;
       ctx.globalAlpha = 0.88; ctx.fillStyle = colors.bg;
@@ -582,7 +613,7 @@
       } else if (z === 'time') {
         gesture = { type: 'time', x0: p.x, barW0: view.barW };
       } else if (z === 'divider') {
-        gesture = { type: 'divider', y0: p.y, h0: cfg.rank.height };
+        gesture = { type: 'divider', y0: p.y, h0: cfg.score.height };
       } else {
         // The lower pane pans time only: its scale is fixed.
         gesture = { type: 'pan', x: p.x, y: p.y, flat: z === 'lower' };
@@ -678,8 +709,8 @@
           break;
         }
         case 'divider': {
-          const [lo, hi] = INDICATORS.rank.limits.height;
-          cfg.rank.height = clamp(gesture.h0 + (gesture.y0 - p.y) / H, lo, hi);
+          const [lo, hi] = INDICATORS.score.limits.height;
+          cfg.score.height = clamp(gesture.h0 + (gesture.y0 - p.y) / H, lo, hi);
           layout(); clampView();
           break;
         }
@@ -736,7 +767,7 @@
       if (down && pointers.size === 0 && performance.now() - down.t < TUNE.tapMs
           && Math.hypot(p.x - down.x, p.y - down.y) <= TUNE.holdSlop && lowerOn() && opts.onOpen
           && down.x >= plotL && down.x <= plotL + LABEL.w && down.y >= lowT && down.y <= lowT + LABEL.h) {
-        opts.onOpen('rank');
+        opts.onOpen('score');
       }
       down = null;
       if (pointers.size === 1) startSingle([...pointers.values()][0]);
@@ -775,11 +806,11 @@
       if (cfg.channel.len !== was.channel.len || scaleChanged) channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
       for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
       if (scaleChanged) { view.auto = true; tween = null; }
-      if (cfg.rank.on !== was.rank.on || cfg.rank.height !== was.rank.height) { layout(); clampView(); }
+      if (cfg.score.on !== was.score.on || cfg.score.height !== was.score.height) { layout(); clampView(); }
       schedule();
     }
 
-    return { zoom, set, indicators: () => cfg };
+    return { zoom, set, setSeries, indicators: () => cfg };
   }
 
   window.priceChart = priceChart;

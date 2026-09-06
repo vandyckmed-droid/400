@@ -7,21 +7,24 @@ Pipeline
    MidCap 400 plus the 250 smallest S&P 500 names by market cap, ~650 in all.
    Each source falls back to a committed snapshot if it is down.
 2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
-3. At each month end and week end, compute the 12-1 and 6-1 legs once per name,
-   then rank them six ways: on the return, on the return over its own
-   volatility, or on the return net of the market (the part a regression on
-   the equal-weight universe does not explain), each against the whole
-   universe or against the name's sector.
+3. On every trading day of the last three years, compute the 12-1 and 6-1
+   legs once per name (return, volatility, return net of the market, residual
+   volatility), then score them under every setting the app offers: each
+   period's measure standardised (z-scored) against the whole universe or the
+   name's sector, and the two periods blended 50/50 or taken alone.
 4. Refuse to publish if the result looks degraded (guard()), else emit
-   data/latest.json and data/history/{wr,wv,wm,sr,sv,sm}[w].json.
+   data/latest.json (today's legs and peer statistics, from which the browser
+   scores the list), data/score/<key>.json (per day: member count, peer
+   statistics, and the ladder of member scores) and data/spark/<key>.json.
 5. Write data/bars/<SYMBOL>.json for every published name: the adjusted daily
-   bars the price chart draws, taken from the same payload as step 2.
+   bars the price chart draws plus the name's legs on the same dates.
 
 Only the standard library is used, so the refresh job needs no dependencies.
 """
 
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import datetime as dt
 import gzip
@@ -32,6 +35,7 @@ import os
 import random
 import re
 import ssl
+import struct
 import sys
 import time
 import urllib.error
@@ -57,31 +61,26 @@ LONG_DAYS = 252         # 12-month formation window
 MID_DAYS = 126          # 6-month formation window
 MIN_OBS_LONG = 180      # min daily returns required in the 12-1 window
 MIN_OBS_MID = 90        # min daily returns required in the 6-1 window
-HISTORY_MONTHS = 36     # month-end snapshots to publish
-SPARK_MONTHS = 12       # months of score strip drawn inline in each list row
-HISTORY_WEEKS = 78      # week-end snapshots (18 months) for the finer-grained view
+SPARK_MONTHS = 12       # month-end scores drawn as a strip in each list row
 YEARS_OF_PRICES = 6     # history depth to request from FMP
-BARS_DAYS = 756         # ~3 trading years of daily bars per name for the price chart
+BARS_DAYS = 756         # ~3 trading years of daily bars, and daily scores, per name
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
-WEIGHT_LONG = 0.5       # 12-1 weight in the blend
-WEIGHT_MID = 0.5        # 6-1 weight in the blend
-MIN_SECTOR = 5          # smallest sector that gets a within-sector percentile
+MIN_SECTOR = 5          # smallest sector a name can be standardised against
 
-# The six peer sets a name can be ranked against, keyed by two letters:
-# whether the cross-section is the whole universe or just the name's own sector
-# (w|s), and what gets ranked (r = the return itself, v = the return divided by
-# its own volatility, m = the return net of the market). The universe is not an
-# axis: there is one, defined below.
-ADJUSTS = ("raw", "vol", "resid")
-ADJUST_KEY = {"raw": "r", "vol": "v", "resid": "m"}
-PEER_SETS = {
-    basis[0] + ADJUST_KEY[adjust]: (basis, adjust)
-    for basis in ("whole", "sector")
-    for adjust in ADJUSTS
-}
-# A leg is (raw return, annualised vol, raw / vol, residual return); this picks
-# which of those the cross-sectional percentile is taken over.
-LEG_VALUE = {"raw": 0, "vol": 2, "resid": 3}
+# The score is one definition with four choices, and every combination is
+# published so the app can switch between them without a rebuild:
+#   period   12-1, 6-1, or a 50/50 blend of the two
+#   adjust   the return itself; over its own volatility; net of the market;
+#            or net of the market over the residual volatility
+#   basis    standardised (z-scored) against the whole universe or the name's
+#            own GICS sector
+# The fourth choice, how the score is displayed (value, rank, percentile), is
+# a reading of the completed score and needs nothing extra published.
+PERIODS = ("12", "6", "blend")
+ADJUSTS = ("none", "vol", "resid", "volresid")
+BASES = ("universe", "sector")
+KEYS = [f"{p}-{a}-{b}" for p in PERIODS for a in ADJUSTS for b in BASES]
+LEG_INDEX = {"12": 0, "6": 1}
 
 WORKERS = 5            # the vendor throttles above this on large payloads
 RETRIES = 6
@@ -299,13 +298,14 @@ def trading_days(prices: dict[str, list[tuple[str, float]]]) -> list[str]:
 
 
 def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
-    """Per symbol: (dates, closes, and prefix sums for the market regression).
+    """Per symbol: (dates, closes, and prefix sums for the window maths).
 
     The market is the equal-weight average of every priced name, rebalanced
     daily. For each symbol the market's log return is measured between that
     symbol's own consecutive bars, so a name with a missing day is regressed
     on the market over the same gap. Prefix sums of the stock's log return (y),
-    the market's (x), x*x and x*y make the regression over any window O(1).
+    the market's (x), x*x, x*y and y*y make the regression, and both
+    volatilities, over any window O(1).
     """
     calendar = trading_days(prices)
     at = {s: dict(v) for s, v in prices.items()}
@@ -323,7 +323,7 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
     for symbol, series in prices.items():
         dates = [d for d, _ in series]
         closes = [c for _, c in series]
-        px, py, pxx, pxy = [0.0], [0.0], [0.0], [0.0]
+        px, py, pxx, pxy, pyy = [0.0], [0.0], [0.0], [0.0], [0.0]
         prev_m = market.get(dates[0], cum_at(dates[0]))
         for i in range(1, len(dates)):
             m = market.get(dates[i], cum_at(dates[i]))
@@ -331,8 +331,8 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
             y = math.log(closes[i] / closes[i - 1])
             prev_m = m
             px.append(px[-1] + x); py.append(py[-1] + y)
-            pxx.append(pxx[-1] + x * x); pxy.append(pxy[-1] + x * y)
-        out[symbol] = (dates, closes, px, py, pxx, pxy)
+            pxx.append(pxx[-1] + x * x); pxy.append(pxy[-1] + x * y); pyy.append(pyy[-1] + y * y)
+        out[symbol] = (dates, closes, px, py, pxx, pxy, pyy)
     return out
 
 
@@ -345,20 +345,20 @@ def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
     return gather(symbols, lambda s: fetch_prices(s, start), "prices")
 
 
-def write_bars(symbols: list[str], daily: dict) -> None:
+def write_bars(symbols: list[str], legs: dict) -> None:
     """One compact file of daily bars per published name, columnar so the chart
-    can index straight into it, plus the name's daily score in every peer set
-    on the same dates (`daily[key][symbol][date]`, null where it has none), so
-    the chart can draw the rank beneath the price with nothing to align.
-    Rewritten whole on every run; git stores the rewrite as a delta against
-    the previous version, so a day's growth is a few hundred bytes per name,
-    not a fresh copy."""
+    can index straight into it, plus the name's two momentum legs on the same
+    dates (`legs[symbol][date]`, null where it has none), so the chart can
+    score any day under any setting with nothing to align. Rewritten whole on
+    every run; git stores the rewrite as a delta against the previous version,
+    so a day's growth is a few hundred bytes per name, not a fresh copy."""
     folder = DATA / "bars"
     folder.mkdir(exist_ok=True)
     start = price_start()
     bars = gather(symbols, lambda s: fetch_bars(s, start), "bars")
     for symbol, series in bars.items():
         dates = [b[0] for b in series]
+        mine = legs.get(symbol, {})
         payload = {
             "symbol": symbol,
             "asOf": series[-1][0],
@@ -368,9 +368,10 @@ def write_bars(symbols: list[str], daily: dict) -> None:
             "h": [b[2] for b in series],
             "l": [b[3] for b in series],
             "c": [b[4] for b in series],
-            "score": {
-                key: [daily[key].get(symbol, {}).get(d) for d in dates]
-                for key in PEER_SETS
+            "legs": {
+                f"{name}{period}": [None if d not in mine else mine[d][LEG_INDEX[period]][i] for d in dates]
+                for period in ("12", "6")
+                for i, name in enumerate(LEG_NAMES)
             },
         }
         (folder / f"{symbol}.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
@@ -399,89 +400,150 @@ def fetch_quotes(symbols: list[str]) -> dict[str, dict]:
 
 # --- 3. Momentum --------------------------------------------------------------
 
-def vol_adjusted_momentum(closes: list[float], end: int, lookback: int, min_obs: int):
-    """Return (raw return, annualised vol, vol-adjusted momentum) or None.
+LEG_NAMES = ("r", "v", "e", "w")   # return, volatility, net-of-market return, residual volatility
+
+
+def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
+    """One formation window's ingredients, or None where the window is short
+    or degenerate: (return, annualised volatility, return net of the market,
+    annualised volatility of the residual returns), each rounded to six
+    decimals so this script and the browser start from identical numbers.
 
     `end` indexes the most recent bar at or before the snapshot date. The
-    formation window runs from `end - lookback` to `end - SKIP_DAYS`, so the
-    most recent month is excluded (the "-1" in 12-1 / 6-1).
-    """
-    stop = end - SKIP_DAYS
-    start = end - lookback
-    if start < 0 or stop - start < min_obs:
+    window runs from `end - lookback` to `end - SKIP_DAYS`, so the most recent
+    month is excluded (the "-1" in 12-1 / 6-1). Net of the market: the name's
+    daily log returns are regressed on the equal-weight universe's with an
+    intercept; the residual return is the intercept times the number of days,
+    the window's return net of beta times the market's; the residual
+    volatility is that of what the regression leaves over."""
+    _, closes, px, py, pxx, pxy, pyy = entry
+    stop, start = end - SKIP_DAYS, end - lookback
+    n = stop - start
+    if start < 0 or n < min_obs:
         return None
     p0, p1 = closes[start], closes[stop]
     if p0 <= 0 or p1 <= 0:
         return None
     raw = p1 / p0 - 1.0
-
-    rets = []
-    for i in range(start + 1, stop + 1):
-        prev, cur = closes[i - 1], closes[i]
-        if prev > 0 and cur > 0:
-            rets.append(math.log(cur / prev))
-    if len(rets) < min_obs:
-        return None
-    mean = sum(rets) / len(rets)
-    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
-    vol = math.sqrt(var) * math.sqrt(252.0)
-    if vol <= 1e-6:
-        return None
-    return raw, vol, raw / vol
-
-
-def residual_momentum(entry: tuple, end: int, lookback: int, min_obs: int):
-    """The return the market does not explain, over the same formation window
-    as vol_adjusted_momentum. Regress the name's daily log returns on the
-    equal-weight universe's with an intercept; the residual momentum is that
-    intercept times the number of days, i.e. the window's return net of beta
-    times the market's. Returns None when the window is short or degenerate."""
-    _, _, px, py, pxx, pxy = entry
-    stop, start = end - SKIP_DAYS, end - lookback
-    n = stop - start
-    if start < 0 or n < min_obs:
-        return None
     sx, sy = px[stop] - px[start], py[stop] - py[start]
-    sxx, sxy = pxx[stop] - pxx[start], pxy[stop] - pxy[start]
+    sxx, sxy, syy = pxx[stop] - pxx[start], pxy[stop] - pxy[start], pyy[stop] - pyy[start]
+    var = (syy - sy * sy / n) / (n - 1)
+    if var <= 1e-12:
+        return None
     denom = n * sxx - sx * sx
     if denom <= 1e-12:
         return None
     beta = (n * sxy - sx * sy) / denom
-    return sy - beta * sx
+    alpha = (sy - beta * sx) / n
+    rvar = max(syy - alpha * sy - beta * sxy, 0.0) / (n - 1)
+    if rvar <= 1e-12:
+        return None
+    return (round(raw, 6), round(math.sqrt(var * 252.0), 6),
+            round(sy - beta * sx, 6), round(math.sqrt(rvar * 252.0), 6))
 
 
-def percentiles(values: dict[str, float]) -> dict[str, float]:
-    """Cross-sectional 0-100 percentile using average ranks (ties share a rank)."""
-    n = len(values)
-    if n < 2:
-        return {k: 50.0 for k in values}
-    ordered = sorted(values.items(), key=lambda kv: kv[1])
-    out: dict[str, float] = {}
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and ordered[j + 1][1] == ordered[i][1]:
-            j += 1
-        avg_rank = (i + j) / 2.0            # 0-based average rank across the tie group
-        pct = 100.0 * avg_rank / (n - 1)
-        for k in range(i, j + 1):
-            out[ordered[k][0]] = pct
-        i = j + 1
+def legs_at(symbols, index_maps, date: str) -> dict:
+    """The 12-1 and 6-1 legs for every name in `symbols` with enough history
+    at `date`, as {symbol: (leg12, leg6)}. Sorted, so everything downstream
+    is the same on every run."""
+    out = {}
+    for symbol in sorted(symbols):
+        entry = index_maps.get(symbol)
+        if not entry:
+            continue
+        pos = bisect_right(entry[0], date) - 1
+        if pos < 0:
+            continue
+        long_leg = leg_at(entry, pos, LONG_DAYS, MIN_OBS_LONG)
+        mid_leg = leg_at(entry, pos, MID_DAYS, MIN_OBS_MID)
+        if long_leg and mid_leg:
+            out[symbol] = (long_leg, mid_leg)
     return out
 
 
-def week_end_dates(calendar: list[str], count: int) -> list[str]:
-    """The last trading day of each of the most recent `count` ISO weeks.
+# --- 4. The score -------------------------------------------------------------
+# app.js carries the same three steps in the same order, on the same rounded
+# inputs, so the list it scores in the browser and the daily series published
+# here agree to the last digit.
 
-    Unlike the monthly axis this keeps the in-progress week: a bar is a
-    cross-section taken on a date, not a return over a period, so a partial
-    week is still a valid reading and it keeps the last bar close to today.
-    """
-    by_week: dict[tuple[int, int], str] = {}
-    for date in calendar:
-        year, week, _ = dt.date.fromisoformat(date).isocalendar()
-        by_week[(year, week)] = date
-    return [by_week[w] for w in sorted(by_week)[-count:]]
+def measure(leg: tuple, adjust: str) -> float:
+    """What one period measures under an adjustment."""
+    raw, vol, resid, rvol = leg
+    if adjust == "none":
+        return raw
+    if adjust == "vol":
+        return raw / vol
+    if adjust == "resid":
+        return resid
+    return resid / rvol
+
+
+def round2(v: float) -> float:
+    """Two decimals, the same way in Python and JavaScript."""
+    return math.floor(v * 100 + 0.5) / 100
+
+
+def cross_section(legs: dict, members: set, meta: dict) -> tuple[dict, dict, dict]:
+    """Score every name in `legs` on one date, against the members.
+
+    Returns (stats, scores, ladder):
+      stats[period][adjust][group] = (mean, sd) over the members of the group
+        ("*" is the universe; a sector appears only with MIN_SECTOR members),
+      scores[key][symbol] = the completed score, None where unscored,
+      ladder[key] = the members' scores x 100 as ascending ints — the
+        cross-section the app ranks any name against.
+    A name outside the members (a recent joiner, on an earlier date) is scored
+    against the members' statistics without entering them."""
+    groups = {"*": [s for s in legs if s in members]}
+    for s in groups["*"]:
+        sector = meta.get(s, {}).get("sector", "")
+        if sector:
+            groups.setdefault(sector, []).append(s)
+    groups = {g: m for g, m in groups.items() if g == "*" or len(m) >= MIN_SECTOR}
+    xs, stats = {}, {}
+    for period in ("12", "6"):
+        stats[period] = {}
+        for adjust in ADJUSTS:
+            x = {s: measure(legs[s][LEG_INDEX[period]], adjust) for s in legs}
+            xs[period, adjust] = x
+            stats[period][adjust] = {}
+            for g, m in groups.items():
+                vals = [x[s] for s in m]
+                mu = sum(vals) / len(vals)
+                sd = math.sqrt(sum((v - mu) ** 2 for v in vals) / len(vals))
+                stats[period][adjust][g] = (round(mu, 6), round(sd, 6))
+
+    def z(s, period, adjust, basis):
+        g = "*" if basis == "universe" else meta.get(s, {}).get("sector", "")
+        st = stats[period][adjust].get(g)
+        if st is None:
+            return None
+        mu, sd = st
+        return round2((xs[period, adjust][s] - mu) / sd) if sd > 0 else 0.0
+
+    scores, ladder = {}, {}
+    for key in KEYS:
+        period, adjust, basis = key.split("-")
+        per = {}
+        for s in legs:
+            if period == "blend":
+                a, b = z(s, "12", adjust, basis), z(s, "6", adjust, basis)
+                per[s] = None if a is None or b is None else round2((a + b) / 2)
+            else:
+                per[s] = z(s, period, adjust, basis)
+        scores[key] = per
+        ladder[key] = sorted(int(round(per[s] * 100)) for s in members if per.get(s) is not None)
+    return stats, scores, ladder
+
+
+def rank_in(ladder: list[int], score: float) -> int:
+    """Position among the members, 1 = best; ties share the better position."""
+    return 1 + len(ladder) - bisect_right(ladder, int(round(score * 100)))
+
+
+def pack(ints: list[int]) -> str:
+    """A ladder as base64 little-endian int16, a third the size of JSON."""
+    return base64.b64encode(struct.pack(f"<{len(ints)}h", *ints)).decode("ascii")
 
 
 def month_end_dates(calendar: list[str], count: int) -> list[str]:
@@ -495,110 +557,12 @@ def month_end_dates(calendar: list[str], count: int) -> list[str]:
     return [by_month[m] for m in months[-count:]]
 
 
-def rank_block(legs: dict, meta: dict, basis: str, adjust: str,
-               outsiders: dict | None = None) -> dict:
-    """Turn momentum legs into percentiles, a blended score and a rank.
-
-    `basis` picks the cross-section each name is measured against: "whole" ranks
-    it against every member of the universe, "sector" only against its own GICS
-    sector. Sectors thinner than MIN_SECTOR are left unscored — a percentile
-    across four names says nothing.
-
-    `adjust` picks what is ranked: "raw" ranks the return itself, "vol" ranks
-    the return divided by the volatility of the same window, so a steady climb
-    outranks an equally large but erratic one. Both are published; the app
-    chooses between them.
-
-    `outsiders` are names that were not members on this date but are published
-    today. They are scored against the member distribution as if inserted into
-    it — where they *would* have ranked — without disturbing the members' own
-    percentiles. That gives a recent joiner a full history chart while keeping
-    every historical cross-section point-in-time.
-    """
-    at = LEG_VALUE[adjust]
-    long_of = lambda s: legs[s][0][at]      # noqa: E731 - terse by design, used four times
-    mid_of = lambda s: legs[s][1][at]       # noqa: E731
-
-    if basis == "whole":
-        groups = {"*": set(legs)}
-    else:
-        groups = {}
-        for symbol in legs:
-            groups.setdefault(meta.get(symbol, {}).get("sector", ""), set()).add(symbol)
-
-    out = {}
-    for sector, members in groups.items():
-        if basis == "sector" and (not sector or len(members) < MIN_SECTOR):
-            continue
-        p_long = percentiles({s: long_of(s) for s in members})
-        p_mid = percentiles({s: mid_of(s) for s in members})
-        blended = {s: WEIGHT_LONG * p_long[s] + WEIGHT_MID * p_mid[s] for s in members}
-        # Ties are common — two names sharing both leg ranks blend to the same
-        # score — and `members` is a set, whose iteration order changes between
-        # processes. Without the symbol as a second key the rank a tied name
-        # gets, and which side of a decile boundary it lands on, would differ
-        # from run to run on identical inputs.
-        for rank, symbol in enumerate(sorted(members, key=lambda s: (-blended[s], s)), 1):
-            out[symbol] = {
-                "s": round(blended[symbol], 2),
-                "k": rank,
-                "n": len(members),
-                "p12": round(p_long[symbol], 2),
-                "p6": round(p_mid[symbol], 2),
-            }
-        if outsiders:
-            n = len(members)
-            long_sorted = sorted(long_of(s) for s in members)
-            mid_sorted = sorted(mid_of(s) for s in members)
-            for symbol, leg in outsiders.items():
-                if basis == "sector" and meta.get(symbol, {}).get("sector", "") != sector:
-                    continue
-                p_l = 100.0 * bisect_left(long_sorted, leg[0][at]) / n
-                p_m = 100.0 * bisect_left(mid_sorted, leg[1][at]) / n
-                out[symbol] = {
-                    "s": round(WEIGHT_LONG * p_l + WEIGHT_MID * p_m, 2),
-                    "k": None, "n": n, "p12": round(p_l, 2), "p6": round(p_m, 2),
-                    "outside": True,
-                }
-    return out
-
-
-def legs_at(members, index_maps, date: str) -> dict:
-    """The 12-1 and 6-1 legs for every member with enough history at `date`.
-
-    Each leg is (raw return, annualised vol, raw / vol, residual return), so a
-    caller can rank on any of them without recomputing. `index_maps` comes from
-    make_index_maps().
-    """
-    out = {}
-    # Sorted, so this dict — and everything downstream that inherits its
-    # insertion order, including the key order of the history files — is the
-    # same on every run. `members` is a set, and a set of strings iterates in a
-    # different order in every process.
-    for symbol in sorted(members):
-        entry = index_maps.get(symbol)
-        if not entry:
-            continue
-        dates, closes = entry[0], entry[1]
-        pos = bisect_right(dates, date) - 1
-        if pos < 0:
-            continue
-        long_leg = vol_adjusted_momentum(closes, pos, LONG_DAYS, MIN_OBS_LONG)
-        mid_leg = vol_adjusted_momentum(closes, pos, MID_DAYS, MIN_OBS_MID)
-        long_res = residual_momentum(entry, pos, LONG_DAYS, MIN_OBS_LONG)
-        mid_res = residual_momentum(entry, pos, MID_DAYS, MIN_OBS_MID)
-        if long_leg and mid_leg and long_res is not None and mid_res is not None:
-            out[symbol] = (long_leg + (long_res,), mid_leg + (mid_res,))
-    return out
-
-
 # --- Assemble -----------------------------------------------------------------
 
 def main() -> None:
     import universes
 
     DATA.mkdir(parents=True, exist_ok=True)
-    (DATA / "history").mkdir(exist_ok=True)
 
     core_universe, core_changes = universes.load_core()
     sp500_universe, sp500_changes = universes.load_sp500()
@@ -622,68 +586,58 @@ def main() -> None:
     index_maps = make_index_maps(prices)
     calendar = trading_days(prices)
     as_of = calendar[-1]
-    snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
-    weekly_dates = week_end_dates(calendar, HISTORY_WEEKS)
     daily_dates = calendar[-BARS_DAYS:]          # one cross-section per bar the chart shows
-    all_dates = sorted(set(snapshot_dates) | set(weekly_dates) | set(daily_dates) | {as_of})
-    log(f"as of {as_of}; {len(snapshot_dates)} monthly snapshots from {snapshot_dates[0]}")
+    spark_dates = set(month_end_dates(calendar, SPARK_MONTHS))
+    log(f"as of {as_of}; scoring {len(daily_dates)} trading days from {daily_dates[0]}")
 
-    core_at = universes.membership_history(core_now, core_changes, all_dates)
-    sp500_at = universes.membership_history(sp500_now, sp500_changes, all_dates)
+    core_at = universes.membership_history(core_now, core_changes, daily_dates)
+    sp500_at = universes.membership_history(sp500_now, sp500_changes, daily_dates)
 
     # Market caps are only needed to pick the small tail of the S&P 500.
-    cap_symbols = sorted({s for d in all_dates for s in sp500_at[d]} & set(prices))
+    cap_symbols = sorted({s for d in daily_dates for s in sp500_at[d]} & set(prices))
     log(f"market caps for {len(cap_symbols)} S&P 500 names (to size the tail)")
     caps = universes.fetch_market_caps(cap_symbols)
 
     # The universe: the MidCap 400 as it stood that day, plus the smallest tail
     # of the S&P 500 by the market caps that were true that day.
     members_at = {}
-    for date in all_dates:
+    for date in daily_dates:
         tail = universes.size_tail(sp500_at[date] & set(prices), caps, date)
         members_at[date] = (core_at[date] & set(prices)) | tail
     log(f"universe today: {len(members_at[as_of])} names "
         f"({len(core_at[as_of] & set(prices))} from the MidCap 400 + "
         f"{len(members_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
 
-    # --- today's cross-sections ---
+    # --- every day's cross-section, under every setting ---
     legs_now = legs_at(members_at[as_of], index_maps, as_of)
     live = set(legs_now)                          # every name the site will publish
-
-    # --- history: one momentum pass per date, reused by all four peer sets ---
-    def build_history(dates):
-        history = {key: {} for key in PEER_SETS}
-        outside = {key: {} for key in PEER_SETS}
-        kept = []
-        for date in dates:
-            legs = legs_at(members_at[date] | live, index_maps, date)
-            if sum(1 for s in legs if s in members_at[date]) < MIN_NAMES_PER_SNAPSHOT:
-                continue
-            kept.append(date)
-            members = {s: v for s, v in legs.items() if s in members_at[date]}
-            # Published names that were not members on this date are scored
-            # against that day's distribution as outsiders, so a recent joiner
-            # still gets a full chart without disturbing the cross-section.
-            joiners = {s: v for s, v in legs.items() if s not in members_at[date]}
-            for key, (basis, adjust) in PEER_SETS.items():
-                for symbol, block in rank_block(members, meta, basis, adjust, joiners).items():
-                    history[key].setdefault(symbol, {})[date] = round(block["s"], 1)
-                    if block.get("outside"):
-                        outside[key].setdefault(symbol, set()).add(date)
-        return history, outside, kept
-
-    history, history_outside, kept_dates = build_history(snapshot_dates)
-    weekly, weekly_outside, kept_weeks = build_history(weekly_dates)
-    log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections; "
-        f"{sum(len(v) for v in history_outside.values())} name/peer-set pairs carry pre-membership bars")
-    # The daily series the chart draws beneath the price: about a minute of
-    # arithmetic for three years, written into the bar files by write_bars.
-    daily, _, kept_days = build_history(daily_dates)
-    log(f"daily scores: {len(kept_days)} of {len(daily_dates)} trading days from {kept_days[0]}")
-    blocks = {
-        key: rank_block(legs_now, meta, basis, adjust)
-        for key, (basis, adjust) in PEER_SETS.items()
-    }
+    per_day = []                                  # (date, stats, ladder) in order
+    daily_legs = {}                               # symbol -> {date: (leg12, leg6)}
+    spark = {key: {"dates": [], "n": [], "s": {}, "k": {}} for key in KEYS}
+    asof_stats = None
+    for date in daily_dates:
+        legs = legs_at(members_at[date] | live, index_maps, date)
+        members = {s for s in legs if s in members_at[date]}
+        if len(members) < MIN_NAMES_PER_SNAPSHOT:
+            continue
+        stats, scores, ladder = cross_section(legs, members, meta)
+        per_day.append((date, stats, ladder))
+        for s, pair in legs.items():
+            if s in live:
+                daily_legs.setdefault(s, {})[date] = pair
+        if date == as_of:
+            asof_stats = stats
+        if date in spark_dates:
+            for key in KEYS:
+                sp = spark[key]
+                sp["dates"].append(date)
+                sp["n"].append(len(ladder[key]))
+                for s in live:
+                    v = scores[key].get(s)
+                    sp["s"].setdefault(s, []).append(None if v is None else int(round(v * 100)))
+                    sp["k"].setdefault(s, []).append(None if v is None else rank_in(ladder[key], v))
+    kept_days = [d for d, _, _ in per_day]
+    log(f"scored {len(kept_days)} of {len(daily_dates)} trading days")
 
     ranked = sorted(legs_now)
     quotes = fetch_quotes(ranked)
@@ -692,29 +646,20 @@ def main() -> None:
         long_leg, mid_leg = legs_now[symbol]
         info = meta.get(symbol, {})
         q = quotes.get(symbol, {})
-        placement = {k: blocks[k][symbol] for k in PEER_SETS if symbol in blocks[k]}
-        if not placement:
-            continue
         rows.append(
             {
                 "symbol": symbol,
                 "name": q.get("name") or info.get("name", symbol),
                 "sector": info.get("sector", ""),
                 "industry": info.get("industry", ""),
-                "m12": round(long_leg[0], 6),
-                "m6": round(mid_leg[0], 6),
-                "vol12": round(long_leg[1], 6),
-                "vol6": round(mid_leg[1], 6),
-                "va12": round(long_leg[2], 4),
-                "va6": round(mid_leg[2], 4),
-                "rm12": round(long_leg[3], 6),
-                "rm6": round(mid_leg[3], 6),
+                "legs": {f"{name}{period}": leg[i]
+                         for period, leg in (("12", long_leg), ("6", mid_leg))
+                         for i, name in enumerate(LEG_NAMES)},
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
                 "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
                 "mktCap": q.get("marketCap") or universes.cap_at(caps, symbol, as_of),
                 "yearHigh": q.get("yearHigh"),
                 "yearLow": q.get("yearLow"),
-                "r": placement,
             }
         )
     log(f"ranked {len(rows)} names as of {as_of}")
@@ -726,73 +671,57 @@ def main() -> None:
     if previous.exists():
         before = len(json.loads(previous.read_text())["rows"])
         guard(len(rows) >= 0.95 * before, f"ranked {len(rows)} names, down from {before} last run")
-    guard(len(kept_dates) >= HISTORY_MONTHS - 1, f"only {len(kept_dates)} monthly cross-sections")
+    guard(len(kept_days) >= BARS_DAYS - 5, f"only {len(kept_days)} daily cross-sections")
+    guard(asof_stats is not None, "no cross-section on the as-of date")
 
-    counts = {key: sum(1 for r in rows if key in r["r"]) for key in PEER_SETS}
     meta_block = {
         "asOf": as_of,
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "fromCore": len(core_at[as_of] & set(prices)),
+        "fromCore": core_priced,
         "members": len(members_at[as_of]),
-        "counts": counts,
         "sizeTail": universes.SIZE_TAIL,
-        "adjusts": list(ADJUSTS),
+        "keys": KEYS,
         "params": {
             "skipDays": SKIP_DAYS,
             "longDays": LONG_DAYS,
             "midDays": MID_DAYS,
-            "weights": [WEIGHT_LONG, WEIGHT_MID],
             "minSector": MIN_SECTOR,
-            "historyMonths": len(kept_dates),
-            "historyWeeks": len(kept_weeks),
+            "dailyDays": len(kept_days),
+            "sparkMonths": SPARK_MONTHS,
         },
+        # The as-of date's peer statistics: with the rows' legs, enough for
+        # the browser to build every score itself.
+        "stats": asof_stats,
     }
     write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
-    published = {r["symbol"] for r in rows}
-    for source, outside, dates, suffix in (
-        (history, history_outside, kept_dates, ""),
-        (weekly, weekly_outside, kept_weeks, "w"),
-    ):
-        for key in PEER_SETS:
-            scores = {
-                symbol: [by_date.get(d) for d in dates]
-                for symbol, by_date in source[key].items()
-                if symbol in published
-            }
-            # Bar indices scored as an outsider, only for names that have any.
-            pre = {
-                symbol: [i for i, d in enumerate(dates) if d in when]
-                for symbol, when in outside[key].items()
-                if symbol in published and when
-            }
-            write_json(DATA / "history" / f"{key}{suffix}.json",
-                       {"dates": dates, "scores": scores, "outside": pre})
-
-    # The list rows draw a one-year strip per name. That ships one file per peer
-    # set rather than all of them together: the list only ever draws the active
-    # set, and eight sets in one payload would be most of the home screen's
-    # weight spent on seven the reader cannot see. Integer scores for the last
-    # SPARK_MONTHS month-ends, only names in the published rows; outsider
-    # indices are relative to the strip, not the full history.
-    (DATA / "spark").mkdir(exist_ok=True)
-    strip = kept_dates[-SPARK_MONTHS:]
-    for key in PEER_SETS:
-        write_json(DATA / "spark" / f"{key}.json", {
-            "dates": strip,
-            "scores": {
-                symbol: [None if by_date.get(d) is None else round(by_date[d]) for d in strip]
-                for symbol, by_date in history[key].items()
-                if symbol in published
-            },
-            "outside": {
-                symbol: [i for i, d in enumerate(strip) if d in when]
-                for symbol, when in history_outside[key].items()
-                if symbol in published and any(d in when for d in strip)
-            },
+    # One file per score definition: for every day, how many members were
+    # scored, the peer statistics of the groups it standardises against, and
+    # the ladder of member scores. With a name's legs from its bar file that
+    # is the whole daily series, in any display.
+    (DATA / "score").mkdir(exist_ok=True)
+    for key in KEYS:
+        period, adjust, basis = key.split("-")
+        periods = ("12", "6") if period == "blend" else (period,)
+        groups = sorted({g for _, st, _ in per_day for p in periods for g in st[p][adjust]
+                         if (g == "*") == (basis == "universe")})
+        write_json(DATA / "score" / f"{key}.json", {
+            "key": key, "period": period, "adjust": adjust, "basis": basis,
+            "dates": kept_days,
+            "n": [len(ladder[key]) for _, _, ladder in per_day],
+            "stats": {g: {p: [st[p][adjust].get(g) for _, st, _ in per_day] for p in periods}
+                      for g in groups},
+            "ladder": [pack(ladder[key]) for _, _, ladder in per_day],
         })
 
-    write_bars(sorted(published), daily)
+    # The list rows draw a year of month-end standings per name: the score and
+    # the rank at each, from which the percentile follows. One file per score
+    # definition so the list only ever downloads the active one.
+    (DATA / "spark").mkdir(exist_ok=True)
+    for key in KEYS:
+        write_json(DATA / "spark" / f"{key}.json", spark[key])
+
+    write_bars(sorted(live), daily_legs)
 
 
 def write_json(path: Path, payload: object) -> None:
