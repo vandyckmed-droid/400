@@ -39,9 +39,8 @@ when it is live. Don't stop to ask before merging unless I say otherwise, or the
 other than a code change (a read-only question, say). Still check with me first before anything
 hard to undo: deleting data, changing the workflow, or anything touching the FMP key.
 
-Research tests ("does X predict Y in this universe?") are for the chat, not the repo. I start them
-with `/research`; the rules are in `.claude/skills/research/SKILL.md`. In short: work from the
-session's scratch area with the key from the environment (`API_KEY` there), reuse the pipeline
+Research tests ("does X predict Y in this universe?") are for the chat, not the repo. Run them from
+the session's scratch area with the key from the environment (`API_KEY` there), reuse the pipeline
 code by importing it, and report the tables here. They add no files, code, branches or workflow
 runs to the repository, unless I ask for files or code to be added.
 
