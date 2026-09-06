@@ -619,9 +619,20 @@
         <span class="tag">Decile ${decileOf(p.k, p.n)}</span>
       </div>
 
+      <div class="card">
+        <h3 class="row">Score through time
+          <span class="segmented mini" id="grain" role="tablist" aria-label="Chart interval">
+            ${[['m', 'Monthly'], ['w', 'Weekly']].map(([g, label]) =>
+              `<button role="tab" data-g="${g}" class="${g === state.grain ? 'on' : ''}"
+                 aria-selected="${g === state.grain}">${label}</button>`).join('')}
+          </span>
+        </h3>
+        <div id="chart"><p class="legend">Loading history…</p></div>
+      </div>
+
       <a class="card go" href="#/t/${r.symbol}/chart"><b>Price chart →</b>
-        <small>Daily bars with a 200-day regression channel. Drag to pan, pinch to zoom,
-          drag the price axis to stretch it.</small></a>
+        <small>Daily bars with a regression channel and moving averages. Drag to pan, pinch to
+          zoom, drag the price axis to stretch it.</small></a>
 
       <div class="card">
         <h3>Momentum legs</h3>
@@ -656,17 +667,6 @@
           <div><dt>Ann. vol (6m)</dt><dd>${pct(r.vol6)}</dd></div>
           <div><dt>In 52w range</dt><dd>${range == null ? '—' : num(range, 0) + '%'}</dd></div>
         </dl>
-      </div>
-
-      <div class="card">
-        <h3 class="row">Score through time
-          <span class="segmented mini" id="grain" role="tablist" aria-label="Chart interval">
-            ${[['m', 'Monthly'], ['w', 'Weekly']].map(([g, label]) =>
-              `<button role="tab" data-g="${g}" class="${g === state.grain ? 'on' : ''}"
-                 aria-selected="${g === state.grain}">${label}</button>`).join('')}
-          </span>
-        </h3>
-        <div id="chart"><p class="legend">Loading history…</p></div>
       </div>`;
 
     $('back').addEventListener('click', goBack);
@@ -891,6 +891,7 @@
               <button type="button" role="tab" data-tab="ind" class="on" aria-selected="true">Indicators</button>
               <button type="button" role="tab" data-tab="axis" aria-selected="false">Chart</button>
             </div>
+            <button type="button" id="creset-all" aria-label="Reset all chart settings">Reset</button>
             <button type="button" class="done" id="cdone">Done</button>
           </div>
           <div id="tab-ind">
@@ -1008,7 +1009,14 @@
       chart.set({ [id]: patch });
       state.chart = chart.indicators();            // the chart's clamped copy is the truth
     };
+    /* Reset all: one tap arms it and says so, a second tap within a few
+       seconds returns every switch, setting and the axis to defaults. Anything
+       else — a tab change, closing — disarms it. */
+    const resetAll = $('creset-all');
+    let armed = 0;
+    const disarm = () => { clearTimeout(armed); armed = 0; resetAll.textContent = 'Reset'; resetAll.classList.remove('armed'); };
     const showTab = (t) => {
+      disarm();
       tab = t;
       for (const b of $('ctabs').querySelectorAll('button')) {
         const on = b.dataset.tab === t;
@@ -1029,6 +1037,7 @@
     };
     const close = () => {
       if (panel.hidden) return;
+      disarm();
       panel.classList.remove('open');
       btn.setAttribute('aria-expanded', 'false');
       setTimeout(() => { panel.hidden = true; }, 220);
@@ -1037,6 +1046,21 @@
     btn.hidden = false;
     btn.addEventListener('click', () => (panel.hidden ? open() : close()));
     $('cdone').addEventListener('click', close);
+    resetAll.addEventListener('click', () => {
+      if (!armed) {
+        resetAll.textContent = 'Reset all?';
+        resetAll.classList.add('armed');
+        armed = setTimeout(disarm, 4000);
+        return;
+      }
+      disarm();
+      const defaults = Object.fromEntries(Object.entries(IND).map(([id, spec]) => [id, { ...spec.defaults }]));
+      defaults.axis = { ...AXIS.defaults };
+      chart.set(defaults);
+      state.chart = chart.indicators();
+      saveChartPrefs();
+      showTab(tab);
+    });
     $('cset-back').addEventListener('click', showList);
     $('creset').addEventListener('click', () => {
       const { on, ...defaults } = IND[editing].defaults;   // reset the numbers, keep the switch
