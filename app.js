@@ -1,4 +1,4 @@
-/* MidCap 650 Momentum — vanilla, no dependencies.
+/* S&P 900 Momentum — vanilla, no dependencies.
    Data is pre-computed by scripts/build.py and served as static JSON. */
 (() => {
   'use strict';
@@ -12,11 +12,10 @@
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  /* One universe: the MidCap 400 plus the smallest 250 of the S&P 500 by market
-     cap, ~650 names. It is not a setting — a name is measured against
-     everything of roughly its size, and which index committee happens to hold
-     it is not a fact about the name. */
-  const UNIVERSE = { label: 'MidCap 650', size: '650' };
+  /* One universe: the S&P 500 and the S&P MidCap 400 together, ~900 names.
+     It is not a setting — a name is measured against every other, and which
+     index committee happens to hold it is not a fact about the name. */
+  const UNIVERSE = { label: 'S&P 900', size: '900' };
 
   /* ---------- the score ----------
      One definition, built here step for step as scripts/build.py builds it,
@@ -390,8 +389,8 @@
       ['Last refresh', fmtDate(m.generatedAt.slice(0, 10))],
       ['Names scored', state.scored.n],
       ['Daily scores', `${m.params.dailyDays} trading days`],
+      ['From the S&P 500', m.members - m.fromCore],
       ['From the MidCap 400', m.fromCore],
-      ['From the S&P 500 tail', m.members - m.fromCore],
       ['Skip', `${m.params.skipDays} trading days`],
     ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 

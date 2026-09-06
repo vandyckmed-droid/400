@@ -5,15 +5,11 @@ One universe, assembled from two sources:
 
 * the **S&P MidCap 400**. Current members come from Wikipedia (no FMP plan tier
   exposes a MidCap 400 constituent endpoint); history comes from Wikipedia's
-  "Selected changes" table, walked backwards from today.
-* plus the smallest `SIZE_TAIL` members of the **S&P 500** by market
-  capitalisation, giving a ~650-name mid-cap-and-down universe. Both the S&P 500
-  membership and the market caps used to pick that tail are themselves
-  point-in-time, so the cut is made with the caps that were true on the day.
+  historical-components page, walked backwards from today.
+* the **S&P 500**, members and change log from FMP.
 
-The boundary between the two is an index committee's, not a size boundary, so
-crossing it is what the tail is for: a name is measured against everything of
-roughly its size rather than against which index happens to hold it.
+Together they are the S&P 900: roughly 900 names, each ranked against all the
+others whichever index happens to hold it.
 """
 
 from __future__ import annotations
@@ -25,9 +21,6 @@ import re
 from bisect import bisect_right
 
 import build
-
-SIZE_TAIL = 250          # S&P 500 names, smallest by market cap, added to core
-CAP_YEARS = 6            # depth of market-cap history to request; matches the price window
 
 
 def strip_tags(fragment: str) -> str:
@@ -230,42 +223,3 @@ def membership_history(current: set[str], changes: list[dict], dates: list[str])
             cursor += 1
         out[date] = set(members)
     return out
-
-
-# --- Market caps --------------------------------------------------------------
-
-def fetch_market_caps(symbols: list[str]) -> dict[str, tuple[list[str], list[float]]]:
-    """Daily market cap per symbol, as (dates, caps) for bisect lookup."""
-    start = (dt.date.today() - dt.timedelta(days=int(365.25 * CAP_YEARS))).isoformat()
-
-    def one(symbol: str):
-        rows = build.cached_fmp(
-            f"cap-{symbol}",
-            "historical-market-capitalization",
-            symbol=symbol, limit=5000, **{"from": start},
-        )
-        series = sorted(
-            (r["date"], float(r["marketCap"]))
-            for r in rows
-            if isinstance(r, dict) and r.get("marketCap")
-        )
-        return [d for d, _ in series], [c for _, c in series]
-
-    return build.gather(symbols, one, "market caps")
-
-
-def cap_at(caps: dict, symbol: str, date: str):
-    entry = caps.get(symbol)
-    if not entry:
-        return None
-    dates, values = entry
-    i = bisect_right(dates, date) - 1
-    return values[i] if i >= 0 else None
-
-
-def size_tail(members: set[str], caps: dict, date: str, n: int = SIZE_TAIL) -> set[str]:
-    """The `n` smallest members by market cap on `date`."""
-    sized = [(cap_at(caps, s, date), s) for s in members]
-    sized = [(c, s) for c, s in sized if c]
-    sized.sort()
-    return {s for _, s in sized[:n]}
