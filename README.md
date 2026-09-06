@@ -18,9 +18,11 @@ to work in this repository and with its owner.
   state), showing the position ("12 of 646"). Stepping between charts keeps the zoom. Left and
   right arrow keys do the same on a keyboard. Steps replace the current history entry, so Back
   still returns to where the reader came from.
-- **Detail page.** The name's score and placement, its two momentum legs, its standing against the
-  whole universe and within its sector, quote and volatility figures, and a bar chart of its score
-  at each of the last 36 month ends or 78 week ends with a trailing 4-period average.
+- **Detail page.** The name's score and placement, then directly beneath it a bar chart of its
+  score at each of the last 36 month ends or 78 week ends with a trailing 4-period average, so
+  current strength and its history read together; then the link to the price chart, its two
+  momentum legs, its standing against the whole universe and within its sector, and quote and
+  volatility figures.
 - **Price chart.** A full-screen chart of 18 months of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
   with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
@@ -32,6 +34,7 @@ to work in this repository and with its owner.
   amber (period 5–200 days, default 50), the second in violet (period 5–300 days, default 200), so
   the common 50/200 pair is two switches away. **Chart** holds the price axis: linear (default) or
   log, where equal percentage moves are equal heights; switching returns the range to automatic.
+  A Reset in the panel's top row, confirmed by a second tap, returns everything to defaults.
   Changes draw live, a touch on the chart closes the panel, and every choice persists per device. A
   new indicator is a new entry in chart.js plus its drawing; the panel builds itself from that list.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the

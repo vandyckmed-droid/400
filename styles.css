@@ -290,6 +290,7 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .cpanel-head button.done { font-weight: 700; }
 .cpanel-head .backlink { padding-left: 0; }
 .cpanel-head .done { margin-left: auto; }
+.cpanel-head button.armed { color: var(--cold); }
 .cpanel-head .segmented.mini { flex: 1; max-width: 220px; }
 .cpanel-head .segmented.mini button { flex: 1; font-size: 12.5px; padding: 5px 8px; color: var(--ink-2); }
 .cpanel-head .segmented.mini button.on { color: var(--ink); }
