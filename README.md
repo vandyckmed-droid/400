@@ -18,13 +18,15 @@ to work in this repository and with its owner.
   state), showing the position ("12 of 646"). Stepping between charts keeps the zoom. Left and
   right arrow keys do the same on a keyboard. Steps replace the current history entry, so Back
   still returns to where the reader came from.
-- **Detail page.** The name's score and placement, then directly beneath it a bar chart of its
-  score at each of the last 36 month ends or 78 week ends with a trailing 4-period average, so
-  current strength and its history read together; then the link to the price chart; a **Score
-  components** table with the two legs side by side (return, return ÷ volatility, net of market,
-  percentile, blend weight), the measure the percentiles rank marked, and the blend written out
-  to the score, with a link to the methodology in Settings; its standing against the whole universe
-  and within its sector; and quote and volatility figures.
+- **Detail page.** One focus card: the score, its rank and date, a muted line of sector, industry
+  and market cap, and directly beneath, the bar chart of its score at each of the last 36 month
+  ends or 78 week ends with a trailing 4-period average. The headline is the chart's readout:
+  tap or drag a bar and the big number shows that period's score and date, the latest bar shows
+  today's score and rank. A one-line key states what the chart measures; a "How this is measured"
+  disclosure holds the fuller note. Below, a link row to the price chart and three sections that
+  expand in place, each with its one key fact in the row: Score components (the two legs side by
+  side with the blend written out, and a link to the methodology in Settings), Against its peers
+  (the rank in the peer set the headline is not using), and Quote & risk (price and change).
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
   with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
