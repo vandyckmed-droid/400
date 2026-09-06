@@ -22,16 +22,36 @@
     },
   };
 
-  /* Fill in defaults and clamp every number, so a stale or hand-edited store
-     can never put the chart in a state it cannot draw. */
+  /* The bars themselves: stroke weight, opacity and one of a few colour
+     pairs. Each pair names CSS variables so it follows light and dark mode. */
+  const PALETTES = {
+    classic: { name: 'Green / red', up: '--hot', down: '--cold' },
+    cool: { name: 'Blue / orange', up: '--alt-up', down: '--alt-down' },
+    mono: { name: 'Mono', up: '--ink', down: '--ink-3' },
+  };
+  const BARS = {
+    name: 'Bars',
+    defaults: { weight: 1, alpha: 1, palette: 'classic' },
+    limits: { weight: [0.5, 3, 0.5], alpha: [0.2, 1, 0.05] },
+    choices: { palette: Object.keys(PALETTES) },
+  };
+  const SPECS = { ...INDICATORS, bars: BARS };
+
+  /* Fill in defaults, clamp every number and reject unknown choices, so a
+     stale or hand-edited store can never put the chart in a state it cannot
+     draw. */
   function normalize(prefs) {
     const out = {};
-    for (const [id, spec] of Object.entries(INDICATORS)) {
+    for (const [id, spec] of Object.entries(SPECS)) {
       const raw = (prefs && typeof prefs[id] === 'object' && prefs[id]) || {};
-      const o = { on: typeof raw.on === 'boolean' ? raw.on : spec.defaults.on };
-      for (const [k, [lo, hi]] of Object.entries(spec.limits)) {
+      const o = {};
+      if ('on' in spec.defaults) o.on = typeof raw.on === 'boolean' ? raw.on : spec.defaults.on;
+      for (const [k, [lo, hi]] of Object.entries(spec.limits || {})) {
         const v = raw[k];
         o[k] = (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : spec.defaults[k];
+      }
+      for (const [k, allowed] of Object.entries(spec.choices || {})) {
+        o[k] = allowed.includes(raw[k]) ? raw[k] : spec.defaults[k];
       }
       out[id] = o;
     }
@@ -94,9 +114,10 @@
     return out;
   }
 
-  /* opts: { indicators, view }. `indicators` is in the shape of INDICATORS'
-     defaults; the app owns where it is stored, hands it in, and changes it
-     later through set(). `view` is a zoom() snapshot from a previous chart,
+  /* opts: { indicators, view }. `indicators` is the whole settings object —
+     one entry per indicator plus `bars` — in the shape of SPECS' defaults;
+     the app owns where it is stored, hands it in, and changes it later
+     through set(). `view` is a zoom() snapshot from a previous chart,
      so stepping between names keeps the same bar width and right edge. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
@@ -251,24 +272,33 @@
         ln(m0, m1, colors.cold);
       }
 
-      // Bars: high-low stem, open tick left, close tick right.
+      // Bars: high-low stem, open tick left, close tick right. Weight, opacity
+      // and colour pair come from the settings; a half-pixel offset keeps
+      // odd widths crisp and even widths are left on the pixel grid.
+      const { weight, alpha } = cfg.bars;
+      const pal = PALETTES[cfg.bars.palette];
+      const upColor = css(pal.up), downColor = css(pal.down);
       const tick = Math.max(1, Math.floor(view.barW * 0.36));
       const thin = view.barW < 2.5;
-      ctx.globalAlpha = thin ? 0.85 : 1;
+      const off = Math.round(weight) % 2 ? 0.5 : 0;
+      ctx.lineWidth = weight;
+      ctx.lineCap = 'butt';
+      ctx.globalAlpha = (thin ? 0.85 : 1) * alpha;
       for (let i = Math.max(0, from); i <= to; i++) {
         const up = c[i] >= o[i];
-        ctx.strokeStyle = up ? colors.hot : colors.cold;
-        const x = Math.round(xOf(i)) + 0.5;
+        ctx.strokeStyle = up ? upColor : downColor;
+        const x = Math.round(xOf(i)) + off;
         ctx.beginPath();
         ctx.moveTo(x, yOf(h[i])); ctx.lineTo(x, yOf(l[i]));
         if (!thin) {
-          const yo = Math.round(yOf(o[i])) + 0.5, yc = Math.round(yOf(c[i])) + 0.5;
+          const yo = Math.round(yOf(o[i])) + off, yc = Math.round(yOf(c[i])) + off;
           ctx.moveTo(x - tick, yo); ctx.lineTo(x, yo);
           ctx.moveTo(x, yc); ctx.lineTo(x + tick, yc);
         }
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      ctx.lineWidth = 1;
 
       // Moving average: one amber line over the bars, broken where it has no value.
       if (cfg.ma.on) {
@@ -457,7 +487,7 @@
        changed, and redraw on the next frame. */
     function set(next = {}) {
       const merged = {};
-      for (const id of Object.keys(INDICATORS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
+      for (const id of Object.keys(SPECS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
       const was = cfg;
       cfg = normalize(merged);
       if (cfg.channel.len !== was.channel.len) channel = regression(c, cfg.channel.len);
@@ -470,5 +500,7 @@
 
   window.priceChart = priceChart;
   window.priceChart.INDICATORS = INDICATORS;   // app.js builds the panel and its defaults from these
+  window.priceChart.BARS = BARS;
+  window.priceChart.PALETTES = PALETTES;
   window.priceChart.normalize = normalize;
 })();

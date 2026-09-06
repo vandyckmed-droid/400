@@ -883,14 +883,22 @@
       ${pagerHtml(r.symbol)}
       <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol}"></canvas>
       <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
-      <div class="cpanel" id="cpanel" role="dialog" aria-label="Indicators" hidden>
+      <div class="cpanel" id="cpanel" role="dialog" aria-label="Chart settings" hidden>
         <div class="sheet-handle" aria-hidden="true"></div>
-        <div id="cpanel-list">
-          <div class="cpanel-head"><b>Indicators</b>
+        <div id="cpanel-root">
+          <div class="cpanel-head">
+            <div class="segmented mini" id="ctabs" role="tablist" aria-label="Chart settings">
+              <button type="button" role="tab" data-tab="ind" class="on" aria-selected="true">Indicators</button>
+              <button type="button" role="tab" data-tab="bars" aria-selected="false">Chart</button>
+            </div>
+            <button type="button" id="cbars-reset" hidden>Reset</button>
             <button type="button" class="done" id="cdone">Done</button>
           </div>
-          <ul class="ind-list" id="ind-list"></ul>
-          <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
+          <div id="tab-ind">
+            <ul class="ind-list" id="ind-list"></ul>
+            <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
+          </div>
+          <div id="tab-bars" hidden></div>
         </div>
         <div id="cpanel-set" hidden>
           <div class="cpanel-head">
@@ -924,7 +932,9 @@
 
   /* How each indicator's settings read in the panel. The numbers themselves
      (defaults, ranges) come from chart.js so the two can never disagree. */
-  const IND_UI = {
+  /* How each setting reads in the panel. The numbers themselves (defaults,
+     ranges, choices) come from chart.js so the two can never disagree. */
+  const UI = {
     channel: {
       blurb: 'A straight line fitted through the closes over the length, with bands the chosen '
         + 'number of standard deviations either side, extended to the right edge. Fill shades the '
@@ -941,44 +951,77 @@
       fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
       summary: (m) => `Simple · ${m.period} days`,
     },
+    bars: {
+      blurb: 'The daily bars themselves. Colours follow light and dark mode; the price tag and the '
+        + 'day\'s change keep their green and red.',
+      fields: [
+        { key: 'weight', label: 'Bar weight', fmt: (v) => `${v.toFixed(1)} px` },
+        { key: 'alpha', label: 'Bar opacity', scale: 100, fmt: (v) => `${Math.round(v * 100)}%` },
+      ],
+    },
   };
 
-  /* The panel has two screens: the list of indicators, each with a switch and
-     a tap-through, and one indicator's settings. Controls apply on every move
-     and save when they settle. The canvas keeps its own gestures — a touch on
-     it both closes the panel and pans, which is what a finger expects. */
+  /* The panel has a root screen with two tabs — the list of indicators, each
+     with a switch and a tap-through, and the bars' own settings — plus one
+     sub-screen for a single indicator's settings. Controls apply on every
+     move and save when they settle. The canvas keeps its own gestures — a
+     touch on it both closes the panel and pans, which is what a finger
+     expects. */
   function wireChartPanel(chart) {
-    const IND = priceChart.INDICATORS;
-    const btn = $('ctune'), panel = $('cpanel'), list = $('cpanel-list'), setScreen = $('cpanel-set');
-    let editing = null;
+    const IND = priceChart.INDICATORS, SPEC = { ...IND, bars: priceChart.BARS }, PAL = priceChart.PALETTES;
+    const btn = $('ctune'), panel = $('cpanel'), root = $('cpanel-root'), setScreen = $('cpanel-set');
+    let editing = null, tab = 'ind';
 
+    const slidersHtml = (id) => UI[id].fields.map((f) => {
+      const [lo, hi, step] = SPEC[id].limits[f.key], k = f.scale || 1, cur = state.chart[id][f.key];
+      return `<label class="cslider"><span>${f.label} <output data-ind="${id}" data-out="${f.key}">${f.fmt(cur)}</output></span>
+        <input type="range" data-ind="${id}" data-key="${f.key}" min="${lo * k}" max="${hi * k}" step="${step * k}"
+               value="${Math.round(cur * k * 1e6) / 1e6}" aria-label="${SPEC[id].name} ${f.label.toLowerCase()}"></label>`;
+    }).join('');
     const renderList = () => {
       $('ind-list').innerHTML = Object.entries(IND).map(([id, spec]) => `
         <li class="ind-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
           <button type="button" class="ind-open" data-ind="${id}"><b>${spec.name} <i>›</i></b>
-            <small>${IND_UI[id].summary(state.chart[id])}</small></button>
+            <small>${UI[id].summary(state.chart[id])}</small></button>
           <input type="checkbox" role="switch" data-ind="${id}" aria-label="${spec.name}"${state.chart[id].on ? ' checked' : ''}>
         </li>`).join('');
     };
+    const renderBars = () => {
+      const cur = state.chart.bars.palette;
+      $('tab-bars').innerHTML = slidersHtml('bars') + `
+        <div class="cchoice"><span>Colours</span>
+          <div class="segmented" id="pal-seg" role="radiogroup" aria-label="Bar colours">
+            ${Object.entries(PAL).map(([id, p]) => `<button type="button" role="radio" data-pal="${id}"
+               class="${id === cur ? 'on' : ''}" aria-checked="${id === cur}">
+               <i style="background:var(${p.up})"></i><i style="background:var(${p.down})"></i>${p.name}</button>`).join('')}
+          </div>
+        </div>
+        <p class="fine">${UI.bars.blurb}</p>`;
+    };
     const renderFields = (id) => {
-      const cur = state.chart[id];
       $('cset-title').textContent = IND[id].name;
-      $('cset-blurb').textContent = IND_UI[id].blurb;
-      $('cset-fields').innerHTML = IND_UI[id].fields.map((f) => {
-        const [lo, hi, step] = IND[id].limits[f.key], k = f.scale || 1;
-        return `<label class="cslider"><span>${f.label} <output data-out="${f.key}">${f.fmt(cur[f.key])}</output></span>
-          <input type="range" data-ind="${id}" data-key="${f.key}" min="${lo * k}" max="${hi * k}" step="${step * k}"
-                 value="${Math.round(cur[f.key] * k * 1e6) / 1e6}" aria-label="${IND[id].name} ${f.label.toLowerCase()}"></label>`;
-      }).join('');
+      $('cset-blurb').textContent = UI[id].blurb;
+      $('cset-fields').innerHTML = slidersHtml(id);
     };
     const apply = (id, patch) => {
       chart.set({ [id]: patch });
       state.chart = chart.indicators();            // the chart's clamped copy is the truth
     };
-    const showList = () => { editing = null; renderList(); setScreen.hidden = true; list.hidden = false; };
-    const showSettings = (id) => { editing = id; renderFields(id); list.hidden = true; setScreen.hidden = false; };
+    const showTab = (t) => {
+      tab = t;
+      for (const b of $('ctabs').querySelectorAll('button')) {
+        const on = b.dataset.tab === t;
+        b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on));
+      }
+      if (t === 'ind') renderList(); else renderBars();
+      $('tab-ind').hidden = t !== 'ind';
+      $('tab-bars').hidden = t !== 'bars';
+      $('cbars-reset').hidden = t !== 'bars';
+    };
+    const showRoot = () => { editing = null; showTab(tab); setScreen.hidden = true; root.hidden = false; };
+    const showSettings = (id) => { editing = id; renderFields(id); root.hidden = true; setScreen.hidden = false; };
     const open = () => {
-      showList();
+      showRoot();
       panel.hidden = false;
       $('chint').style.opacity = 0;
       btn.setAttribute('aria-expanded', 'true');
@@ -994,16 +1037,28 @@
     btn.hidden = false;
     btn.addEventListener('click', () => (panel.hidden ? open() : close()));
     $('cdone').addEventListener('click', close);
-    $('cset-back').addEventListener('click', showList);
+    $('cset-back').addEventListener('click', showRoot);
     $('creset').addEventListener('click', () => {
       const { on, ...defaults } = IND[editing].defaults;   // reset the numbers, keep the switch
       apply(editing, defaults);
       saveChartPrefs();
       renderFields(editing);
     });
+    $('cbars-reset').addEventListener('click', () => { apply('bars', SPEC.bars.defaults); saveChartPrefs(); renderBars(); });
     panel.addEventListener('click', (e) => {
       const openBtn = e.target.closest('.ind-open');
-      if (openBtn) showSettings(openBtn.dataset.ind);
+      if (openBtn) return showSettings(openBtn.dataset.ind);
+      const tabBtn = e.target.closest('#ctabs button');
+      if (tabBtn) return showTab(tabBtn.dataset.tab);
+      const palBtn = e.target.closest('button[data-pal]');
+      if (palBtn) {
+        apply('bars', { palette: palBtn.dataset.pal });
+        saveChartPrefs();
+        for (const b of palBtn.parentNode.children) {
+          const on = b === palBtn;
+          b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+        }
+      }
     });
     panel.addEventListener('change', (e) => {
       const t = e.target;
@@ -1019,17 +1074,17 @@
       const t = e.target;
       if (t.type !== 'range') return;
       const id = t.dataset.ind, key = t.dataset.key;
-      const f = IND_UI[id].fields.find((x) => x.key === key), k = f.scale || 1;
-      const step = IND[id].limits[key][2], dec = (String(step).split('.')[1] || '').length;
+      const f = UI[id].fields.find((x) => x.key === key), k = f.scale || 1;
+      const step = SPEC[id].limits[key][2], dec = (String(step).split('.')[1] || '').length;
       const v = +(Math.round(t.valueAsNumber / k / step) * step).toFixed(dec);
       apply(id, { [key]: v });
-      setScreen.querySelector(`output[data-out="${key}"]`).textContent = f.fmt(state.chart[id][key]);
+      panel.querySelector(`output[data-ind="${id}"][data-out="${key}"]`).textContent = f.fmt(state.chart[id][key]);
     });
     $('price-chart').addEventListener('pointerdown', close);
     const onKey = (e) => {
       if (!panel.isConnected) { removeEventListener('keydown', onKey); return; }   // chart view was rebuilt
       if (e.key !== 'Escape') return;
-      if (editing) showList(); else close();
+      if (editing) showRoot(); else close();
     };
     addEventListener('keydown', onKey);
   }
