@@ -32,8 +32,9 @@
     rank: {
       name: 'Rank',
       pane: 'below',
-      defaults: { on: true },
-      limits: {},
+      defaults: { on: true, style: 'line', height: 0.24 },
+      limits: { height: [0.12, 0.6, 0.01] },     // share of the canvas the pane takes
+      choices: { style: ['line', 'bars'] },
       color: '--accent',
     },
   };
@@ -85,7 +86,10 @@
     holdMs: 320,         // press-and-hold before the crosshair appears
     holdSlop: 6,         // px a held finger may drift and still be a hold, not a pan
     xhairEase: 0.35,     // per-frame share of the way the crosshair slides to its bar
-    lowerShare: 0.22,    // height of the pane below the price, as a share of the canvas
+    dividerGrab: 9,      // px either side of the pane divider that drags it
+    tapMs: 350,          // a touch shorter than this that does not move is a tap
+    lowerPadT: 18,       // headroom above 100 in the lower pane, px
+    lowerPadB: 6,        // foot room below 0
   };
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -138,13 +142,16 @@
     return out;
   }
 
-  /* opts: { indicators, view, rank }. `indicators` is the whole settings
-     object — one entry per indicator plus `axis` — in the shape of SPECS'
-     defaults; the app owns where it is stored, hands it in, and changes it
-     later through set(). `view` is a zoom() snapshot from a previous chart,
-     so stepping between names keeps the same bar width and right edge.
-     `rank` is the daily score, one value (or null) per bar; without it the
-     lower pane stays closed whatever the switch says. */
+  /* opts: { indicators, view, rank, onChange, onOpen }. `indicators` is the
+     whole settings object — one entry per indicator plus `axis` — in the
+     shape of SPECS' defaults; the app owns where it is stored, hands it in,
+     and changes it later through set(). `view` is a zoom() snapshot from a
+     previous chart, so stepping between names keeps the same bar width and
+     right edge. `rank` is the daily score, one value (or null) per bar;
+     without it the lower pane stays closed whatever the switch says.
+     `onChange(settings)` is called when a gesture changes a setting (a drag
+     of the pane divider), so the app can store it; `onOpen(id)` when the
+     reader taps an indicator's label on the chart. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
@@ -176,9 +183,11 @@
     /* The lower pane: open when the rank is switched on and there is one to
        draw. A fixed 0–100 scale with a little head and foot room. */
     const lowerOn = () => !!(rank && cfg.rank.on);
-    const lowerH = () => (lowerOn() ? clamp(Math.round(H * TUNE.lowerShare), 72, 150) : 0);
-    const yR = (v) => lowB - 6 - (v / 100) * (lowB - lowT - 12);
-    const rankAt = (y) => 100 * (lowB - 6 - y) / (lowB - lowT - 12);
+    const lowerH = () => (lowerOn() ? clamp(Math.round(H * cfg.rank.height), 60, Math.round(H * 0.6)) : 0);
+    const lowSpan = () => lowB - lowT - TUNE.lowerPadT - TUNE.lowerPadB;
+    const yR = (v) => lowB - TUNE.lowerPadB - (v / 100) * lowSpan();
+    const rankAt = (y) => 100 * (lowB - TUNE.lowerPadB - y) / lowSpan();
+    const LABEL = { w: 64, h: 24 };          // the tappable label at the pane's top left
 
     /* Price <-> pixel goes through one transform: identity on a linear axis,
        natural log on a log axis. view.lo and view.hi stay prices on both, so
@@ -411,8 +420,10 @@
     }
 
     /* The rank pane: guide lines at 0, 50 and 100, the daily score as a line
-       with a light fill beneath it, broken where a day has no score, and the
-       latest value tagged on the axis. */
+       with a light fill beneath it or as bars from 0, broken where a day has
+       no score, the latest value tagged on the axis, a grip on the divider
+       that drags the pane taller or shorter, and a label that opens the
+       settings when tapped. */
     function drawLower(from, to) {
       const color = css(INDICATORS.rank.color);
       ctx.save();
@@ -422,30 +433,46 @@
         const y = Math.round(yR(v)) + 0.5;
         ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
       }
-      const runs = [];                       // stretches of consecutive scored bars
-      for (let i = Math.max(0, from); i <= to; i++) {
-        if (rank[i] == null) continue;
-        if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
-        else runs.push([i, i]);
+      if (cfg.rank.style === 'bars') {
+        const w = Math.max(1, view.barW * 0.7), y0 = yR(0);
+        ctx.fillStyle = color; ctx.globalAlpha = 0.85;
+        for (let i = Math.max(0, from); i <= to; i++) {
+          if (rank[i] == null) continue;
+          const y = yR(rank[i]);
+          ctx.fillRect(xOf(i) - w / 2, y, w, Math.max(1, y0 - y));
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        const runs = [];                       // stretches of consecutive scored bars
+        for (let i = Math.max(0, from); i <= to; i++) {
+          if (rank[i] == null) continue;
+          if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
+          else runs.push([i, i]);
+        }
+        ctx.fillStyle = color; ctx.globalAlpha = 0.08;
+        for (const [a, b] of runs) {
+          ctx.beginPath(); ctx.moveTo(xOf(a), yR(0));
+          for (let i = a; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
+          ctx.lineTo(xOf(b), yR(0)); ctx.closePath(); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (const [a, b] of runs) {
+          ctx.moveTo(xOf(a), yR(rank[a]));
+          for (let i = a + 1; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
       }
-      ctx.fillStyle = color; ctx.globalAlpha = 0.08;
-      for (const [a, b] of runs) {
-        ctx.beginPath(); ctx.moveTo(xOf(a), yR(0));
-        for (let i = a; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
-        ctx.lineTo(xOf(b), yR(0)); ctx.closePath(); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      for (const [a, b] of runs) {
-        ctx.moveTo(xOf(a), yR(rank[a]));
-        for (let i = a + 1; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
-      }
-      ctx.stroke();
-      ctx.lineWidth = 1;
       ctx.fillStyle = colors.ink3; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(INDICATORS.rank.name, plotL + 8, lowT + 5);
+      ctx.fillText(`${INDICATORS.rank.name} ›`, plotL + 8, lowT + 6);
       ctx.restore();
+
+      // The grip on the divider.
+      ctx.fillStyle = colors.line;
+      const gx = plotL + plotW() / 2;
+      ctx.beginPath(); ctx.roundRect(gx - 16, plotB - 1.5, 32, 4, 2); ctx.fill();
 
       let lastI = n - 1;
       while (lastI >= 0 && rank[lastI] == null) lastI--;
@@ -533,7 +560,10 @@
     const pointers = new Map();
     let gesture = null;
     let lastAxisTap = 0;
-    const zone = (x, y) => (y >= timeY ? 'time' : y >= plotB ? 'lower' : x >= plotR ? 'axis' : 'plot');
+    const zone = (x, y) => (
+      y >= timeY ? 'time'
+        : lowerOn() && Math.abs(y - plotB) <= TUNE.dividerGrab ? 'divider'
+          : y >= plotB ? 'lower' : x >= plotR ? 'axis' : 'plot');
     const local = (e) => { const b = canvas.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
 
     function freeze() {
@@ -551,6 +581,8 @@
         gesture = { type: 'axis', y0: p.y, span0: spanT(), p0: priceAt(p.y), f: (p.y - plotT) / plotH() };
       } else if (z === 'time') {
         gesture = { type: 'time', x0: p.x, barW0: view.barW };
+      } else if (z === 'divider') {
+        gesture = { type: 'divider', y0: p.y, h0: cfg.rank.height };
       } else {
         // The lower pane pans time only: its scale is fixed.
         gesture = { type: 'pan', x: p.x, y: p.y, flat: z === 'lower' };
@@ -619,14 +651,18 @@
     }
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());   // a hold is the crosshair, not a menu
+    let down = null;                         // where and when the single finger landed
     canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, local(e));
       cancelHold();
       if (xh) { xh = null; schedule(); }
-      if (pointers.size === 1) { startSingle(pointers.get(e.pointerId)); armHold(pointers.get(e.pointerId)); }
-      else if (pointers.size === 2) startPinch();
+      if (pointers.size === 1) {
+        const p = pointers.get(e.pointerId);
+        down = { x: p.x, y: p.y, t: performance.now() };
+        startSingle(p); armHold(p);
+      } else if (pointers.size === 2) { down = null; startPinch(); }
       else gesture = null;
     });
 
@@ -639,6 +675,12 @@
       switch (gesture.type) {
         case 'xhair': {
           xh.i = barAt(clamp(p.x, plotL, plotR - 0.01)); xh.y = p.y;
+          break;
+        }
+        case 'divider': {
+          const [lo, hi] = INDICATORS.rank.limits.height;
+          cfg.rank.height = clamp(gesture.h0 + (gesture.y0 - p.y) / H, lo, hi);
+          layout(); clampView();
           break;
         }
         case 'pan': {
@@ -683,11 +725,20 @@
 
     const end = (e) => {
       if (!pointers.has(e.pointerId)) return;
+      const p = local(e);
       pointers.delete(e.pointerId);
       cancelHold();
       const g = gesture;                     // a crosshair stays put after the finger lifts
       gesture = null;
       if (g && (g.type === 'axis' || (g.type === 'pinch' && g.vertical))) snapPrice();
+      if (g && g.type === 'divider' && opts.onChange) opts.onChange(cfg);
+      // A short, still touch on the lower pane's label opens its settings.
+      if (down && pointers.size === 0 && performance.now() - down.t < TUNE.tapMs
+          && Math.hypot(p.x - down.x, p.y - down.y) <= TUNE.holdSlop && lowerOn() && opts.onOpen
+          && down.x >= plotL && down.x <= plotL + LABEL.w && down.y >= lowT && down.y <= lowT + LABEL.h) {
+        opts.onOpen('rank');
+      }
+      down = null;
       if (pointers.size === 1) startSingle([...pointers.values()][0]);
     };
     canvas.addEventListener('pointerup', end);
@@ -724,7 +775,7 @@
       if (cfg.channel.len !== was.channel.len || scaleChanged) channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
       for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
       if (scaleChanged) { view.auto = true; tween = null; }
-      if (cfg.rank.on !== was.rank.on) { layout(); clampView(); }
+      if (cfg.rank.on !== was.rank.on || cfg.rank.height !== was.rank.height) { layout(); clampView(); }
       schedule();
     }
 

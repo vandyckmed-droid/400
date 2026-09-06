@@ -41,7 +41,9 @@ to work in this repository and with its owner.
   5–300 days, default 200), so the common 50/200 pair is two eyes away. A second divider, "Below
   the chart", holds what is drawn in its own pane beneath the price, on the same dates: the
   **rank** (on by default), the name's daily score, 0–100, in the peer set chosen in Settings, as a
-  line with the latest value tagged on its axis. The pane pans with the bars; its scale is fixed.
+  line or as bars (a setting), with the latest value tagged on its axis. The pane pans with the
+  bars; its scale is fixed; its height is a setting (12–60% of the chart, default 24%) that the
+  divider between the panes also drags. Tapping the pane's label on the chart opens its settings.
   An item's settings open as a small sheet over the chart, so changes draw live and a touch on the
   chart closes it. A Reset in the list's top row, confirmed by a second tap, returns everything to
   defaults, and every choice persists per device. A new overlay or pane is a new entry in chart.js

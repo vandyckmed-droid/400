@@ -962,13 +962,16 @@
       const chg = last / prev - 1;
       $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
         `<small>${fmtDate(bars.dates[n - 1])}</small>`;
+      let panel = null;
       chart = priceChart($('price-chart'), bars, {
         indicators: state.chart, view: chartZoom,
         rank: bars.score ? bars.score[peerKey()] : null,   // the daily score in the peer set in use
+        onChange: (cfg) => { state.chart = cfg; saveChartPrefs(); },
+        onOpen: (id) => panel && panel.openTo(id),
       });
       // The gesture hint shows once per session, not on every name stepped to.
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, chartZoom ? 0 : 6000);
-      wireChartPanel(chart, r.symbol);
+      panel = wireChartPanel(chart, r.symbol);
     });
   }
 
@@ -1001,9 +1004,10 @@
     rank: {
       blurb: 'The momentum score on each day, 0–100: where the name ranked in the peer set chosen in '
         + 'Settings, 100 being the top. Drawn beneath the price on the same dates, so a move in the '
-        + 'rank reads against the bars that made it.',
-      fields: [],
-      summary: () => 'Daily · 0–100 · peer set from Settings',
+        + 'rank reads against the bars that made it. The divider between the panes drags too.',
+      choices: [{ key: 'style', label: 'Draw as', labels: { line: 'Line', bars: 'Bars' } }],
+      fields: [{ key: 'height', label: 'Height', scale: 100, fmt: (v) => `${Math.round(v * 100)}% of the chart` }],
+      summary: (r) => `${r.style === 'bars' ? 'Bars' : 'Line'} · daily · 0–100 · peer set from Settings`,
     },
     axis: {
       blurb: 'Linear spaces prices evenly. Log spaces them so equal percentage moves are equal '
@@ -1053,7 +1057,14 @@
       const cur = state.chart[id];
       $('cset-title').textContent = IND[id].name;
       $('cset-blurb').textContent = IND_UI[id].blurb;
-      $('cset-fields').innerHTML = IND_UI[id].fields.map((f) => {
+      const choices = (IND_UI[id].choices || []).map((f) => `
+        <div class="cchoice"><span>${f.label}</span>
+          <div class="segmented" role="radiogroup" aria-label="${IND[id].name} ${f.label.toLowerCase()}">
+            ${IND[id].choices[f.key].map((v) => `<button type="button" role="radio" data-ind="${id}" data-choice="${f.key}"
+               data-value="${v}" class="${v === cur[f.key] ? 'on' : ''}" aria-checked="${v === cur[f.key]}">${f.labels[v]}</button>`).join('')}
+          </div>
+        </div>`).join('');
+      $('cset-fields').innerHTML = choices + IND_UI[id].fields.map((f) => {
         const [lo, hi, step] = IND[id].limits[f.key], k = f.scale || 1;
         return `<label class="cslider"><span>${f.label} <output data-out="${f.key}">${f.fmt(cur[f.key])}</output></span>
           <input type="range" data-ind="${id}" data-key="${f.key}" min="${lo * k}" max="${hi * k}" step="${step * k}"
@@ -1090,7 +1101,7 @@
     const showSettings = (id) => {
       disarm();
       editing = id; renderFields(id);
-      $('creset').hidden = id !== 'axis' && !IND_UI[id].fields.length;   // nothing to reset
+      $('creset').hidden = id !== 'axis' && !IND_UI[id].fields.length && !(IND_UI[id].choices || []).length;
       root.hidden = true; setScreen.hidden = false; panel.classList.remove('full');
     };
     const open = () => {
@@ -1155,6 +1166,13 @@
         apply('axis', { scale: scaleBtn.dataset.scale });
         saveChartPrefs();
         renderAxis();
+        return;
+      }
+      const choiceBtn = e.target.closest('button[data-choice]');
+      if (choiceBtn) {
+        apply(choiceBtn.dataset.ind, { [choiceBtn.dataset.choice]: choiceBtn.dataset.value });
+        saveChartPrefs();
+        renderFields(choiceBtn.dataset.ind);
       }
     });
     panel.addEventListener('change', (e) => {
@@ -1177,6 +1195,19 @@
       if (editing) showList(); else close();
     };
     addEventListener('keydown', onKey);
+
+    /* Open straight to one item's settings: what a tap on its label on the
+       chart does. The sheet slides up over the chart as usual. */
+    const openTo = (id) => {
+      showSettings(id);
+      if (panel.hidden) {
+        panel.hidden = false;
+        $('chint').style.opacity = 0;
+        btn.setAttribute('aria-expanded', 'true');
+        requestAnimationFrame(() => panel.classList.add('open'));
+      }
+    };
+    return { openTo };
   }
 
   /* One fetch per symbol per session. A missing file resolves to null, so a
