@@ -934,8 +934,9 @@
   const IND_UI = {
     channel: {
       blurb: 'A straight line fitted through the closes over the length, with bands the chosen '
-        + 'number of standard deviations either side, extended to the right edge. Fill shades the '
-        + 'bands; 0% keeps the lines only.',
+        + 'number of standard deviations either side, extended to the right edge. On a log axis the '
+        + 'fit is on the logarithm of the closes, so the bands are equal percentages apart. Fill '
+        + 'shades the bands; 0% keeps the lines only.',
       fields: [
         { key: 'len', label: 'Length', fmt: (v) => `${v} days` },
         { key: 'dev', label: 'Width', fmt: (v) => `${v.toFixed(1)}σ` },
@@ -956,8 +957,8 @@
     },
     axis: {
       blurb: 'Linear spaces prices evenly. Log spaces them so equal percentage moves are equal '
-        + 'heights, which keeps a name that has doubled or halved in proportion. Switching returns '
-        + 'the price range to automatic.',
+        + 'heights, which keeps a name that has doubled or halved in proportion; the regression '
+        + 'channel is then fitted in logs too. Switching returns the price range to automatic.',
       labels: { linear: 'Linear', log: 'Log' },
     },
   };

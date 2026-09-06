@@ -89,20 +89,28 @@
     .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  /* Ordinary least squares over the last `len` closes. Residual deviation is
-     the population standard deviation, which is what the TradingView channel
-     uses. Values are linear in bar index so the lines extend past the last bar. */
-  function regression(c, len) {
+  /* Ordinary least squares over the last `len` closes — on the closes for a
+     linear axis, on their logarithm for a log axis, so the fit is a straight
+     line on whichever axis is showing and the bands are equal dollar (or
+     equal percentage) distances either side. Residual deviation is the
+     population standard deviation, which is what the TradingView channel
+     uses. edge(i, k) is the price of the line k deviations from the fit at
+     bar i; values are linear in bar index so the lines extend past the
+     last bar. */
+  function regression(c, len, log) {
     const n = c.length;
     len = Math.min(len, n);
     const start = n - len;
+    const y = log ? c.slice(start).map(Math.log) : c.slice(start);
     let sx = 0, sy = 0, sxx = 0, sxy = 0;
-    for (let i = 0; i < len; i++) { const y = c[start + i]; sx += i; sy += y; sxx += i * i; sxy += i * y; }
+    for (let i = 0; i < len; i++) { sx += i; sy += y[i]; sxx += i * i; sxy += i * y[i]; }
     const slope = len > 1 ? (len * sxy - sx * sy) / (len * sxx - sx * sx) : 0;
     const intercept = (sy - slope * sx) / len;
     let ss = 0;
-    for (let i = 0; i < len; i++) { const r = c[start + i] - (intercept + slope * i); ss += r * r; }
-    return { start, len, slope, intercept, sd: Math.sqrt(ss / len), at: (i) => intercept + slope * (i - start) };
+    for (let i = 0; i < len; i++) { const r = y[i] - (intercept + slope * i); ss += r * r; }
+    const sd = Math.sqrt(ss / len);
+    const edge = (i, k) => { const f = intercept + slope * (i - start) + k * sd; return log ? Math.exp(f) : f; };
+    return { start, len, edge };
   }
 
   /* Simple moving average of the closes; NaN until `len` bars are in. */
@@ -127,7 +135,7 @@
     const n = c.length;
     const ctx = canvas.getContext('2d');
     let cfg = normalize(opts.indicators);
-    let channel = regression(c, cfg.channel.len);
+    let channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
     const mas = Object.fromEntries(MAS.map((id) => [id, sma(c, cfg[id].period)]));
 
     // View state. `right` is the fractional bar index sitting at the right edge
@@ -194,17 +202,13 @@
       const to = Math.min(n - 1, Math.ceil(view.right));
       let lo = Infinity, hi = -Infinity;
       for (let i = from; i <= to; i++) { if (l[i] < lo) lo = l[i]; if (h[i] > hi) hi = h[i]; }
-      // On a log axis the channel's lower band, which can run to zero and
-      // below, is cut off at half the lowest visible bar; otherwise a wide
-      // band on a cheap name would squash the bars into the top of the plot.
-      const floor = (isFinite(lo) ? lo : c[n - 1]) * 0.5;
+      const barLo = lo;
       if (cfg.channel.on) {
-        const band = cfg.channel.dev * channel.sd;
+        const dev = cfg.channel.dev;
         for (const i of [Math.max(from, channel.start), Math.min(view.right, n - 1 + TUNE.rightRoom * visible())]) {
           if (i < channel.start) continue;
-          const m = channel.at(i);
-          lo = Math.min(lo, isLog() ? Math.max(m - band, floor) : m - band);
-          hi = Math.max(hi, m + band);
+          lo = Math.min(lo, channel.edge(i, -dev));
+          hi = Math.max(hi, channel.edge(i, dev));
         }
       }
       for (const id of MAS) {
@@ -213,7 +217,9 @@
         for (let i = from; i <= to; i++) { const v = ma[i]; if (!isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
       }
       if (!isFinite(lo)) { lo = c[n - 1] * 0.9; hi = c[n - 1] * 1.1; }
-      if (isLog() && !(lo > 0)) lo = floor;   // belt and braces: a log axis never gets a non-positive edge
+      // Belt and braces: on a log axis the fit is in logs, so every edge is
+      // positive; this only guards against a value the arithmetic cannot produce.
+      if (isLog() && !(lo > 0)) lo = (isFinite(barLo) ? barLo : c[n - 1]) * 0.5;
       const pad = (T(hi) - T(lo) || 1) * TUNE.pad;
       return [Tinv(T(lo) - pad), Tinv(T(hi) + pad)];
     }
@@ -281,39 +287,34 @@
       ctx.beginPath(); ctx.rect(plotL, plotT, pw, ph); ctx.clip();
 
       // Regression channel: light fill, thin lines, extended to the right edge.
-      // The channel is straight in price, so on a log axis each edge bends;
-      // edges are sampled across the plot rather than drawn corner to corner.
+      // The fit follows the axis (prices on linear, logs on log), so every
+      // edge is a straight line on screen and two points draw it.
       if (cfg.channel.on) {
-        const band = cfg.channel.dev * channel.sd;
-        // Sampling starts at the channel's first bar or the left edge of the
-        // plot, whichever is later, so the work is bounded by the plot width
-        // however far the channel extends off screen at high zoom.
+        const dev = cfg.channel.dev;
+        // Start at the channel's first bar or just left of the plot, whichever
+        // is later: the same line either way, but bounded geometry rasterises
+        // identically at every zoom.
         const i0 = Math.max(channel.start, indexAt(plotL) - 1), i1 = indexAt(plotR);
-        const segs = isLog() ? Math.max(2, Math.ceil((plotR - xOf(i0)) / 12)) : 1;
-        const edge = (off) => Array.from({ length: segs + 1 }, (_, k) => {
-          const i = i0 + (i1 - i0) * k / segs;
-          return [xOf(i), yOf(channel.at(i) + off)];
-        });
-        const trace = (pts) => { for (const [x, y] of pts) ctx.lineTo(x, y); };
-        const upper = edge(band), middle = edge(0), lower = edge(-band);
-        const poly = (top, bottom, fill) => {
+        const x0 = xOf(i0), x1 = xOf(i1);
+        const poly = (ka, kb, fill) => {
           ctx.fillStyle = fill; ctx.beginPath();
-          ctx.moveTo(top[0][0], top[0][1]); trace(top.slice(1)); trace(bottom.slice().reverse());
+          ctx.moveTo(x0, yOf(channel.edge(i0, ka))); ctx.lineTo(x1, yOf(channel.edge(i1, ka)));
+          ctx.lineTo(x1, yOf(channel.edge(i1, kb))); ctx.lineTo(x0, yOf(channel.edge(i0, kb)));
           ctx.closePath(); ctx.fill();
         };
         if (cfg.channel.fill > 0) {
           ctx.globalAlpha = cfg.channel.fill;
-          poly(upper, middle, colors.accent);
-          poly(middle, lower, colors.cold);
+          poly(dev, 0, colors.accent);
+          poly(0, -dev, colors.cold);
           ctx.globalAlpha = 1;
         }
-        const ln = (pts, color) => {
+        const ln = (k, color) => {
           ctx.strokeStyle = color; ctx.beginPath();
-          ctx.moveTo(pts[0][0], pts[0][1]); trace(pts.slice(1)); ctx.stroke();
+          ctx.moveTo(x0, yOf(channel.edge(i0, k))); ctx.lineTo(x1, yOf(channel.edge(i1, k))); ctx.stroke();
         };
-        ln(upper, colors.accent);
-        ln(lower, colors.accent);
-        ln(middle, colors.cold);
+        ln(dev, colors.accent);
+        ln(-dev, colors.accent);
+        ln(0, colors.cold);
       }
 
       // Bars: high-low stem, open tick left, close tick right.
@@ -539,9 +540,10 @@
       for (const id of Object.keys(SPECS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
       const was = cfg;
       cfg = normalize(merged);
-      if (cfg.channel.len !== was.channel.len) channel = regression(c, cfg.channel.len);
+      const scaleChanged = cfg.axis.scale !== was.axis.scale;
+      if (cfg.channel.len !== was.channel.len || scaleChanged) channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
       for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
-      if (cfg.axis.scale !== was.axis.scale) { view.auto = true; tween = null; }
+      if (scaleChanged) { view.auto = true; tween = null; }
       schedule();
     }
 
