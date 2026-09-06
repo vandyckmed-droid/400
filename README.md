@@ -196,6 +196,13 @@ FMP_API_KEY=your_key python3 scripts/build.py     # rebuild data/ (about 10 minu
 python3 -m http.server 8000                        # then open http://localhost:8000
 ```
 
+### Research sessions
+
+`/research` (a command defined in `.claude/skills/research/SKILL.md`) opens a read-only mode:
+questions, brainstorming and small tests against live FMP data, importing the pipeline code and
+working from the session's scratch folder. It never edits, commits, branches or pushes, so it is
+safe to run alongside a build.
+
 ## Things that affect future work
 
 - **No dependencies anywhere.** The scripts use only the Python standard library and the site is
