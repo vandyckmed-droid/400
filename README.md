@@ -22,16 +22,17 @@ to work in this repository and with its owner.
   whole universe and within its sector, quote and volatility figures, and a bar chart of its score
   at each of the last 36 month ends or 78 week ends with a trailing 4-period average.
 - **Price chart.** A full-screen chart of 18 months of adjusted daily bars. Drag to pan, pinch to
-  zoom, drag the price axis to stretch it. A button in its top bar opens the chart's indicators
-  panel: a list of the indicators the chart can draw, each with an on/off switch and its own
-  settings a tap away. Today there are two. The **regression channel** (on by default): a
-  least-squares line through the closes with bands either side, with settings for length (20–360
-  days, default 200), width (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0
-  leaves the lines only). Two **moving averages** (both off by default): simple averages of the
-  closes, the first drawn in amber (period 5–200 days, default 50), the second in violet (period
-  5–300 days, default 200), so the common 50/200 pair is two switches away. Changes draw live, a touch on the
-  chart closes the panel, and every choice persists per device. A new indicator is a new entry in
-  chart.js plus its drawing; the panel builds itself from that list.
+  zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
+  with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
+  own settings a tap away: the **regression channel** (on by default), a least-squares line through
+  the closes with bands either side, with settings for length (20–360 days, default 200), width
+  (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0 leaves the lines only); and
+  two **moving averages** (both off by default), simple averages of the closes, the first drawn in
+  amber (period 5–200 days, default 50), the second in violet (period 5–300 days, default 200), so
+  the common 50/200 pair is two switches away. **Chart** holds the price axis: linear (default) or
+  log, where equal percentage moves are equal heights; switching returns the range to automatic.
+  Changes draw live, a touch on the chart closes the panel, and every choice persists per device. A
+  new indicator is a new entry in chart.js plus its drawing; the panel builds itself from that list.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
   universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
@@ -130,7 +131,8 @@ The app is a single page routed by URL hash: the list at `/`, a ticker at `#/t/S
 chart at `#/t/SYMBOL/chart`, and `#/settings`. Files beyond the ranking are fetched lazily and
 memoised; a failed optional fetch leaves that piece out rather than breaking the page. Watchlist,
 sector filter, both settings, the chart interval and the chart's indicator settings persist in
-local storage (the last under one key, `sp400.chart.v1`, one object per indicator).
+local storage (the last under one key, `sp400.chart.v1`, one object per indicator plus one for the
+axis).
 
 Both settings buttons (list top bar and chart top bar) share one hand-drawn sliders icon, kept as
 an inline SVG symbol at the top of `index.html`.

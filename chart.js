@@ -1,7 +1,7 @@
 /* Price chart: daily bars on a canvas with the three gestures a phone
    needs — drag to pan time, pinch to zoom time, drag the price axis to stretch
-   it — plus optional indicators: a linear regression channel and two simple
-   moving averages. */
+   it — plus optional indicators (a linear regression channel and two simple
+   moving averages) and a linear or log price axis. */
 (function () {
   'use strict';
 
@@ -30,16 +30,31 @@
   };
   const MAS = ['ma', 'ma2'];     // the moving-average indicators, drawn the same way
 
-  /* Fill in defaults and clamp every number, so a stale or hand-edited store
-     can never put the chart in a state it cannot draw. */
+  /* The price axis: linear, or log so equal percentage moves are equal
+     heights. Stored and normalised beside the indicators; shown on the
+     panel's Chart tab rather than in the indicator list. */
+  const AXIS = {
+    name: 'Price axis',
+    defaults: { scale: 'linear' },
+    choices: { scale: ['linear', 'log'] },
+  };
+  const SPECS = { ...INDICATORS, axis: AXIS };
+
+  /* Fill in defaults, clamp every number and reject unknown choices, so a
+     stale or hand-edited store can never put the chart in a state it cannot
+     draw. */
   function normalize(prefs) {
     const out = {};
-    for (const [id, spec] of Object.entries(INDICATORS)) {
+    for (const [id, spec] of Object.entries(SPECS)) {
       const raw = (prefs && typeof prefs[id] === 'object' && prefs[id]) || {};
-      const o = { on: typeof raw.on === 'boolean' ? raw.on : spec.defaults.on };
-      for (const [k, [lo, hi]] of Object.entries(spec.limits)) {
+      const o = {};
+      if ('on' in spec.defaults) o.on = typeof raw.on === 'boolean' ? raw.on : spec.defaults.on;
+      for (const [k, [lo, hi]] of Object.entries(spec.limits || {})) {
         const v = raw[k];
         o[k] = (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : spec.defaults[k];
+      }
+      for (const [k, allowed] of Object.entries(spec.choices || {})) {
+        o[k] = allowed.includes(raw[k]) ? raw[k] : spec.defaults[k];
       }
       out[id] = o;
     }
@@ -102,9 +117,10 @@
     return out;
   }
 
-  /* opts: { indicators, view }. `indicators` is in the shape of INDICATORS'
-     defaults; the app owns where it is stored, hands it in, and changes it
-     later through set(). `view` is a zoom() snapshot from a previous chart,
+  /* opts: { indicators, view }. `indicators` is the whole settings object —
+     one entry per indicator plus `axis` — in the shape of SPECS' defaults;
+     the app owns where it is stored, hands it in, and changes it later
+     through set(). `view` is a zoom() snapshot from a previous chart,
      so stepping between names keeps the same bar width and right edge. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
@@ -129,9 +145,20 @@
     const visible = () => plotW() / view.barW;
     const xOf = (i) => plotR - (view.right - i - 0.5) * view.barW;
     const indexAt = (x) => view.right - (plotR - x) / view.barW;
-    const yOf = (v) => plotT + (view.hi - v) / (view.hi - view.lo) * plotH();
-    const priceAt = (y) => view.hi - (y - plotT) / plotH() * (view.hi - view.lo);
     const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+    /* Price <-> pixel goes through one transform: identity on a linear axis,
+       natural log on a log axis. view.lo and view.hi stay prices on both, so
+       the auto range, snapping and tick labels keep working in price terms;
+       only spans — the gesture arithmetic — are measured in transformed
+       units, which is what makes an axis drag feel the same on either. */
+    const FLOOR = 1e-6;                      // log needs a positive price; below this is off the chart anyway
+    const isLog = () => cfg.axis.scale === 'log';
+    const T = (v) => (isLog() ? Math.log(Math.max(v, FLOOR)) : v);
+    const Tinv = (t) => (isLog() ? Math.exp(t) : t);
+    const spanT = () => T(view.hi) - T(view.lo);
+    const yOf = (v) => plotT + (T(view.hi) - T(v)) / spanT() * plotH();
+    const priceAt = (y) => Tinv(T(view.hi) - (y - plotT) / plotH() * spanT());
 
     function readColors() {
       colors = {
@@ -167,12 +194,17 @@
       const to = Math.min(n - 1, Math.ceil(view.right));
       let lo = Infinity, hi = -Infinity;
       for (let i = from; i <= to; i++) { if (l[i] < lo) lo = l[i]; if (h[i] > hi) hi = h[i]; }
+      // On a log axis the channel's lower band, which can run to zero and
+      // below, is cut off at half the lowest visible bar; otherwise a wide
+      // band on a cheap name would squash the bars into the top of the plot.
+      const floor = (isFinite(lo) ? lo : c[n - 1]) * 0.5;
       if (cfg.channel.on) {
         const band = cfg.channel.dev * channel.sd;
         for (const i of [Math.max(from, channel.start), Math.min(view.right, n - 1 + TUNE.rightRoom * visible())]) {
           if (i < channel.start) continue;
           const m = channel.at(i);
-          lo = Math.min(lo, m - band); hi = Math.max(hi, m + band);
+          lo = Math.min(lo, isLog() ? Math.max(m - band, floor) : m - band);
+          hi = Math.max(hi, m + band);
         }
       }
       for (const id of MAS) {
@@ -181,8 +213,16 @@
         for (let i = from; i <= to; i++) { const v = ma[i]; if (!isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
       }
       if (!isFinite(lo)) { lo = c[n - 1] * 0.9; hi = c[n - 1] * 1.1; }
-      const pad = (hi - lo || 1) * TUNE.pad;
-      return [lo - pad, hi + pad];
+      if (isLog() && !(lo > 0)) lo = floor;   // belt and braces: a log axis never gets a non-positive edge
+      const pad = (T(hi) - T(lo) || 1) * TUNE.pad;
+      return [Tinv(T(lo) - pad), Tinv(T(hi) + pad)];
+    }
+
+    /* The tick step near price v: constant on a linear axis; on a log axis
+       the price distance that spans tickPx pixels at that height. */
+    function tickStepAt(v) {
+      if (!isLog()) return niceStep(view.hi - view.lo, plotH() / TUNE.tickPx);
+      return niceStep(Math.max(v, FLOOR) * TUNE.tickPx * spanT() / plotH(), 1);
     }
 
     function schedule() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); }
@@ -203,17 +243,22 @@
       ctx.fillRect(0, 0, W, H);
       ctx.lineWidth = 1;
 
-      // Price ticks and horizontal grid.
-      const step = niceStep(view.hi - view.lo, ph / TUNE.tickPx);
+      // Price ticks and horizontal grid: one nice step on a linear axis; on a
+      // log axis the step grows with the price, so ticks stay about tickPx
+      // apart all the way up instead of crowding at the top.
       const tagY = yOf(c[n - 1]);
       ctx.strokeStyle = colors.grid;
       ctx.fillStyle = colors.ink3;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      for (let v = Math.ceil(view.lo / step) * step; v <= view.hi; v += step) {
+      let lastLabelY = Infinity;
+      let step = tickStepAt(view.lo);
+      for (let v = Math.ceil(view.lo / step) * step, k = 0; v <= view.hi && step > 0 && k < 200; k++) {
         const y = Math.round(yOf(v)) + 0.5;
         ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
-        if (Math.abs(y - tagY) > 14) ctx.fillText(fmtPrice(v), plotR + 8, y);
+        if (Math.abs(y - tagY) > 14 && lastLabelY - y > 14) { ctx.fillText(fmtPrice(v), plotR + 8, y); lastLabelY = y; }
+        step = tickStepAt(v);
+        v = Math.floor(v / step + 1e-9) * step + step;     // the next multiple of the (possibly larger) step
       }
 
       // Date labels and vertical grid at month starts, thinned to fit.
@@ -236,29 +281,39 @@
       ctx.beginPath(); ctx.rect(plotL, plotT, pw, ph); ctx.clip();
 
       // Regression channel: light fill, thin lines, extended to the right edge.
+      // The channel is straight in price, so on a log axis each edge bends;
+      // edges are sampled across the plot rather than drawn corner to corner.
       if (cfg.channel.on) {
         const band = cfg.channel.dev * channel.sd;
-        const i0 = channel.start, i1 = indexAt(plotR);
-        const x0 = xOf(i0), x1 = plotR;
-        const m0 = channel.at(i0), m1 = channel.at(i1);
-        const poly = (a0, a1, b0, b1, fill) => {
+        // Sampling starts at the channel's first bar or the left edge of the
+        // plot, whichever is later, so the work is bounded by the plot width
+        // however far the channel extends off screen at high zoom.
+        const i0 = Math.max(channel.start, indexAt(plotL) - 1), i1 = indexAt(plotR);
+        const segs = isLog() ? Math.max(2, Math.ceil((plotR - xOf(i0)) / 12)) : 1;
+        const edge = (off) => Array.from({ length: segs + 1 }, (_, k) => {
+          const i = i0 + (i1 - i0) * k / segs;
+          return [xOf(i), yOf(channel.at(i) + off)];
+        });
+        const trace = (pts) => { for (const [x, y] of pts) ctx.lineTo(x, y); };
+        const upper = edge(band), middle = edge(0), lower = edge(-band);
+        const poly = (top, bottom, fill) => {
           ctx.fillStyle = fill; ctx.beginPath();
-          ctx.moveTo(x0, yOf(a0)); ctx.lineTo(x1, yOf(a1)); ctx.lineTo(x1, yOf(b1)); ctx.lineTo(x0, yOf(b0));
+          ctx.moveTo(top[0][0], top[0][1]); trace(top.slice(1)); trace(bottom.slice().reverse());
           ctx.closePath(); ctx.fill();
         };
         if (cfg.channel.fill > 0) {
           ctx.globalAlpha = cfg.channel.fill;
-          poly(m0 + band, m1 + band, m0, m1, colors.accent);
-          poly(m0, m1, m0 - band, m1 - band, colors.cold);
+          poly(upper, middle, colors.accent);
+          poly(middle, lower, colors.cold);
           ctx.globalAlpha = 1;
         }
-        const ln = (a0, a1, color) => {
+        const ln = (pts, color) => {
           ctx.strokeStyle = color; ctx.beginPath();
-          ctx.moveTo(x0, yOf(a0)); ctx.lineTo(x1, yOf(a1)); ctx.stroke();
+          ctx.moveTo(pts[0][0], pts[0][1]); trace(pts.slice(1)); ctx.stroke();
         };
-        ln(m0 + band, m1 + band, colors.accent);
-        ln(m0 - band, m1 - band, colors.accent);
-        ln(m0, m1, colors.cold);
+        ln(upper, colors.accent);
+        ln(lower, colors.accent);
+        ln(middle, colors.cold);
       }
 
       // Bars: high-low stem, open tick left, close tick right.
@@ -338,7 +393,7 @@
         if (now - lastAxisTap < TUNE.doubleTapMs) { resetPrice(); lastAxisTap = 0; gesture = null; return; }
         lastAxisTap = now;
         freeze();
-        gesture = { type: 'axis', y0: p.y, span0: view.hi - view.lo, p0: priceAt(p.y), f: (p.y - plotT) / plotH() };
+        gesture = { type: 'axis', y0: p.y, span0: spanT(), p0: priceAt(p.y), f: (p.y - plotT) / plotH() };
       } else if (z === 'time') {
         gesture = { type: 'time', x0: p.x, barW0: view.barW };
       } else {
@@ -355,7 +410,7 @@
       gesture = {
         type: 'pinch', vertical, d0: Math.hypot(dx, dy) || 1,
         barW0: view.barW, idx0: indexAt(mid.x),
-        span0: view.hi - view.lo, p0: priceAt(mid.y), f: (mid.y - plotT) / plotH(),
+        span0: spanT(), p0: priceAt(mid.y), f: (mid.y - plotT) / plotH(),
       };
     }
 
@@ -367,19 +422,28 @@
     }
 
     /* On release the range snaps outward to the tick step, so the axis always
-       starts and ends on a round number. */
+       starts and ends on a round number. On a log axis the low end keeps its
+       own, finer step, and never snaps to zero. */
     function snapPrice() {
-      const step = niceStep(view.hi - view.lo, plotH() / TUNE.tickPx);
-      const lo = Math.floor(view.lo / step) * step, hi = Math.ceil(view.hi / step) * step;
+      const loStep = tickStepAt(view.lo), hiStep = tickStepAt(view.hi);
+      let lo = Math.floor(view.lo / loStep) * loStep;
+      const hi = Math.ceil(view.hi / hiStep) * hiStep;
+      if (isLog() && lo <= 0) lo = view.lo;
       tween = { t0: performance.now(), lo0: view.lo, hi0: view.hi, lo1: lo, hi1: hi };
       schedule();
     }
 
+    /* Set the visible span (in transformed units) keeping the price p0 at
+       fraction f of the plot height. Bounded to 40x either side of the auto
+       range; a log axis is also capped at a 10,000-fold range. */
     function setSpan(span, p0, f) {
-      const auto = autoRange();
-      span = clamp(span, (auto[1] - auto[0]) / 40, (auto[1] - auto[0]) * 40);
-      view.hi = p0 + f * span;
-      view.lo = view.hi - span;
+      const [alo, ahi] = autoRange();
+      const base = T(ahi) - T(alo);
+      const most = isLog() ? Math.min(base * 40, Math.log(1e4)) : base * 40;
+      span = clamp(span, base / 40, most);
+      const hiT = T(p0) + f * span;
+      view.hi = Tinv(hiT);
+      view.lo = Tinv(hiT - span);
     }
 
     canvas.addEventListener('pointerdown', (e) => {
@@ -400,8 +464,9 @@
         case 'pan': {
           view.right -= (p.x - gesture.x) / view.barW;
           if (!view.auto) {
-            const dp = (p.y - gesture.y) * (view.hi - view.lo) / plotH();
-            view.lo += dp; view.hi += dp;
+            const dT = (p.y - gesture.y) * spanT() / plotH();
+            const lo = Tinv(T(view.lo) + dT), hi = Tinv(T(view.hi) + dT);
+            view.lo = lo; view.hi = hi;
           }
           gesture.x = p.x; gesture.y = p.y;
           clampView();
@@ -465,15 +530,18 @@
     new ResizeObserver(resize).observe(canvas);
     resize();
 
-    /* Live settings: merge what is given per indicator, recompute only what
-       changed, and redraw on the next frame. */
+    /* Live settings: merge what is given per key, recompute only what
+       changed, and redraw on the next frame. A change of axis scale returns
+       the price range to auto, since a hand-set linear range may include
+       prices a log axis cannot show. */
     function set(next = {}) {
       const merged = {};
-      for (const id of Object.keys(INDICATORS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
+      for (const id of Object.keys(SPECS)) merged[id] = { ...cfg[id], ...(next[id] || {}) };
       const was = cfg;
       cfg = normalize(merged);
       if (cfg.channel.len !== was.channel.len) channel = regression(c, cfg.channel.len);
       for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
+      if (cfg.axis.scale !== was.axis.scale) { view.auto = true; tween = null; }
       schedule();
     }
 
@@ -482,5 +550,6 @@
 
   window.priceChart = priceChart;
   window.priceChart.INDICATORS = INDICATORS;   // app.js builds the panel and its defaults from these
+  window.priceChart.AXIS = AXIS;
   window.priceChart.normalize = normalize;
 })();
