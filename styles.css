@@ -11,6 +11,7 @@
   --hot: #10893e;
   --cold: #cf2f3f;
   --mid: #b07d12;
+  --ma2: #7a5bd6;
   --track: #eceef2;
   --shadow: 0 1px 2px rgba(16, 20, 28, .06);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -30,6 +31,7 @@
     --hot: #35c46a;
     --cold: #ff6b76;
     --mid: #e0a83a;
+    --ma2: #a98bff;
     --track: #1c212b;
     --shadow: none;
   }
