@@ -20,9 +20,11 @@ to work in this repository and with its owner.
   still returns to where the reader came from.
 - **Detail page.** The name's score and placement, then directly beneath it a bar chart of its
   score at each of the last 36 month ends or 78 week ends with a trailing 4-period average, so
-  current strength and its history read together; then the link to the price chart, its two
-  momentum legs, its standing against the whole universe and within its sector, and quote and
-  volatility figures.
+  current strength and its history read together; then the link to the price chart; a **Score
+  components** table with the two legs side by side (return, return ÷ volatility, net of market,
+  percentile, blend weight), the measure the percentiles rank marked, and the blend written out
+  to the score, with a link to the methodology in Settings; its standing against the whole universe
+  and within its sector; and quote and volatility figures.
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
   with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
