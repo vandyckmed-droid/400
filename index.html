@@ -63,9 +63,7 @@
         </div>
         <label class="sel"><span>Sort</span>
           <select id="sort">
-            <option value="score">Blended score</option>
-            <option value="p12">12–1 percentile</option>
-            <option value="p6">6–1 percentile</option>
+            <option value="score">Score</option>
             <option value="mktCap">Market cap</option>
             <option value="symbol">Ticker A–Z</option>
           </select>
@@ -79,7 +77,7 @@
   <div id="sentinel"></div>
   <p class="empty" id="empty" hidden>No matches.</p>
   <footer class="foot">
-    <p>Scores are cross-sectional percentiles within the MidCap&nbsp;650 universe — a rank against peers, not a return forecast.</p>
+    <p>The score is a standing against peers in the MidCap&nbsp;650 universe, not a return forecast.</p>
     <p id="gen"></p>
   </footer>
 </main>
@@ -93,25 +91,47 @@
   </div>
 
   <div class="card">
-    <h3>Ranking</h3>
-    <label class="switch">
-      <span class="grow"><b>Score within sector</b>
-        <small>Rank each name only against its own GICS sector instead of the whole universe. Strips
-        out the sector bet the whole-universe ranking otherwise takes — useful if sector weights are
-        already controlled elsewhere.</small></span>
-      <input type="checkbox" id="basis" role="switch">
-    </label>
+    <h3>Score</h3>
     <div class="choice">
-      <span class="grow"><b>What each leg measures</b>
-        <small id="adjust-note"></small></span>
-      <div class="segmented" id="adjust-seg" role="radiogroup" aria-label="What each leg measures">
-        <button type="button" role="radio" data-adjust="raw">Return</button>
-        <button type="button" role="radio" data-adjust="vol">÷ Volatility</button>
-        <button type="button" role="radio" data-adjust="resid">Net of market</button>
+      <span class="grow"><b>Period</b><small id="period-note"></small></span>
+      <div class="segmented" id="period-seg" role="radiogroup" aria-label="Period">
+        <button type="button" role="radio" data-period="12">12–1</button>
+        <button type="button" role="radio" data-period="6">6–1</button>
+        <button type="button" role="radio" data-period="blend">Blend</button>
       </div>
     </div>
-    <p class="legend">The universe is fixed: every name is ranked against all ~650 of them. Both
-      settings change how that one cross-section is read, not which names are in it.</p>
+    <label class="switch">
+      <span class="grow"><b>Volatility adjustment</b>
+        <small>Divide each period's return by its own annualised volatility, so a steady climb
+        outscores an equally large but erratic one.</small></span>
+      <input type="checkbox" id="adj-vol" role="switch">
+    </label>
+    <label class="switch">
+      <span class="grow"><b>Market residualization</b>
+        <small>Count only the part of the return the market does not explain: each name's daily
+        moves are regressed on the equal-weight universe over the window, and what is left over is
+        the measure. Stops rewarding names that merely rode the market.</small></span>
+      <input type="checkbox" id="adj-resid" role="switch">
+    </label>
+    <div class="choice">
+      <span class="grow"><b>Standardize against</b><small id="basis-note"></small></span>
+      <div class="segmented" id="basis-seg" role="radiogroup" aria-label="Standardize against">
+        <button type="button" role="radio" data-basis="universe">Universe</button>
+        <button type="button" role="radio" data-basis="sector">Sector</button>
+      </div>
+    </div>
+    <div class="choice">
+      <span class="grow"><b>Display</b><small id="display-note"></small></span>
+      <div class="segmented" id="display-seg" role="radiogroup" aria-label="Display">
+        <button type="button" role="radio" data-display="value">Score value</button>
+        <button type="button" role="radio" data-display="rank">Rank</button>
+        <button type="button" role="radio" data-display="pct">Percentile</button>
+      </div>
+    </div>
+    <p class="legend">One universe, one score. These choices change how it is built and how it is
+      read, not which names are in it. The list, its order, the detail page and the score pane under
+      each price chart all use the same settings, so the same name on the same day reads the same
+      everywhere.</p>
   </div>
 
   <div class="card">
@@ -133,13 +153,14 @@
       The line between the two indices is an index committee's decision rather than a size boundary,
       so crossing it is the point: a name is measured against everything of roughly its size instead
       of against whichever index happens to hold it.</p>
-    <p class="fine">Membership is point-in-time: the history chart re-runs the full cross-section at
-      each month or week end using the universe as it stood that day, with the S&amp;P&nbsp;500 tail
-      picked on that day's market caps. A name that joined recently is scored as an outsider on
-      earlier dates — where it <em>would</em> have ranked — and those bars are dimmed.</p>
+    <p class="fine">Membership is point-in-time: the score pane under each price chart re-runs the
+      full cross-section on every trading day using the universe as it stood that day, with the
+      S&amp;P&nbsp;500 tail picked on that day's market caps. A name that joined recently is scored
+      on earlier dates against that day's members — where it <em>would</em> have stood — without
+      being counted among them.</p>
   </div>
 
-  <footer class="foot"><p>Data: Financial Modeling Prep. A percentile is a rank against peers, not a
+  <footer class="foot"><p>Data: Financial Modeling Prep. The score is a standing against peers, not a
     return forecast. Not investment advice.</p></footer>
 </section>
 

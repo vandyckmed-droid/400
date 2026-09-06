@@ -10,23 +10,23 @@ to work in this repository and with its owner.
 
 ## What the app does
 
-- **List.** Every name in the universe ranked by momentum score, with a 12-month score strip per
-  row, a watchlist (star any row), a multi-select sector filter, and a sort menu (blended score,
-  12–1 percentile, 6–1 percentile, market cap, ticker A–Z). Rows load in chunks as you scroll.
+- **List.** Every name in the universe ranked by the score, shown in the chosen display (value,
+  rank or percentile), with a 12-month strip of month-end standings per row, a watchlist (star any
+  row), a multi-select sector filter, and a sort menu: score (strongest first, under the active
+  Score settings), market cap, or ticker A–Z. Rows load in chunks as you scroll.
 - **Previous / next.** Under the top bar of the detail page and of the chart, a strip steps to the
   name either side of this one in the list as it stands (its sort, sector filter and watchlist
   state), showing the position ("12 of 646"). Stepping between charts keeps the zoom. Left and
   right arrow keys do the same on a keyboard. Steps replace the current history entry, so Back
   still returns to where the reader came from.
-- **Detail page.** One focus card: the score, its rank and date, a muted line of sector, industry
-  and market cap, and directly beneath, the bar chart of its score at each of the last 36 month
-  ends or 78 week ends with a trailing 4-period average. The headline is the chart's readout:
-  tap or drag a bar and the big number shows that period's score and date, the latest bar shows
-  today's score and rank. A one-line key states what the chart measures; a "How this is measured"
-  disclosure holds the fuller note. Below, a link row to the price chart and three sections that
-  expand in place, each with its one key fact in the row: Score components (the two legs side by
-  side with the blend written out, and a link to the methodology in Settings), Against its peers
-  (the rank in the peer set the headline is not using), and Quote & risk (price and change).
+- **Detail page.** One focus card: the score in the chosen display, coloured by percentile, with
+  the other two readings and the settings that built it beside it, and a muted line of sector,
+  industry and market cap. Below, a link row to the price chart and three sections that expand in
+  place, each with its one key fact in the row: **Score components** (the two periods side by
+  side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
+  and standard deviation, the z-score, and the blend written out), **Against its peers** (the same
+  name standardized against the universe and against its sector, with the rank each gives), and
+  **Quote & risk** (price and change). The score through time lives under the price chart.
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens a full-screen list of what
   the chart draws. First the **price plot** itself, whose settings are the price axis: linear
@@ -40,25 +40,28 @@ to work in this repository and with its owner.
   closes, the first drawn in amber (period 5–200 days, default 50), the second in violet (period
   5–300 days, default 200), so the common 50/200 pair is two eyes away. A second divider, "Below
   the chart", holds what is drawn in its own pane beneath the price, on the same dates: the
-  **rank** (on by default), the name's daily score, 0–100, in the peer set chosen in Settings, as a
-  line or as bars (a setting), with the latest value tagged on its axis. The pane pans with the
-  bars; its scale is fixed; its height is a setting (12–60% of the chart, default 24%) that the
-  divider between the panes also drags. Tapping the pane's label on the chart opens its settings.
-  An item's settings open as a small sheet over the chart, so changes draw live and a touch on the
-  chart closes it. A Reset in the list's top row, confirmed by a second tap, returns everything to
-  defaults, and every choice persists per device. A new overlay or pane is a new entry in chart.js
-  plus its drawing; the list builds itself from that.
+  **score** (on by default), the name's daily score under the active Settings, in the chosen
+  display, as a line or as bars (a setting), with the latest value tagged on its axis. The pane's
+  scale follows the display: a percentile runs 0–100, a rank runs from 1 at the top to the member
+  count at the bottom, a value spans the series with zero as the baseline and negative values
+  below it. The pane pans with the bars; its height is a setting (12–60% of the chart, default
+  24%) that the divider between the panes also drags. Tapping the pane's label on the chart opens
+  its settings. An item's settings open as a small sheet over the chart, so changes draw live and
+  a touch on the chart closes it. A Reset in the list's top row, confirmed by a second tap,
+  returns everything to defaults, and every choice persists per device. A new overlay or pane is a
+  new entry in chart.js plus its drawing; the list builds itself from that.
   **Press and hold** on either pane for a crosshair: a vertical through both panes that slides
   from bar to bar under the finger, a horizontal at the finger, the date on the time axis, the
-  price (or rank) under the finger on the axis, and a readout of the bar's open, high, low, close,
-  day change and rank. It stays when the finger lifts; the next touch clears it.
-- **Settings.** Two settings (below), a data card, the methodology, and a description of the
-  universe.
+  price (or score) under the finger on the axis, and a readout of the bar's open, high, low,
+  close, day change and score. It stays when the finger lifts; the next touch clears it.
+- **Settings.** The Score section (four choices, below), a data card, the methodology as the
+  settings define it, and a description of the universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
 - If the published data is more than four days old the list shows an amber warning.
 
-Everything is computed by Python scripts and served as static JSON. The browser does no math
-beyond drawing. The Financial Modeling Prep (FMP) API key never reaches the browser.
+The pipeline (Python) computes every day's cross-section and serves static JSON; the browser
+builds the score for the list from the day's published ingredients with the same arithmetic. The
+Financial Modeling Prep (FMP) API key never reaches the browser.
 
 ## The universe
 
@@ -76,47 +79,56 @@ so historical bars carry some survivorship bias. Present-day rankings are unaffe
 
 ## The score
 
-For each name, on each ranking date:
+One definition, with four choices made in Settings. The pipeline publishes the ingredients for
+every combination; the browser builds the score the reader has chosen, step for step as the
+pipeline does for the daily series, on the same rounded numbers, so every view agrees.
 
-1. **12–1 momentum**: total return on dividend- and split-adjusted closes over the 252 trading days
-   ending 21 trading days ago. The last month is skipped to avoid short-term reversal.
-2. **6–1 momentum**: the same over 126 trading days, again ending 21 days ago.
-3. **Optional adjustment**: each leg is either left as the return, divided by the annualised
-   standard deviation of daily log returns over its own window, or replaced by the return net of
-   the market.
-4. **Percentile**: each leg is ranked 0–100 against the peer set (average ranks for ties).
-5. **Blend**: final score = 0.5 × 12–1 percentile + 0.5 × 6–1 percentile.
+For each name, on each trading day:
+
+1. **Two periods.** *12–1*: total return on dividend- and split-adjusted closes over the 252
+   trading days ending 21 trading days ago; the last month is skipped to avoid short-term
+   reversal. *6–1*: the same over 126 trading days, again ending 21 days ago.
+2. **Adjustments**, each a switch, applied to each period:
+   - *Market residualization*: over the window the name's daily log returns are regressed on the
+     equal-weight average of every priced name, and the period's return becomes what the
+     regression leaves unexplained (the intercept times the number of days: the return net of
+     beta times the market's).
+   - *Volatility adjustment*: the (possibly residual) return is divided by the annualised standard
+     deviation of the (possibly residual) daily log returns over the same window.
+3. **Standardize** the period's measure against its peers on that day: (measure − peer mean) ÷
+   peer standard deviation (population), rounded to two decimals. Peers are *Universe* (every
+   scored member) or *Sector* (the members of the name's GICS sector; a sector under five names
+   is left unscored).
+4. **Period choice**: the score is the 12–1 z-score, the 6–1 z-score, or *Blend*: the two
+   z-scores averaged 50/50, again to two decimals.
+5. **Display**, a reading of the completed score that never changes the order:
+   - *Score value*: the number itself, signed; 0 is the peer average.
+   - *Rank*: integer position across the whole scored universe, 1 = best, whatever the score was
+     standardized against; ties share the better position.
+   - *Percentile*: 100 × (n − rank) ÷ (n − 1) across the whole scored universe, 100 = best.
 
 A name needs at least 180 daily returns in the 12-month window and 90 in the 6-month window, so
 recent listings sit out until they season.
 
-**Net of the market** means residual momentum: over each formation window the name's daily log
-returns are regressed on the equal-weight average of every priced name, and the leg becomes the
-return that regression leaves unexplained. It stops rewarding names that merely rode the market.
+### The 24 definitions
 
-### The six peer sets
+Period (3) × adjustments (4 combinations) × basis (2) gives 24 score definitions, keyed
+`<period>-<adjust>-<basis>`: period `12`, `6` or `blend`; adjust `none`, `vol`, `resid` or
+`volresid`; basis `universe` or `sector`. Every one is published, so a change of settings is a
+different file, not a rebuild. Display needs nothing extra: rank and percentile are read off the
+day's ladder of member scores.
 
-Two settings change how the one cross-section is read, never which names are in it. Both persist
-per device in local storage.
-
-| Setting | Choices |
-| --- | --- |
-| Score within sector (switch) | Off: rank against the whole universe (`w`). On: rank only against the name's GICS sector (`s`) |
-| What each leg measures (three-way) | The return itself (`r`, default); return ÷ its own volatility (`v`); return net of the market (`m`) |
-
-The combination is a two-letter key: `wr`, `wv`, `wm`, `sr`, `sv`, `sm`. All six ship in every
-ranking file. Sectors with fewer than five names would be left unscored, but none currently are.
+Defaults: blend, no adjustments, universe, percentile. All four persist per device.
 
 FMP labels S&P 500 sectors with a different taxonomy than the GICS names Wikipedia uses for the
-MidCap 400; `scripts/universes.py` maps them onto GICS so names are ranked against their sector,
-not their data source.
+MidCap 400; `scripts/universes.py` maps them onto GICS so names are standardized against their
+sector, not their data source.
 
 ### Recent joiners
 
-A name that joined the index recently is scored on earlier dates as an "outsider": inserted into
-that day's member distribution to find where it would have ranked, without changing the members'
-own percentiles. Those bars are dimmed on the charts and labelled "not yet a member". The daily
-rank line under the price chart does not make the distinction.
+A name that joined the index recently is scored on earlier dates as an outsider: standardized
+against that day's members and ranked on their ladder to find where it would have stood, without
+entering the members' statistics. Present-day rankings are unaffected.
 
 ## How it is built
 
@@ -134,13 +146,16 @@ manifest.webmanifest  icon-*.png   home-screen install
 scripts/build.py                   the whole ranking pipeline, standard library only
 scripts/universes.py               universe definition, point-in-time membership, market caps
 
-data/latest.json                   current ranking, all six peer sets, quotes, key stats
-data/spark/<key>.json              last 12 month-end scores per name, one file per peer set (6)
-data/history/<key>.json            36 month-end scores per name, one file per peer set (6)
-data/history/<key>w.json           78 week-end scores per name, loaded only when asked for
+data/latest.json                   today's rows (legs, quote, key stats) and the day's peer
+                                   statistics: everything the browser needs to score the list
+data/score/<key>.json              one per score definition (24): for each of the last 756
+                                   trading days, the member count, the peer statistics it
+                                   standardizes against, and the ladder of member scores
+                                   (base64 int16); ~1.3 MB each, fetched only when the chart opens
+data/spark/<key>.json              last 12 month-end scores and ranks per name, one per definition
 data/bars/<SYMBOL>.json            756 adjusted daily bars (~3 years) per ranked name, with the
-                                   name's daily score in all six peer sets on the same dates;
-                                   ~35 MB in all
+                                   name's two legs (return, volatility, net-of-market return,
+                                   residual volatility) on the same dates; ~55 MB in all
 data/universe.json                 MidCap 400 constituents + change log; also the offline fallback
 data/sp500.json                    S&P 500 constituents + change log; also the offline fallback
 
@@ -172,10 +187,9 @@ All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 | Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,100 symbols |
 | Quotes (market cap, 52-week range, last change) | FMP `batch-quote` |
 
-Six years of prices are fetched because the oldest month-end ranking on the history chart looks a
-further year back. They are used for the maths and not stored; only the last 756 bars per name are
-written to `data/bars/`, each with the daily score alongside. The daily cross-sections (one per
-bar, about a minute of arithmetic) are computed the same way as the month-end and week-end ones.
+Six years of prices are fetched because the oldest daily score looks a further year back. They
+are used for the maths and not stored; only the last 756 bars per name are written to
+`data/bars/`, each with the legs alongside. The 756 daily cross-sections take under a minute.
 Responses are cached under `.cache/` (gitignored) for 12 hours.
 
 ### Safeguards
@@ -183,8 +197,8 @@ Responses are cached under `.cache/` (gitignored) for 12 hours.
 - **Sources down.** Each membership source writes a committed snapshot on success and falls back
   to it on failure, so an outage degrades the refresh to the last good membership.
 - **Degraded output.** `build.py` refuses to publish if fewer than 380 of the 400 priced, the
-  universe is under 620 names, the ranked count fell more than 5% from last run, or a monthly
-  cross-section went missing.
+  universe is under 620 names, the ranked count fell more than 5% from last run, or more than five
+  of the 756 daily cross-sections could not be scored.
 - **Intraday prints.** A bar dated today is dropped when the run happens before 21:00 UTC, so a
   manual daytime run never plots an unsettled close.
 - **Reproducibility.** Ties and set iteration are sorted deterministically, so identical inputs
@@ -217,8 +231,11 @@ python3 -m http.server 8000                        # then open http://localhost:
 
 - **No dependencies anywhere.** The scripts use only the Python standard library and the site is
   plain HTML, CSS and JS. Adding a package or a build step is a real decision, not a detail.
-- **Everything is pre-computed.** A new feature that needs a number the JSON does not carry means a
-  change to `build.py` and a refresh, not a browser-side calculation.
+- **One score, built in two places.** `build.py` (`measure`, `cross_section`) and `app.js` (the
+  score module at the top) build the score with the same steps on the same rounded inputs; that is
+  what lets the list score itself in the browser while the daily series is published. A change to
+  the definition is a change to both, kept step for step identical, plus a refresh. Anything else a
+  view needs that the JSON does not carry is a change to `build.py` and a refresh.
 - **Repository size grows daily.** The bars folder is rewritten on every run; git stores each
   rewrite as a small delta, but the history is still growing.
 - **The universe is fixed by design.** A universe switch was tried and removed because it created a
@@ -229,4 +246,4 @@ python3 -m http.server 8000                        # then open http://localhost:
 
 ## Not investment advice
 
-A percentile is a rank against peers, not a return forecast.
+The score is a standing against peers, not a return forecast.
