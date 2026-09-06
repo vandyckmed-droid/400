@@ -13,6 +13,11 @@ to work in this repository and with its owner.
 - **List.** Every name in the universe ranked by momentum score, with a 12-month score strip per
   row, a watchlist (star any row), a multi-select sector filter, and a sort menu (blended score,
   12–1 percentile, 6–1 percentile, market cap, ticker A–Z). Rows load in chunks as you scroll.
+- **Previous / next.** Under the top bar of the detail page and of the chart, a strip steps to the
+  name either side of this one in the list as it stands (its sort, sector filter and watchlist
+  state), showing the position ("12 of 646"). Stepping between charts keeps the zoom. Left and
+  right arrow keys do the same on a keyboard. Steps replace the current history entry, so Back
+  still returns to where the reader came from.
 - **Detail page.** The name's score and placement, its two momentum legs, its standing against the
   whole universe and within its sector, quote and volatility figures, and a bar chart of its score
   at each of the last 36 month ends or 78 week ends with a trailing 4-period average.
