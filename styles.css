@@ -11,8 +11,6 @@
   --hot: #10893e;
   --cold: #cf2f3f;
   --mid: #b07d12;
-  --alt-up: #1d6fe0;
-  --alt-down: #e8641b;
   --track: #eceef2;
   --shadow: 0 1px 2px rgba(16, 20, 28, .06);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -32,8 +30,6 @@
     --hot: #35c46a;
     --cold: #ff6b76;
     --mid: #e0a83a;
-    --alt-up: #5b9bff;
-    --alt-down: #ff8a4c;
     --track: #1c212b;
     --shadow: none;
   }
@@ -291,13 +287,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 }
 .cpanel-head button.done { font-weight: 700; }
 .cpanel-head .backlink { padding-left: 0; }
-.cpanel-head .segmented.mini { flex: 1; max-width: 220px; }
-.cpanel-head .segmented.mini button { flex: 1; font-size: 12.5px; padding: 5px 8px; }
-.cchoice { padding: 8px 0 2px; }
-.cchoice > span { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
-.cchoice .segmented button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 4px; font-size: 12.5px; }
-.cchoice .segmented i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.cchoice .segmented i + i { margin-left: -2px; }
 .ind-list { list-style: none; margin: 0; padding: 0; }
 .ind-row { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line-soft); }
 .ind-row:first-child { border-top: 0; }
