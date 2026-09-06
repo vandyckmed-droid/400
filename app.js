@@ -600,6 +600,16 @@
     const range = r.yearHigh && r.yearLow && r.yearHigh > r.yearLow
       ? ((r.price - r.yearLow) / (r.yearHigh - r.yearLow)) * 100 : null;
 
+    const meta = [r.sector, r.industry, cap(r.mktCap)].filter(Boolean).map(esc).join(' · ');
+    const rankText = `${ordinal(p.k)} of ${p.n}${key[0] === 's' ? ` in ${esc(r.sector)}` : ''}`;
+    // The peer set the headline is not ranked against goes in the peers summary,
+    // so the two ranks are never shown twice.
+    const qWhole = r.r[keyFor('whole', state.adjust)], qSector = r.r[keyFor('sector', state.adjust)];
+    const otherRank = key[0] === 's'
+      ? (qWhole ? `${ordinal(qWhole.k)} of ${qWhole.n} overall` : '')
+      : (qSector ? `${ordinal(qSector.k)} of ${qSector.n} in ${esc(r.sector) || 'its sector'}` : '');
+    const comp = components(r, p, key);
+
     el.innerHTML = `
       <div class="dtop">
         <button class="back" id="back">‹ Back</button>
@@ -607,63 +617,65 @@
         <button class="star${state.watch.has(r.symbol) ? ' on' : ''}" id="dstar" aria-label="Watchlist">${state.watch.has(r.symbol) ? '★' : '☆'}</button>
       </div>
       ${pagerHtml(r.symbol)}
-      <div class="hero">
-        <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
-        <span class="lbl">blended score<b>${ordinal(p.k)} of ${p.n}${
-          key[0] === 's' ? ` in ${esc(r.sector)}` : ''}</b></span>
-      </div>
-      <div class="tags">
-        ${r.sector ? `<span class="tag">${esc(r.sector)}</span>` : ''}
-        ${r.industry ? `<span class="tag">${esc(r.industry)}</span>` : ''}
-        <span class="tag">${cap(r.mktCap)}</span>
-        <span class="tag">Decile ${decileOf(p.k, p.n)}</span>
-      </div>
 
-      <div class="card">
-        <h3 class="row">Score through time
+      <section class="card focus" aria-label="Score">
+        <div class="hero">
+          <span class="big" id="hero-score" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
+          <span class="lbl"><b id="hero-rank">${rankText}</b><span id="hero-sub">blended score · ${fmtDate(state.meta.asOf)}</span></span>
+        </div>
+        ${meta ? `<p class="meta">${meta}</p>` : ''}
+        <div class="chart-head">
+          <h3>Score through time</h3>
           <span class="segmented mini" id="grain" role="tablist" aria-label="Chart interval">
             ${[['m', 'Monthly'], ['w', 'Weekly']].map(([g, label]) =>
               `<button role="tab" data-g="${g}" class="${g === state.grain ? 'on' : ''}"
                  aria-selected="${g === state.grain}">${label}</button>`).join('')}
           </span>
-        </h3>
+        </div>
         <div id="chart"><p class="legend">Loading history…</p></div>
-      </div>
+      </section>
 
-      <a class="card go" href="#/t/${r.symbol}/chart"><b>Price chart →</b>
-        <small>Daily bars with a regression channel and moving averages. Drag to pan, pinch to
-          zoom, drag the price axis to stretch it.</small></a>
+      <a class="sect link" href="#/t/${r.symbol}/chart"><b>Price chart</b>
+        <small>3 years of daily bars</small><i>›</i></a>
 
-      ${components(r, p, key)}
+      <details class="sect">
+        <summary><b>Score components</b><small>${comp.summary}</small><i>›</i></summary>
+        <div class="body">${comp.body}</div>
+      </details>
 
-      <div class="card">
-        <h3>Against its peers</h3>
-        <table class="peers">
-          <tbody>${[['whole', `All of ${UNIVERSE.label}`],
-                    ['sector', `Within ${esc(r.sector) || 'its sector'}`]].map(([b, label]) => {
-            const q = r.r[keyFor(b, state.adjust)];
-            const active = (b === 'sector') === (key[0] === 's');
-            return `<tr class="${active ? 'on' : ''}">
-              <td>${label}</td>
-              <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
-              <td class="k">${q ? `${q.k} / ${q.n}` : '—'}</td></tr>`;
-          }).join('')}</tbody>
-        </table>
-        <p class="legend">A name can look ordinary against the whole universe and strong against its
-          own sector, or the reverse.</p>
-      </div>
+      <details class="sect">
+        <summary><b>Against its peers</b><small>${otherRank}</small><i>›</i></summary>
+        <div class="body">
+          <table class="peers">
+            <tbody>${[['whole', `All of ${UNIVERSE.label}`],
+                      ['sector', `Within ${esc(r.sector) || 'its sector'}`]].map(([b, label]) => {
+              const q = r.r[keyFor(b, state.adjust)];
+              const active = (b === 'sector') === (key[0] === 's');
+              return `<tr class="${active ? 'on' : ''}">
+                <td>${label}</td>
+                <td class="v" style="color:${q ? tone(q.s) : 'var(--ink-3)'}">${q ? q.s.toFixed(1) : '—'}</td>
+                <td class="k">${q ? `${q.k} / ${q.n}` : '—'}</td></tr>`;
+            }).join('')}</tbody>
+          </table>
+          <p class="legend">A name can look ordinary against the whole universe and strong against its
+            own sector, or the reverse. The marked row is the one the headline uses.</p>
+        </div>
+      </details>
 
-      <div class="card">
-        <h3>Quote &amp; risk</h3>
-        <dl class="stats">
-          <div><dt>Price</dt><dd>${money(r.price)}</dd></div>
-          <div><dt>Change</dt><dd class="${cls(r.chg)}">${r.chg == null ? '—' : signed(r.chg, 2) + '%'}</dd></div>
-          <div><dt>Market cap</dt><dd>${cap(r.mktCap)}</dd></div>
-          <div><dt>Ann. vol (12m)</dt><dd>${pct(r.vol12)}</dd></div>
-          <div><dt>Ann. vol (6m)</dt><dd>${pct(r.vol6)}</dd></div>
-          <div><dt>In 52w range</dt><dd>${range == null ? '—' : num(range, 0) + '%'}</dd></div>
-        </dl>
-      </div>`;
+      <details class="sect">
+        <summary><b>Quote &amp; risk</b>
+          <small>${money(r.price)}${r.chg == null ? '' : ` · ${signed(r.chg, 2)}%`}</small><i>›</i></summary>
+        <div class="body">
+          <dl class="stats">
+            <div><dt>Price</dt><dd>${money(r.price)}</dd></div>
+            <div><dt>Change</dt><dd class="${cls(r.chg)}">${r.chg == null ? '—' : signed(r.chg, 2) + '%'}</dd></div>
+            <div><dt>Market cap</dt><dd>${cap(r.mktCap)}</dd></div>
+            <div><dt>Ann. vol (12m)</dt><dd>${pct(r.vol12)}</dd></div>
+            <div><dt>Ann. vol (6m)</dt><dd>${pct(r.vol6)}</dd></div>
+            <div><dt>In 52w range</dt><dd>${range == null ? '—' : num(range, 0) + '%'}</dd></div>
+          </dl>
+        </div>
+      </details>`;
 
     $('back').addEventListener('click', goBack);
     wirePager(el, '');
@@ -700,9 +712,8 @@
     const shown = +p.p12.toFixed(1) * w1 + +p.p6.toFixed(1) * w2;
     const eq = Math.abs(shown - p.s) < 0.05 ? '=' : '≈';
     const peers = key[0] === 's' ? (r.sector ? `its ${esc(r.sector)} peers` : 'its sector') : 'the whole universe';
-    return `
-      <div class="card">
-        <h3>Score components</h3>
+    const summary = `${num(p.p12)} × ${wt(w1)} + ${num(p.p6)} × ${wt(w2)}`;
+    const body = `
         <p class="sub">Both periods skip the most recent month.</p>
         <table class="comp">
           <thead><tr><th></th><th>12–1<small>12 months</small></th><th>6–1<small>6 months</small></th></tr></thead>
@@ -716,21 +727,20 @@
           </tbody>
         </table>
         <div class="blend">
-          <div><b>Blended score</b>
-            <small>${num(p.p12)} × ${wt(w1)} + ${num(p.p6)} × ${wt(w2)} ${eq} ${p.s.toFixed(1)}</small></div>
+          <div><b>Blended score</b><small>${summary} ${eq} ${p.s.toFixed(1)}</small></div>
           <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
         </div>
         <p class="legend">The marked row is the measure the percentiles rank, against ${peers}; both
           are chosen in Settings.</p>
-        <a class="more" href="#/settings">Calculation details ›</a>
-      </div>`;
+        <a class="more" href="#/settings">Calculation details ›</a>`;
+    return { summary, body };
   }
 
   /* ---------- bar chart ----------
-     Every chart in the app is bars rising from a baseline with a tap-and-drag
-     readout, so they all come through this one primitive: the score history,
-     the decile returns, and the spread series only differ in their scale,
-     colours and labels. */
+     Bars rising from a baseline with a tap-and-drag selection; the caller is
+     told which bar is selected (onSelect) and shows it wherever it likes. An
+     optional one-line key sits under the chart, and a longer note behind a
+     "How this is measured" disclosure. */
   function barChart(host, cfg) {
     const W = 340, H = cfg.height || 150, PAD_L = 4, PAD_R = cfg.padAxis || 26, PAD_B = 16, PAD_T = 6;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_B - PAD_T;
@@ -777,20 +787,16 @@
         <rect class="cursor" x="0" y="${PAD_T}" width="${barW.toFixed(2)}" height="${plotH}"
               fill="currentColor" opacity="0" pointer-events="none"/>
       </svg></div>
-      <div class="readout"><span class="ro-l"></span><b class="ro-r"></b></div>
-      ${cfg.note ? `<p class="legend">${cfg.note}</p>` : ''}`;
+      ${cfg.key ? `<p class="legend key">${cfg.key}</p>` : ''}
+      ${cfg.note ? `<details class="disc"><summary>How this is measured</summary>
+        <p class="legend">${cfg.note}</p></details>` : ''}`;
 
     const svg = host.querySelector('svg');
     const cursor = host.querySelector('.cursor');
-    const left = host.querySelector('.ro-l');
-    const right = host.querySelector('.ro-r');
 
     const dot = host.querySelector('.ma-dot');
     const select = (i) => {
-      const [l, r, colour] = cfg.readout(pts[i], i);
-      left.textContent = l;
-      right.textContent = r;
-      right.style.color = colour || pts[i].color;
+      if (cfg.onSelect) cfg.onSelect(pts[i], i, i === pts.length - 1);
       cursor.setAttribute('x', barX(i).toFixed(2));
       cursor.setAttribute('opacity', '0.12');
       if (dot) {
@@ -847,6 +853,10 @@
     const avg = points.map((_, i) => i < MA - 1 ? null
       : points.slice(i - MA + 1, i + 1).reduce((t, p) => t + p.value, 0) / MA);
     const unit = grain === 'w' ? 'wk' : 'mo';
+    const period = grain === 'w' ? 'week' : 'month';
+    const peers = key[0] === 's' ? `other ${r.sector} names` : `all of ${UNIVERSE.label}`;
+    const cur = r.r[key];
+    const rankText = `${ordinal(cur.k)} of ${cur.n}${key[0] === 's' ? ` in ${esc(r.sector)}` : ''}`;
     barChart(host, {
       points, min: 0, max: 100, baseline: 0,
       overlay: { values: avg },
@@ -855,18 +865,28 @@
         i === 0 || p.date.slice(0, 4) !== all[i - 1].date.slice(0, 4) ? p.date.slice(0, 4) : '',
       aria: `Blended momentum score for ${r.symbol} over ${points.length} ` +
             `${grain === 'w' ? 'weeks' : 'months'}`,
-      readout: (p, i) => [
-        (grain === 'w' ? 'week ending ' : '') + fmtDate(p.date) +
-          (avg[i] == null ? '' : ` · ${MA}-${unit} avg ${avg[i].toFixed(1)}`) +
-          (p.pre ? ' · not yet a member' : ''),
-        p.value.toFixed(1),
-      ],
-      note: `Each bar re-ranks ${r.symbol} against ${key[0] === 's'
-               ? `other ${r.sector} names`
-               : `all of ${UNIVERSE.label}`} at that
-             ${grain === 'w' ? 'week' : 'month'} end, using the membership that was live on the day.
-             Above the dashed line means the better half of that peer set. The line is the trailing
-             ${MA}-${grain === 'w' ? 'week' : 'month'} average.${joinedNote}`,
+      // The headline number is the chart's readout: the latest bar shows
+      // today's score and rank; any other bar shows that period's score, its
+      // date and the trailing average, so the two always read as one thing.
+      onSelect: (p, i, latest) => {
+        const score = $('hero-score'), rank = $('hero-rank'), sub = $('hero-sub');
+        if (!score) return;
+        if (latest) {
+          score.textContent = cur.s.toFixed(1); score.style.color = tone(cur.s);
+          rank.textContent = rankText;
+          sub.textContent = `blended score · ${fmtDate(state.meta.asOf)}`;
+          return;
+        }
+        score.textContent = p.value.toFixed(1); score.style.color = tone(p.value);
+        rank.textContent = `${period} ending ${fmtDate(p.date)}`;
+        sub.textContent = [avg[i] == null ? '' : `${MA}-${unit} avg ${avg[i].toFixed(1)}`,
+                           p.pre ? 'not yet a member' : ''].filter(Boolean).join(' · ') || 'blended score';
+      },
+      key: `Percentile rank vs ${peers}, each ${period} end · dashed line 50 = median · blue line ${MA}-${period} average`,
+      note: `Each bar re-ranks ${r.symbol} against ${peers} at that ${period} end, using the membership
+             that was live on the day, and colours it by rank. Above the dashed line means the better
+             half of that peer set. The blue line is the trailing ${MA}-${period} average. Tap or drag
+             across the bars to read any ${period}; the headline shows that ${period}'s score.${joinedNote}`,
     });
   }
 
@@ -882,7 +902,6 @@
   }
 
   /* ---------- shared bits of the detail and chart views ---------- */
-  const decileOf = (rank, n) => Math.min(10, Math.floor((rank - 1) / (n / 10)) + 1);
   const goBack = () => (listBehind ? history.back() : (location.hash = ''));
 
   /* ---------- price chart ----------

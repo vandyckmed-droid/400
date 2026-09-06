@@ -328,12 +328,38 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 }
 .cpanel .fine { margin: 6px 0 0; font-size: 11.5px; color: var(--ink-3); }
 
-.hero { padding: 18px 16px 6px; display: flex; align-items: baseline; gap: 12px; }
-.hero .big { font-size: 46px; font-weight: 800; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-.hero .lbl { font-size: 12px; color: var(--ink-3); }
-.hero .lbl b { display: block; font-size: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.tags { padding: 0 16px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
-.tag { font-size: 11px; padding: 3px 8px; border-radius: 20px; background: var(--bg-soft); border: 1px solid var(--line); color: var(--ink-2); }
+/* The focus card: the score, its rank and the history chart as one thing.
+   The headline doubles as the chart's readout. */
+.card.focus { margin-top: 12px; padding: 16px 14px 12px; }
+.hero { display: flex; align-items: flex-end; gap: 12px; }
+.hero .big { font-size: 50px; font-weight: 800; letter-spacing: -.04em; line-height: .9; font-variant-numeric: tabular-nums; }
+.hero .lbl { font-size: 12px; color: var(--ink-3); padding-bottom: 3px; min-width: 0; }
+.hero .lbl b { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.hero .lbl span { display: block; margin-top: 2px; }
+.focus .meta { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 6px; }
+.chart-head h3 { margin: 0; }
+.legend.key { margin-top: 8px; }
+.disc { margin: 6px 2px 0; }
+.disc summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--accent); padding: 4px 0; -webkit-tap-highlight-color: transparent; }
+.disc summary::-webkit-details-marker { display: none; }
+.disc summary::after { content: ' ›'; }
+.disc[open] summary::after { content: ' ⌄'; }
+.disc .legend { margin-top: 4px; }
+
+/* Supporting sections: one tap row each, expanding in place. The row's
+   right-hand text carries the one fact worth seeing without opening it. */
+.sect { display: block; margin: 0 12px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: inherit; }
+.sect summary, .sect.link { list-style: none; display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sect summary::-webkit-details-marker { display: none; }
+.sect b { font-size: 15px; font-weight: 650; color: var(--ink); white-space: nowrap; }
+.sect.link b { color: var(--accent); }
+.sect small { flex: 1; min-width: 0; text-align: right; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sect i { font-style: normal; color: var(--ink-3); font-size: 18px; line-height: 1; transition: transform .15s; }
+.sect[open] > summary i { transform: rotate(90deg); }
+.sect summary:active, .sect.link:active { background: var(--bg-soft); border-radius: 14px; }
+.sect .body { padding: 4px 14px 14px; border-top: 1px solid var(--line-soft); }
+.sect .body .sub { margin: 10px 0; }
 
 .card { margin: 0 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
 .card h3 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 700; }
@@ -350,7 +376,7 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .pos { color: var(--hot); } .neg { color: var(--cold); }
 /* Score components: the two legs as columns, one row per measure, with the
    row the percentiles rank marked, then the blend written out. */
-.card .sub { margin: -6px 0 10px; font-size: 12px; color: var(--ink-3); }
+.card .sub, .sect .sub { margin: -6px 0 10px; font-size: 12px; color: var(--ink-3); }
 .comp { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .comp th { font-weight: 700; font-size: 14px; text-align: right; padding: 0 0 8px; color: var(--ink); vertical-align: bottom; }
 .comp th small { display: block; font-weight: 500; font-size: 11px; color: var(--ink-3); }
@@ -367,8 +393,8 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .blend b { display: block; font-size: 15px; }
 .blend small { display: block; margin-top: 3px; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .blend .big { font-size: 30px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
-.card .more { display: block; margin: 12px -14px -14px; padding: 12px 14px; border-top: 1px solid var(--line-soft); color: var(--accent); font-size: 14px; font-weight: 600; }
-.card .more:active { background: var(--bg-soft); }
+.card .more, .sect .more { display: block; margin: 12px -14px -14px; padding: 12px 14px; border-top: 1px solid var(--line-soft); color: var(--accent); font-size: 14px; font-weight: 600; }
+.card .more:active, .sect .more:active { background: var(--bg-soft); }
 
 .peers { width: 100%; border-collapse: collapse; font-size: 13px; }
 .peers td { padding: 7px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
@@ -402,10 +428,6 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 }
 .switch input:checked, .ind-row input:checked { background: var(--hot); }
 .switch input:checked::after, .ind-row input:checked::after { transform: translateX(18px); }
-.card.go { display: block; }
-.card.go b { display: block; font-size: 15px; color: var(--accent); }
-.card.go small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 3px; line-height: 1.45; }
-.card.go:active { background: var(--bg-soft); }
 .method { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
 .method li { margin-bottom: 9px; }
 .method li:last-child { margin-bottom: 0; }
@@ -421,8 +443,6 @@ svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart text { fill: var(--ink-3); font-size: 9px; font-family: inherit; }
 .chart .ma { stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; opacity: .95; }
 .chart .ma-dot { fill: var(--accent); stroke: var(--card); stroke-width: 1.5; }
-.readout { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 2px 0; font-size: 12px; color: var(--ink-3); }
-.readout b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .legend { margin: 10px 2px 0; font-size: 11px; color: var(--ink-3); line-height: 1.4; }
 
 @media (min-width: 720px) {
