@@ -46,6 +46,9 @@ CACHE = ROOT / ".cache" / "prices"
 
 FMP = "https://financialmodelingprep.com/stable"
 WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
+# The change log lived on that page until September 2026, when editors moved it
+# here. Both are read, so a move back costs nothing.
+WIKI_CHANGES = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_400"
 
 # --- Ranking parameters -------------------------------------------------------
 # Trading-day windows. 21d ~ 1 month, 252d ~ 12 months.

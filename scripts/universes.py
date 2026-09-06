@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import json
 import re
 from bisect import bisect_right
 
@@ -63,13 +64,56 @@ def valid(symbol: str) -> bool:
 # --- Loaders: fresh if possible, committed snapshot if not --------------------
 
 def load_core() -> tuple[list[dict], list[dict]]:
-    """MidCap 400 constituents and change log, from Wikipedia or data/universe.json."""
-    payload = build.snapshot(
-        "universe",
-        lambda: {"constituents": build.scrape_universe(), "changes": core_changes()},
-        "MidCap 400 universe",
-    )
+    """MidCap 400 constituents and change log, from Wikipedia or data/universe.json.
+
+    An empty change log is treated as the source being down: without it every
+    historical cross-section would silently use today's membership. The log is
+    also used to correct the constituents table when an edit has rolled it back
+    past a change it records (as happened in September 2026)."""
+    def fetch():
+        changes = core_changes()
+        if not changes:
+            raise RuntimeError("no change log found on either Wikipedia page")
+        return {"constituents": reconcile(build.scrape_universe(), changes), "changes": changes}
+    payload = build.snapshot("universe", fetch, "MidCap 400 universe")
     return payload["constituents"], payload.get("changes", [])
+
+
+def reconcile(constituents: list[dict], changes: list[dict]) -> list[dict]:
+    """Apply any logged change up to today that the constituents table has not
+    caught up with: the removed name still listed and the added one missing.
+    The added name's details come from the committed snapshot, if it has them;
+    otherwise the table is left alone and the mismatch logged."""
+    today = dt.date.today().isoformat()
+    listed = {c["symbol"]: c for c in constituents}
+    known = {}
+    path = build.DATA / "universe.json"
+    if path.exists():
+        known = {c["symbol"]: c for c in json.loads(path.read_text()).get("constituents", [])}
+    # Only a name's latest logged move counts: one removed years ago and since
+    # re-added is rightly in the table, whatever the older entry says.
+    latest = {}
+    for change in sorted((c for c in changes if c["date"] <= today), key=lambda c: c["date"], reverse=True):
+        for symbol, move in ((change.get("added"), "in"), (change.get("removed"), "out")):
+            if symbol and symbol not in latest:
+                latest[symbol] = (change["date"], move)
+    for change in changes:
+        added, removed = change.get("added"), change.get("removed")
+        if change["date"] > today or not added or not removed:
+            continue
+        if added in listed or removed not in listed:
+            continue
+        if latest.get(added) != (change["date"], "in") or latest.get(removed) != (change["date"], "out"):
+            continue
+        if added not in known:
+            build.log(f"universe: table still lists {removed} after {added} replaced it on "
+                      f"{change['date']}; no details for {added}, leaving it")
+            continue
+        build.log(f"universe: table still lists {removed}; applying {added} for {removed} "
+                  f"({change['date']}) from the change log")
+        del listed[removed]
+        listed[added] = known[added]
+    return sorted(listed.values(), key=lambda c: c["symbol"])
 
 
 def load_sp500() -> tuple[list[dict], list[dict]]:
@@ -104,8 +148,21 @@ def sp500_constituents() -> list[dict]:
 # --- Change logs --------------------------------------------------------------
 
 def core_changes() -> list[dict]:
-    """S&P 400 additions/removals from Wikipedia, newest first."""
-    page = build.http_get(build.WIKI).decode("utf-8", "replace")
+    """S&P 400 additions/removals from Wikipedia, newest first: the historical
+    components page, or the list page itself if the table is (back) there."""
+    for url in (build.WIKI_CHANGES, build.WIKI):
+        try:
+            changes = changes_on(build.http_get(url).decode("utf-8", "replace"))
+        except Exception as exc:  # noqa: BLE001 - try the other page
+            build.log(f"change log: {url.rsplit('/', 1)[-1]} failed ({exc})")
+            continue
+        if changes:
+            return changes
+    return []
+
+
+def changes_on(page: str) -> list[dict]:
+    """The first wikitable on `page` with Added and Removed columns, as changes."""
     tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', page, re.S)
     changes = []
     for table in tables:

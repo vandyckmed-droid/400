@@ -163,7 +163,8 @@ All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 
 | Data | Source |
 | --- | --- |
-| MidCap 400 members and change log | Scraped from Wikipedia's *List of S&P 400 companies* |
+| MidCap 400 members | Scraped from Wikipedia's *List of S&P 400 companies*; a logged change the table has not caught up with is applied to it |
+| MidCap 400 change log | Scraped from Wikipedia's *Historical components of the S&P 400* (the list page is read as a fallback); an empty log counts as the source being down |
 | S&P 500 members and change log | FMP `sp500-constituent` and `historical-sp500-constituent` |
 | Market caps (to pick the tail, point-in-time) | FMP `historical-market-capitalization` |
 | Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,100 symbols |

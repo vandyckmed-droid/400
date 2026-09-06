@@ -1,5 +1,5 @@
 {
- "asOf": "2026-09-05",
+ "asOf": "2026-09-06",
  "constituents": [
   {
    "symbol": "AA",
@@ -3824,6 +3824,51 @@
    "removed": "TDY"
   },
   {
+   "date": "2020-06-22",
+   "added": "JWN",
+   "removed": "BIO"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "HOG",
+   "removed": "TYL"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "MIDD",
+   "removed": "DDS"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "QDEL",
+   "removed": "DNOW"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "HXL",
+   "removed": "CAKE"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "UNVR",
+   "removed": "REZI"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "STRA",
+   "removed": "BBBY"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "QLYS",
+   "removed": "MTDR"
+  },
+  {
+   "date": "2020-06-22",
+   "added": "GBCI",
+   "removed": "MDRX"
+  },
+  {
    "date": "2020-05-27",
    "added": "HPP",
    "removed": "DHC"
@@ -3847,6 +3892,11 @@
    "date": "2020-04-27",
    "added": "ENPH",
    "removed": "CLB"
+  },
+  {
+   "date": "2020-04-27",
+   "added": "PCTY",
+   "removed": "MDP"
   },
   {
    "date": "2020-04-13",
@@ -3894,6 +3944,31 @@
    "removed": "LYV"
   },
   {
+   "date": "2019-12-13",
+   "added": "TRIP",
+   "removed": "ZBRA"
+  },
+  {
+   "date": "2019-12-13",
+   "added": "MAC",
+   "removed": "STE"
+  },
+  {
+   "date": "2019-12-13",
+   "added": "LOPE",
+   "removed": "OAS"
+  },
+  {
+   "date": "2019-12-13",
+   "added": "LEA",
+   "removed": "SWN"
+  },
+  {
+   "date": "2019-12-13",
+   "added": "ARWR",
+   "removed": "GVA"
+  },
+  {
    "date": "2019-12-10",
    "added": "CHH",
    "removed": "PLT"
@@ -3912,6 +3987,11 @@
    "date": "2019-10-30",
    "added": "CDAY",
    "removed": "OII"
+  },
+  {
+   "date": "2019-10-30",
+   "added": "BJ",
+   "removed": "CVET"
   },
   {
    "date": "2019-10-24",
@@ -3939,14 +4019,69 @@
    "removed": "NVR"
   },
   {
+   "date": "2019-09-26",
+   "added": "IIVI",
+   "removed": "CPE"
+  },
+  {
    "date": "2019-09-23",
    "added": "SIGI",
    "removed": "SIG"
   },
   {
+   "date": "2019-09-23",
+   "added": "RGEN",
+   "removed": "RRC"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "FCFS",
+   "removed": "TUP"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "ETSY",
+   "removed": "MIK"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "PPC",
+   "removed": "QEP"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "KAR",
+   "removed": "VAL"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "AM",
+   "removed": "MDR"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "OC",
+   "removed": "CARS"
+  },
+  {
+   "date": "2019-09-23",
+   "added": "PEN",
+   "removed": "MNK"
+  },
+  {
    "date": "2019-09-18",
    "added": "PK",
    "removed": "INGN"
+  },
+  {
+   "date": "2019-08-09",
+   "added": "GRUB",
+   "removed": "LDOS"
+  },
+  {
+   "date": "2019-08-09",
+   "added": "FL",
+   "removed": "IEX"
   },
   {
    "date": "2019-08-01",
@@ -3979,6 +4114,16 @@
    "removed": "ULTI"
   },
   {
+   "date": "2019-04-11",
+   "added": "SMTC",
+   "removed": "ARRS"
+  },
+  {
+   "date": "2019-04-11",
+   "added": "PSB",
+   "removed": "RDC"
+  },
+  {
    "date": "2019-04-03",
    "added": "BHF",
    "removed": "PBI"
@@ -3992,6 +4137,26 @@
    "date": "2019-03-22",
    "added": "FFIN",
    "removed": "MBFI"
+  },
+  {
+   "date": "2019-03-18",
+   "added": "CFX",
+   "removed": "BIG"
+  },
+  {
+   "date": "2019-03-18",
+   "added": "NGVT",
+   "removed": "ESL"
+  },
+  {
+   "date": "2019-03-18",
+   "added": "XPO",
+   "removed": "DO"
+  },
+  {
+   "date": "2019-02-27",
+   "added": "GT",
+   "removed": "WAB"
   },
   {
    "date": "2019-02-21",
@@ -4029,9 +4194,39 @@
    "removed": "NBR"
   },
   {
+   "date": "2018-12-03",
+   "added": "PEB",
+   "removed": "LHO"
+  },
+  {
+   "date": "2018-12-03",
+   "added": "SRCL",
+   "removed": "EGN"
+  },
+  {
+   "date": "2018-12-03",
+   "added": "CACI",
+   "removed": "LW"
+  },
+  {
    "date": "2018-11-14",
    "added": null,
    "removed": "SPN"
+  },
+  {
+   "date": "2018-11-13",
+   "added": "LGND",
+   "removed": "KEYS"
+  },
+  {
+   "date": "2018-11-13",
+   "added": "EQT",
+   "removed": "JKHY"
+  },
+  {
+   "date": "2018-11-13",
+   "added": "ETRN",
+   "removed": null
   },
   {
    "date": "2018-11-12",
@@ -4104,6 +4299,21 @@
    "removed": "HFC"
   },
   {
+   "date": "2018-06-18",
+   "added": "RRC",
+   "removed": "BR"
+  },
+  {
+   "date": "2018-06-18",
+   "added": "CHE",
+   "removed": "ENDP"
+  },
+  {
+   "date": "2018-06-18",
+   "added": "HAE",
+   "removed": "CTB"
+  },
+  {
    "date": "2018-06-11",
    "added": "OLLI",
    "removed": "OA"
@@ -4114,14 +4324,29 @@
    "removed": "WR"
   },
   {
+   "date": "2018-06-05",
+   "added": "IART",
+   "removed": "GXP"
+  },
+  {
    "date": "2018-05-31",
    "added": "WYND",
    "removed": "MSCC"
   },
   {
+   "date": "2018-05-31",
+   "added": "PRAH",
+   "removed": "ABMD"
+  },
+  {
    "date": "2018-05-10",
    "added": "APY",
    "removed": "DDD"
+  },
+  {
+   "date": "2018-05-10",
+   "added": "MDR",
+   "removed": "DBD"
   },
   {
    "date": "2018-05-02",
@@ -4152,6 +4377,26 @@
    "date": "2018-03-19",
    "added": "SIG",
    "removed": "TTWO"
+  },
+  {
+   "date": "2018-03-19",
+   "added": "PDCO",
+   "removed": "SIVB"
+  },
+  {
+   "date": "2018-03-19",
+   "added": "CHK",
+   "removed": "DF"
+  },
+  {
+   "date": "2018-03-19",
+   "added": "CMD",
+   "removed": "AVP"
+  },
+  {
+   "date": "2018-03-19",
+   "added": "ICUI",
+   "removed": "OMI"
   },
   {
    "date": "2018-03-08",
@@ -4204,6 +4449,11 @@
    "removed": "PRXL"
   },
   {
+   "date": "2017-10-02",
+   "added": "STL",
+   "removed": "OIS"
+  },
+  {
    "date": "2017-09-26",
    "added": "SAFM",
    "removed": "CAB"
@@ -4212,6 +4462,16 @@
    "date": "2017-09-18",
    "added": "ILG",
    "removed": "CDNS"
+  },
+  {
+   "date": "2017-09-18",
+   "added": "BCO",
+   "removed": "WOOF"
+  },
+  {
+   "date": "2017-09-18",
+   "added": "CPE",
+   "removed": "WBMD"
   },
   {
    "date": "2017-08-17",
@@ -4234,14 +4494,24 @@
    "removed": "RMD"
   },
   {
-   "date": "2017-07-19",
-   "added": "JBGS",
-   "removed": "CHS"
+   "date": "2017-07-26",
+   "added": "MUR",
+   "removed": "PKG"
+  },
+  {
+   "date": "2017-07-26",
+   "added": "BBBY",
+   "removed": "AOS"
   },
   {
    "date": "2017-07-12",
    "added": "KNX",
    "removed": "KATE"
+  },
+  {
+   "date": "2017-07-12",
+   "added": "CLB",
+   "removed": "PNRA"
   },
   {
    "date": "2017-06-29",
@@ -4264,9 +4534,29 @@
    "removed": "ALGN"
   },
   {
+   "date": "2017-06-19",
+   "added": "R",
+   "removed": "ANSS"
+  },
+  {
    "date": "2017-06-02",
    "added": "CARS",
    "removed": "TIME"
+  },
+  {
+   "date": "2017-06-02",
+   "added": "TGNA",
+   "removed": "JCP"
+  },
+  {
+   "date": "2017-06-02",
+   "added": "MTDR",
+   "removed": "WNR"
+  },
+  {
+   "date": "2017-06-02",
+   "added": "HOMB",
+   "removed": "VAL"
   },
   {
    "date": "2017-05-16",
@@ -4299,6 +4589,11 @@
    "removed": "IT"
   },
   {
+   "date": "2017-04-05",
+   "added": "INCR",
+   "removed": "CEB"
+  },
+  {
    "date": "2017-04-04",
    "added": "SWN",
    "removed": "CSC"
@@ -4314,9 +4609,39 @@
    "removed": "ENH"
   },
   {
+   "date": "2017-03-29",
+   "added": "MIK",
+   "removed": "WETF"
+  },
+  {
    "date": "2017-03-20",
    "added": "URBN",
    "removed": "AMD"
+  },
+  {
+   "date": "2017-03-20",
+   "added": "FTR",
+   "removed": "RJF"
+  },
+  {
+   "date": "2017-03-20",
+   "added": "FSLR",
+   "removed": "ARE"
+  },
+  {
+   "date": "2017-03-20",
+   "added": "TTWO",
+   "removed": "FOSL"
+  },
+  {
+   "date": "2017-03-20",
+   "added": "MASI",
+   "removed": "DNR"
+  },
+  {
+   "date": "2017-03-20",
+   "added": "COHR",
+   "removed": "VSTO"
   },
   {
    "date": "2017-03-16",
@@ -4329,9 +4654,19 @@
    "removed": "REG"
   },
   {
+   "date": "2017-03-02",
+   "added": "NUS",
+   "removed": "EQY"
+  },
+  {
    "date": "2017-03-01",
    "added": "PBI",
    "removed": "CBOE"
+  },
+  {
+   "date": "2017-03-01",
+   "added": "CONE",
+   "removed": "CLC"
   },
   {
    "date": "2017-02-28",
@@ -4357,6 +4692,31 @@
    "date": "2017-01-04",
    "added": "CC",
    "removed": "IDXX"
+  },
+  {
+   "date": "2016-12-06",
+   "added": "UMBF",
+   "removed": "IM"
+  },
+  {
+   "date": "2016-12-06",
+   "added": "GMED",
+   "removed": "TLN"
+  },
+  {
+   "date": "2016-12-01",
+   "added": "OI",
+   "removed": "MAA"
+  },
+  {
+   "date": "2016-12-01",
+   "added": "PZZA",
+   "removed": "PPS"
+  },
+  {
+   "date": "2016-12-01",
+   "added": "LM",
+   "removed": "AMSG"
   },
   {
    "date": "2016-11-28",
@@ -4399,6 +4759,16 @@
    "removed": "RRD"
   },
   {
+   "date": "2016-09-22",
+   "added": "NWE",
+   "removed": "COO"
+  },
+  {
+   "date": "2016-09-22",
+   "added": "NUVA",
+   "removed": "FEIC"
+  },
+  {
    "date": "2016-09-21",
    "added": "CRUS",
    "removed": "FCS"
@@ -4439,9 +4809,24 @@
    "removed": "ALB"
   },
   {
+   "date": "2016-06-30",
+   "added": "SWX",
+   "removed": "LNT"
+  },
+  {
    "date": "2016-06-24",
    "added": "CHDN",
    "removed": "FBHS"
+  },
+  {
+   "date": "2016-05-31",
+   "added": "HELE",
+   "removed": "WCN"
+  },
+  {
+   "date": "2016-05-31",
+   "added": "BRCD",
+   "removed": "MDC"
   },
   {
    "date": "2016-05-27",
@@ -4487,6 +4872,26 @@
    "date": "2016-04-04",
    "added": "WBMD",
    "removed": "SUNE"
+  },
+  {
+   "date": "2016-04-04",
+   "added": "DCT",
+   "removed": "FL"
+  },
+  {
+   "date": "2016-03-30",
+   "added": "ABMD",
+   "removed": "HOLX"
+  },
+  {
+   "date": "2016-03-30",
+   "added": "ESV",
+   "removed": "CNC"
+  },
+  {
+   "date": "2016-03-30",
+   "added": "FR",
+   "removed": "HNT"
   },
   {
    "date": "2016-03-08",
@@ -4584,9 +4989,34 @@
    "removed": "TMST"
   },
   {
+   "date": "2015-07-08",
+   "added": "JACK",
+   "removed": "AAP"
+  },
+  {
+   "date": "2015-07-08",
+   "added": "WST",
+   "removed": "ADVS"
+  },
+  {
    "date": "2015-07-01",
    "added": "ATI",
    "removed": "UNT"
+  },
+  {
+   "date": "2015-06-30",
+   "added": "CC",
+   "removed": "SMTC"
+  },
+  {
+   "date": "2015-06-30",
+   "added": "CABO",
+   "removed": "BTU"
+  },
+  {
+   "date": "2015-06-30",
+   "added": "EPC",
+   "removed": "HSC"
   },
   {
    "date": "2015-06-29",
