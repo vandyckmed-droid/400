@@ -1,7 +1,7 @@
-# MidCap 650 Momentum
+# S&P 900 Momentum
 
-A phone-first momentum ranking of roughly 650 US mid-sized stocks, published as a static site on
-GitHub Pages and refreshed every weekday morning by a GitHub Action.
+A phone-first momentum ranking of the S&P 500 and S&P MidCap 400 together, roughly 900 US stocks,
+published as a static site on GitHub Pages and refreshed every weekday morning by a GitHub Action.
 
 **Live:** https://vandyckmed-droid.github.io/400/
 
@@ -67,12 +67,13 @@ Financial Modeling Prep (FMP) API key never reaches the browser.
 
 There is exactly one universe and it is not a setting:
 
-- the S&P MidCap 400 as it stood on the day, plus
-- the 250 smallest S&P 500 members by that day's market cap.
+- the S&P 500 as it stood on the day, plus
+- the S&P MidCap 400 as it stood on the day.
 
-The 400/500 boundary is an index-committee decision, not an economic one, so the tail lets a name
-be ranked against everything of roughly its size. Membership and market caps are both
-point-in-time, so a historical cross-section uses the universe as it stood that day.
+Together they are the S&P 900. The 400/500 boundary is an index-committee decision, not a fact
+about a company, so every name is ranked against all the others whichever index holds it.
+Membership is point-in-time, so a historical cross-section uses both indices as they stood that
+day.
 
 **Known limitation.** Names that have since left the index are absent from older cross-sections,
 so historical bars carry some survivorship bias. Present-day rankings are unaffected.
@@ -183,8 +184,7 @@ All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 | MidCap 400 members | Scraped from Wikipedia's *List of S&P 400 companies*; a logged change the table has not caught up with is applied to it |
 | MidCap 400 change log | Scraped from Wikipedia's *Historical components of the S&P 400* (the list page is read as a fallback); an empty log counts as the source being down |
 | S&P 500 members and change log | FMP `sp500-constituent` and `historical-sp500-constituent` |
-| Market caps (to pick the tail, point-in-time) | FMP `historical-market-capitalization` |
-| Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,100 symbols |
+| Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,000 symbols |
 | Quotes (market cap, 52-week range, last change) | FMP `batch-quote` |
 
 Six years of prices are fetched because the oldest daily score looks a further year back. They
@@ -197,7 +197,7 @@ Responses are cached under `.cache/` (gitignored) for 12 hours.
 - **Sources down.** Each membership source writes a committed snapshot on success and falls back
   to it on failure, so an outage degrades the refresh to the last good membership.
 - **Degraded output.** `build.py` refuses to publish if fewer than 380 of the 400 priced, the
-  universe is under 620 names, the ranked count fell more than 5% from last run, or more than five
+  universe is under 850 names, the ranked count fell more than 5% from last run, or more than five
   of the 756 daily cross-sections could not be scored.
 - **Intraday prints.** A bar dated today is dropped when the run happens before 21:00 UTC, so a
   manual daytime run never plots an unsettled close.

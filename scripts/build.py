@@ -4,8 +4,8 @@
 Pipeline
 --------
 1. Resolve the universe with point-in-time membership (universes.py): the
-   MidCap 400 plus the 250 smallest S&P 500 names by market cap, ~650 in all.
-   Each source falls back to a committed snapshot if it is down.
+   S&P 500 and the S&P MidCap 400 together, ~900 names. Each source falls
+   back to a committed snapshot if it is down.
 2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
 3. On every trading day of the last three years, compute the 12-1 and 6-1
    legs once per name (return, volatility, return net of the market, residual
@@ -593,20 +593,13 @@ def main() -> None:
     core_at = universes.membership_history(core_now, core_changes, daily_dates)
     sp500_at = universes.membership_history(sp500_now, sp500_changes, daily_dates)
 
-    # Market caps are only needed to pick the small tail of the S&P 500.
-    cap_symbols = sorted({s for d in daily_dates for s in sp500_at[d]} & set(prices))
-    log(f"market caps for {len(cap_symbols)} S&P 500 names (to size the tail)")
-    caps = universes.fetch_market_caps(cap_symbols)
-
-    # The universe: the MidCap 400 as it stood that day, plus the smallest tail
-    # of the S&P 500 by the market caps that were true that day.
+    # The universe: the S&P 500 and the MidCap 400, each as it stood that day.
     members_at = {}
     for date in daily_dates:
-        tail = universes.size_tail(sp500_at[date] & set(prices), caps, date)
-        members_at[date] = (core_at[date] & set(prices)) | tail
+        members_at[date] = (core_at[date] | sp500_at[date]) & set(prices)
     log(f"universe today: {len(members_at[as_of])} names "
         f"({len(core_at[as_of] & set(prices))} from the MidCap 400 + "
-        f"{len(members_at[as_of]) - len(core_at[as_of] & set(prices))} S&P 500 tail)")
+        f"{len(members_at[as_of]) - len(core_at[as_of] & set(prices))} from the S&P 500)")
 
     # --- every day's cross-section, under every setting ---
     legs_now = legs_at(members_at[as_of], index_maps, as_of)
@@ -657,7 +650,7 @@ def main() -> None:
                          for i, name in enumerate(LEG_NAMES)},
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
                 "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
-                "mktCap": q.get("marketCap") or universes.cap_at(caps, symbol, as_of),
+                "mktCap": q.get("marketCap"),
                 "yearHigh": q.get("yearHigh"),
                 "yearLow": q.get("yearLow"),
             }
@@ -666,7 +659,7 @@ def main() -> None:
 
     core_priced = len(core_at[as_of] & set(prices))
     guard(core_priced >= 380, f"only {core_priced} of the MidCap 400 priced")
-    guard(len(members_at[as_of]) >= 620, f"universe is only {len(members_at[as_of])} names")
+    guard(len(members_at[as_of]) >= 850, f"universe is only {len(members_at[as_of])} names")
     previous = DATA / "latest.json"
     if previous.exists():
         before = len(json.loads(previous.read_text())["rows"])
@@ -679,7 +672,6 @@ def main() -> None:
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         "fromCore": core_priced,
         "members": len(members_at[as_of]),
-        "sizeTail": universes.SIZE_TAIL,
         "keys": KEYS,
         "params": {
             "skipDays": SKIP_DAYS,

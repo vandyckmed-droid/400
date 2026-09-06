@@ -1,7 +1,7 @@
 {
-  "name": "MidCap Momentum",
-  "short_name": "MidCap",
-  "description": "Momentum ranking of the S&P MidCap 400 plus the small tail of the S&P 500.",
+  "name": "S&P 900 Momentum",
+  "short_name": "S&P 900",
+  "description": "Momentum ranking of the S&P 500 and S&P MidCap 400 together.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
