@@ -877,20 +877,27 @@
         <button class="back" id="cback">‹ Back</button>
         <span class="grow"><b>${r.symbol}</b><small>${esc(r.name)}</small></span>
         <span class="cpx" id="cpx"></span>
-        <button type="button" class="ghost" id="ctune" aria-label="Indicators" aria-haspopup="dialog"
+        <button type="button" class="ghost" id="ctune" aria-label="Chart settings" aria-haspopup="dialog"
                 aria-expanded="false" hidden><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></button>
       </div>
       ${pagerHtml(r.symbol)}
       <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol}"></canvas>
       <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
-      <div class="cpanel" id="cpanel" role="dialog" aria-label="Indicators" hidden>
+      <div class="cpanel" id="cpanel" role="dialog" aria-label="Chart settings" hidden>
         <div class="sheet-handle" aria-hidden="true"></div>
-        <div id="cpanel-list">
-          <div class="cpanel-head"><b>Indicators</b>
+        <div id="cpanel-root">
+          <div class="cpanel-head">
+            <div class="segmented mini" id="ctabs" role="tablist" aria-label="Chart settings">
+              <button type="button" role="tab" data-tab="ind" class="on" aria-selected="true">Indicators</button>
+              <button type="button" role="tab" data-tab="axis" aria-selected="false">Chart</button>
+            </div>
             <button type="button" class="done" id="cdone">Done</button>
           </div>
-          <ul class="ind-list" id="ind-list"></ul>
-          <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
+          <div id="tab-ind">
+            <ul class="ind-list" id="ind-list"></ul>
+            <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
+          </div>
+          <div id="tab-axis" hidden></div>
         </div>
         <div id="cpanel-set" hidden>
           <div class="cpanel-head">
@@ -947,16 +954,24 @@
       fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
       summary: (m) => `Simple · ${m.period} days`,
     },
+    axis: {
+      blurb: 'Linear spaces prices evenly. Log spaces them so equal percentage moves are equal '
+        + 'heights, which keeps a name that has doubled or halved in proportion. Switching returns '
+        + 'the price range to automatic.',
+      labels: { linear: 'Linear', log: 'Log' },
+    },
   };
 
-  /* The panel has two screens: the list of indicators, each with a switch and
-     a tap-through, and one indicator's settings. Controls apply on every move
-     and save when they settle. The canvas keeps its own gestures — a touch on
-     it both closes the panel and pans, which is what a finger expects. */
+  /* The panel has a root screen with two tabs — the list of indicators, each
+     with a switch and a tap-through, and the chart's own settings (the price
+     axis) — plus one sub-screen for a single indicator's settings. Controls
+     apply on every move and save when they settle. The canvas keeps its own
+     gestures — a touch on it both closes the panel and pans, which is what a
+     finger expects. */
   function wireChartPanel(chart) {
-    const IND = priceChart.INDICATORS;
-    const btn = $('ctune'), panel = $('cpanel'), list = $('cpanel-list'), setScreen = $('cpanel-set');
-    let editing = null;
+    const IND = priceChart.INDICATORS, AXIS = priceChart.AXIS;
+    const btn = $('ctune'), panel = $('cpanel'), root = $('cpanel-root'), setScreen = $('cpanel-set');
+    let editing = null, tab = 'ind';
 
     const renderList = () => {
       $('ind-list').innerHTML = Object.entries(IND).map(([id, spec]) => `
@@ -977,12 +992,33 @@
                  value="${Math.round(cur[f.key] * k * 1e6) / 1e6}" aria-label="${IND[id].name} ${f.label.toLowerCase()}"></label>`;
       }).join('');
     };
+    const renderAxis = () => {
+      const cur = state.chart.axis.scale;
+      $('tab-axis').innerHTML = `
+        <div class="cchoice"><span>${AXIS.name}</span>
+          <div class="segmented" id="scale-seg" role="radiogroup" aria-label="${AXIS.name}">
+            ${AXIS.choices.scale.map((v) => `<button type="button" role="radio" data-scale="${v}"
+               class="${v === cur ? 'on' : ''}" aria-checked="${v === cur}">${IND_UI.axis.labels[v]}</button>`).join('')}
+          </div>
+        </div>
+        <p class="fine">${IND_UI.axis.blurb}</p>`;
+    };
     const apply = (id, patch) => {
       chart.set({ [id]: patch });
       state.chart = chart.indicators();            // the chart's clamped copy is the truth
     };
-    const showList = () => { editing = null; renderList(); setScreen.hidden = true; list.hidden = false; };
-    const showSettings = (id) => { editing = id; renderFields(id); list.hidden = true; setScreen.hidden = false; };
+    const showTab = (t) => {
+      tab = t;
+      for (const b of $('ctabs').querySelectorAll('button')) {
+        const on = b.dataset.tab === t;
+        b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on));
+      }
+      if (t === 'ind') renderList(); else renderAxis();
+      $('tab-ind').hidden = t !== 'ind';
+      $('tab-axis').hidden = t !== 'axis';
+    };
+    const showList = () => { editing = null; showTab(tab); setScreen.hidden = true; root.hidden = false; };
+    const showSettings = (id) => { editing = id; renderFields(id); root.hidden = true; setScreen.hidden = false; };
     const open = () => {
       showList();
       panel.hidden = false;
@@ -1009,7 +1045,15 @@
     });
     panel.addEventListener('click', (e) => {
       const openBtn = e.target.closest('.ind-open');
-      if (openBtn) showSettings(openBtn.dataset.ind);
+      if (openBtn) return showSettings(openBtn.dataset.ind);
+      const tabBtn = e.target.closest('#ctabs button');
+      if (tabBtn) return showTab(tabBtn.dataset.tab);
+      const scaleBtn = e.target.closest('button[data-scale]');
+      if (scaleBtn) {
+        apply('axis', { scale: scaleBtn.dataset.scale });
+        saveChartPrefs();
+        renderAxis();
+      }
     });
     panel.addEventListener('change', (e) => {
       const t = e.target;
