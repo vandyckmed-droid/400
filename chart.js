@@ -63,7 +63,7 @@
 
   const TUNE = {
     barW: 3,             // starting pixels per bar
-    minBarW: 0.6,
+    minBarW: 0.4,        // small enough that three years fit the plot when zoomed right out
     maxBarW: 40,
     pad: 0.06,           // auto-scale head/foot room as a share of the range
     rightRoom: 0.4,      // how far past the last bar you can pan, share of the plot width

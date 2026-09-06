@@ -23,7 +23,7 @@ to work in this repository and with its owner.
   current strength and its history read together; then the link to the price chart, its two
   momentum legs, its standing against the whole universe and within its sector, and quote and
   volatility figures.
-- **Price chart.** A full-screen chart of 18 months of adjusted daily bars. Drag to pan, pinch to
+- **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
   with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
   own settings a tap away: the **regression channel** (on by default), a least-squares line through
@@ -122,7 +122,7 @@ data/latest.json                   current ranking, all six peer sets, quotes, k
 data/spark/<key>.json              last 12 month-end scores per name, one file per peer set (6)
 data/history/<key>.json            36 month-end scores per name, one file per peer set (6)
 data/history/<key>w.json           78 week-end scores per name, loaded only when asked for
-data/bars/<SYMBOL>.json            378 adjusted daily bars (~18 months) per ranked name, ~9 MB in all
+data/bars/<SYMBOL>.json            756 adjusted daily bars (~3 years) per ranked name, ~20 MB in all
 data/universe.json                 MidCap 400 constituents + change log; also the offline fallback
 data/sp500.json                    S&P 500 constituents + change log; also the offline fallback
 
