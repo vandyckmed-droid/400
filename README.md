@@ -25,8 +25,9 @@ to work in this repository and with its owner.
   zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
   with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
   own settings a tap away: the **regression channel** (on by default), a least-squares line through
-  the closes with bands either side, with settings for length (20–360 days, default 200), width
-  (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0 leaves the lines only); and
+  the closes with bands either side (through their logarithm when the axis is log, so the channel
+  is straight on either axis), with settings for length (20–360 days, default 200), width (1–3
+  standard deviations, default 2) and fill (0–40%, default 7%; 0 leaves the lines only); and
   two **moving averages** (both off by default), simple averages of the closes, the first drawn in
   amber (period 5–200 days, default 50), the second in violet (period 5–300 days, default 200), so
   the common 50/200 pair is two switches away. **Chart** holds the price axis: linear (default) or
