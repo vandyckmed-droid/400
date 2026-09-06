@@ -932,22 +932,16 @@
         <div class="sheet-handle" aria-hidden="true"></div>
         <div id="cpanel-root">
           <div class="cpanel-head">
-            <div class="segmented mini" id="ctabs" role="tablist" aria-label="Chart settings">
-              <button type="button" role="tab" data-tab="ind" class="on" aria-selected="true">Indicators</button>
-              <button type="button" role="tab" data-tab="axis" aria-selected="false">Chart</button>
-            </div>
+            <b>Chart</b>
             <button type="button" id="creset-all" aria-label="Reset all chart settings">Reset</button>
             <button type="button" class="done" id="cdone">Done</button>
           </div>
-          <div id="tab-ind">
-            <ul class="ind-list" id="ind-list"></ul>
-            <p class="fine">Tap a name for its settings. Touch the chart to close.</p>
-          </div>
-          <div id="tab-axis" hidden></div>
+          <ul class="tree" id="ind-list"></ul>
+          <p class="fine">Tap a name for its settings; the eye shows or hides it.</p>
         </div>
         <div id="cpanel-set" hidden>
           <div class="cpanel-head">
-            <button type="button" class="backlink" id="cset-back">‹ Indicators</button>
+            <button type="button" class="backlink" id="cset-back">‹ Chart</button>
             <b id="cset-title"></b>
             <button type="button" id="creset">Reset</button>
           </div>
@@ -971,7 +965,7 @@
       chart = priceChart($('price-chart'), bars, { indicators: state.chart, view: chartZoom });
       // The gesture hint shows once per session, not on every name stepped to.
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, chartZoom ? 0 : 6000);
-      wireChartPanel(chart);
+      wireChartPanel(chart, r.symbol);
     });
   }
 
@@ -1009,26 +1003,40 @@
     },
   };
 
-  /* The panel has a root screen with two tabs — the list of indicators, each
-     with a switch and a tap-through, and the chart's own settings (the price
-     axis) — plus one sub-screen for a single indicator's settings. Controls
-     apply on every move and save when they settle. The canvas keeps its own
-     gestures — a touch on it both closes the panel and pans, which is what a
-     finger expects. */
-  function wireChartPanel(chart) {
+  /* The panel's root is a full-screen list of what the chart draws: the
+     price plot first (its settings are the price axis), then the overlays,
+     each with an eye to show or hide it and a tap-through to its settings,
+     then a divider and the section for anything drawn below the chart, empty
+     until such an indicator exists. One item's settings open as a small
+     sheet over the chart so it redraws live as a control moves. The canvas
+     keeps its own gestures — a touch on it both closes the sheet and pans,
+     which is what a finger expects. */
+  function wireChartPanel(chart, symbol) {
     const IND = priceChart.INDICATORS, AXIS = priceChart.AXIS;
     const btn = $('ctune'), panel = $('cpanel'), root = $('cpanel-root'), setScreen = $('cpanel-set');
-    let editing = null, tab = 'ind';
+    let editing = null;
 
+    const icon = (id) => `<svg class="tree-ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
     const renderList = () => {
-      $('ind-list').innerHTML = Object.entries(IND).map(([id, spec]) => `
-        <li class="ind-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
-          <button type="button" class="ind-open" data-ind="${id}"><b>${spec.name} <i>›</i></b>
-            <small>${IND_UI[id].summary(state.chart[id])}</small></button>
-          <input type="checkbox" role="switch" data-ind="${id}" aria-label="${spec.name}"${state.chart[id].on ? ' checked' : ''}>
-        </li>`).join('');
+      const scale = IND_UI.axis.labels[state.chart.axis.scale];
+      $('ind-list').innerHTML = `
+        <li class="tree-row price on">
+          <button type="button" class="ind-open" data-ind="axis">${icon('bars')}<span><b>${symbol} · 1D</b>
+            <small>${AXIS.name} · ${scale}</small></span></button>
+        </li>
+        <li class="tree-sep" aria-hidden="true">On the chart</li>
+        ${Object.entries(IND).map(([id, spec]) => `
+        <li class="tree-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
+          <button type="button" class="ind-open" data-ind="${id}">${icon('wave')}<span><b>${spec.name} <i>›</i></b>
+            <small>${IND_UI[id].summary(state.chart[id])}</small></span></button>
+          <button type="button" class="eye" data-eye="${id}" aria-pressed="${state.chart[id].on}"
+                  aria-label="Show ${spec.name}"><svg aria-hidden="true"><use href="#i-eye${state.chart[id].on ? '' : '-off'}"/></svg></button>
+        </li>`).join('')}
+        <li class="tree-sep" aria-hidden="true">Below the chart</li>
+        <li class="tree-empty">Nothing yet.</li>`;
     };
     const renderFields = (id) => {
+      if (id === 'axis') return renderAxis();
       const cur = state.chart[id];
       $('cset-title').textContent = IND[id].name;
       $('cset-blurb').textContent = IND_UI[id].blurb;
@@ -1041,38 +1049,36 @@
     };
     const renderAxis = () => {
       const cur = state.chart.axis.scale;
-      $('tab-axis').innerHTML = `
-        <div class="cchoice"><span>${AXIS.name}</span>
+      $('cset-title').textContent = AXIS.name;
+      $('cset-blurb').textContent = IND_UI.axis.blurb;
+      $('cset-fields').innerHTML = `
+        <div class="cchoice">
           <div class="segmented" id="scale-seg" role="radiogroup" aria-label="${AXIS.name}">
             ${AXIS.choices.scale.map((v) => `<button type="button" role="radio" data-scale="${v}"
                class="${v === cur ? 'on' : ''}" aria-checked="${v === cur}">${IND_UI.axis.labels[v]}</button>`).join('')}
           </div>
-        </div>
-        <p class="fine">${IND_UI.axis.blurb}</p>`;
+        </div>`;
     };
     const apply = (id, patch) => {
       chart.set({ [id]: patch });
       state.chart = chart.indicators();            // the chart's clamped copy is the truth
     };
     /* Reset all: one tap arms it and says so, a second tap within a few
-       seconds returns every switch, setting and the axis to defaults. Anything
-       else — a tab change, closing — disarms it. */
+       seconds returns every eye, setting and the axis to defaults. Anything
+       else — opening an item, closing — disarms it. */
     const resetAll = $('creset-all');
     let armed = 0;
     const disarm = () => { clearTimeout(armed); armed = 0; resetAll.textContent = 'Reset'; resetAll.classList.remove('armed'); };
-    const showTab = (t) => {
+    const showList = () => {
       disarm();
-      tab = t;
-      for (const b of $('ctabs').querySelectorAll('button')) {
-        const on = b.dataset.tab === t;
-        b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on));
-      }
-      if (t === 'ind') renderList(); else renderAxis();
-      $('tab-ind').hidden = t !== 'ind';
-      $('tab-axis').hidden = t !== 'axis';
+      editing = null; renderList();
+      setScreen.hidden = true; root.hidden = false; panel.classList.add('full');
     };
-    const showList = () => { editing = null; showTab(tab); setScreen.hidden = true; root.hidden = false; };
-    const showSettings = (id) => { editing = id; renderFields(id); root.hidden = true; setScreen.hidden = false; };
+    const showSettings = (id) => {
+      disarm();
+      editing = id; renderFields(id);
+      root.hidden = true; setScreen.hidden = false; panel.classList.remove('full');
+    };
     const open = () => {
       showList();
       panel.hidden = false;
@@ -1104,20 +1110,32 @@
       chart.set(defaults);
       state.chart = chart.indicators();
       saveChartPrefs();
-      showTab(tab);
+      renderList();
     });
     $('cset-back').addEventListener('click', showList);
     $('creset').addEventListener('click', () => {
-      const { on, ...defaults } = IND[editing].defaults;   // reset the numbers, keep the switch
-      apply(editing, defaults);
+      if (editing === 'axis') {
+        apply('axis', { ...AXIS.defaults });
+      } else {
+        const { on, ...defaults } = IND[editing].defaults;   // reset the numbers, keep the eye
+        apply(editing, defaults);
+      }
       saveChartPrefs();
       renderFields(editing);
     });
     panel.addEventListener('click', (e) => {
       const openBtn = e.target.closest('.ind-open');
       if (openBtn) return showSettings(openBtn.dataset.ind);
-      const tabBtn = e.target.closest('#ctabs button');
-      if (tabBtn) return showTab(tabBtn.dataset.tab);
+      const eye = e.target.closest('.eye');
+      if (eye) {
+        const id = eye.dataset.eye, on = !state.chart[id].on;
+        apply(id, { on });
+        saveChartPrefs();
+        eye.setAttribute('aria-pressed', String(on));
+        eye.querySelector('use').setAttribute('href', `#i-eye${on ? '' : '-off'}`);
+        eye.closest('.tree-row').classList.toggle('on', on);
+        return;
+      }
       const scaleBtn = e.target.closest('button[data-scale]');
       if (scaleBtn) {
         apply('axis', { scale: scaleBtn.dataset.scale });
@@ -1126,14 +1144,7 @@
       }
     });
     panel.addEventListener('change', (e) => {
-      const t = e.target;
-      if (t.type === 'checkbox' && t.dataset.ind) {
-        apply(t.dataset.ind, { on: t.checked });
-        t.closest('.ind-row').classList.toggle('on', t.checked);
-        saveChartPrefs();
-      } else if (t.type === 'range') {
-        saveChartPrefs();
-      }
+      if (e.target.type === 'range') saveChartPrefs();
     });
     panel.addEventListener('input', (e) => {
       const t = e.target;

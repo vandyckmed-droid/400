@@ -28,19 +28,22 @@ to work in this repository and with its owner.
   side with the blend written out, and a link to the methodology in Settings), Against its peers
   (the rank in the peer set the headline is not using), and Quote & risk (price and change).
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
-  zoom, drag the price axis to stretch it. A button in its top bar opens the chart's settings panel,
-  with two tabs. **Indicators** lists what the chart can draw, each with an on/off switch and its
-  own settings a tap away: the **regression channel** (on by default), a least-squares line through
-  the closes with bands either side (through their logarithm when the axis is log, so the channel
-  is straight on either axis), with settings for length (20–360 days, default 200), width (1–3
-  standard deviations, default 2) and fill (0–40%, default 7%; 0 leaves the lines only); and
-  two **moving averages** (both off by default), simple averages of the closes, the first drawn in
-  amber (period 5–200 days, default 50), the second in violet (period 5–300 days, default 200), so
-  the common 50/200 pair is two switches away. **Chart** holds the price axis: linear (default) or
-  log, where equal percentage moves are equal heights; switching returns the range to automatic.
-  A Reset in the panel's top row, confirmed by a second tap, returns everything to defaults.
-  Changes draw live, a touch on the chart closes the panel, and every choice persists per device. A
-  new indicator is a new entry in chart.js plus its drawing; the panel builds itself from that list.
+  zoom, drag the price axis to stretch it. A button in its top bar opens a full-screen list of what
+  the chart draws. First the **price plot** itself, whose settings are the price axis: linear
+  (default) or log, where equal percentage moves are equal heights; switching returns the range to
+  automatic. Then, under an "On the chart" divider, the overlays, each with an eye that shows or
+  hides it and its own settings a tap away: the **regression channel** (on by default), a
+  least-squares line through the closes with bands either side (through their logarithm when the
+  axis is log, so the channel is straight on either axis), with settings for length (20–360 days,
+  default 200), width (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0 leaves
+  the lines only); and two **moving averages** (both off by default), simple averages of the
+  closes, the first drawn in amber (period 5–200 days, default 50), the second in violet (period
+  5–300 days, default 200), so the common 50/200 pair is two eyes away. A second divider, "Below
+  the chart", marks the section for indicators drawn in their own pane beneath the price; nothing
+  lives there yet. An item's settings open as a small sheet over the chart, so changes draw live
+  and a touch on the chart closes it. A Reset in the list's top row, confirmed by a second tap,
+  returns everything to defaults, and every choice persists per device. A new overlay is a new
+  entry in chart.js plus its drawing; the list builds itself from that.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
   universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.

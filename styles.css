@@ -269,9 +269,10 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
   transition: opacity .4s; padding: 0 20px;
 }
 
-/* The chart's own settings: a small panel that slides up over the foot of
-   the chart with no backdrop, so the chart stays fully visible and redraws
-   live as a control moves. Touching the chart itself closes it. */
+/* The chart's own settings. The root is a full-screen list of what the chart
+   draws (`.full`); one indicator's settings are a small sheet over the foot
+   of the chart with no backdrop, so the chart stays visible and redraws live
+   as a control moves. Touching the chart itself closes it. */
 .cpanel {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
   background: var(--card); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
@@ -281,6 +282,10 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 }
 .cpanel.open { transform: translateY(0); }
 .cpanel[hidden] { display: none; }
+.cpanel.full { top: 0; z-index: 25; border-top: 0; border-radius: 0; box-shadow: none; overflow-y: auto; padding-top: var(--safe-t, 0px); }
+.cpanel.full .sheet-handle { display: none; }
+.cpanel.full .cpanel-head { padding: 12px 0 8px; }
+.cpanel.full .cpanel-head b { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
 .cpanel-head { display: flex; align-items: center; gap: 16px; padding: 6px 0 10px; }
 .cpanel-head b { flex: 1; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cpanel-head button {
@@ -297,17 +302,36 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .cchoice { padding: 8px 0 2px; }
 .cchoice > span { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
 .cchoice .segmented button { flex: 1; padding: 8px 4px; font-size: 13px; }
-.ind-list { list-style: none; margin: 0; padding: 0; }
-.ind-row { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line-soft); }
-.ind-row:first-child { border-top: 0; }
-.ind-open {
-  flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 10px 0;
-  color: var(--ink); -webkit-tap-highlight-color: transparent;
+/* The tree: the price plot first, then the overlays, then a divider and
+   whatever is drawn below the chart (nothing yet). A row's name opens its
+   settings; the eye shows or hides it. */
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree-row { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line-soft); }
+.tree-row:first-child, .tree-sep + .tree-row { border-top: 0; }
+.tree-row .tree-ic { flex: 0 0 auto; width: 22px; height: 22px; color: var(--ink-2); }
+.tree-row.price .ind-open b { font-weight: 800; }
+.tree-row:not(.on) .tree-ic { color: var(--ink-3); }
+.tree-sep {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0 4px;
+  font-size: 11.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
 }
+.tree-sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.tree-empty { padding: 10px 0 14px; font-size: 13px; color: var(--ink-3); }
+.eye {
+  flex: 0 0 auto; width: 40px; height: 40px; margin-right: -8px; display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--ink-2); border-radius: 10px; -webkit-tap-highlight-color: transparent;
+}
+.eye[aria-pressed="false"] { color: var(--ink-3); }
+.eye svg { width: 20px; height: 20px; }
+.ind-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  border: 0; background: transparent; padding: 12px 0; color: var(--ink); -webkit-tap-highlight-color: transparent;
+}
+.ind-open > span { min-width: 0; }
 .ind-open b { display: block; font-size: 15px; }
 .ind-open b i { font-style: normal; color: var(--ink-3); font-weight: 400; }
 .ind-open small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
-.ind-row:not(.on) .ind-open b { color: var(--ink-2); }
+.tree-row:not(.on) .ind-open b { color: var(--ink-2); }
 .cslider { display: block; padding: 6px 0 2px; }
 .cslider span { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
 .cslider output { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 650; }
@@ -417,17 +441,17 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .choice .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; min-height: 2.9em; }
 .choice .segmented { margin-top: 10px; }
 .choice .segmented button { flex: 1; }
-.switch input, .ind-row input {
+.switch input {
   appearance: none; -webkit-appearance: none; flex: 0 0 auto; margin: 0;
   width: 46px; height: 28px; border-radius: 14px; background: var(--track); position: relative;
   transition: background .15s; cursor: pointer;
 }
-.switch input::after, .ind-row input::after {
+.switch input::after {
   content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%;
   background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s;
 }
-.switch input:checked, .ind-row input:checked { background: var(--hot); }
-.switch input:checked::after, .ind-row input:checked::after { transform: translateX(18px); }
+.switch input:checked { background: var(--hot); }
+.switch input:checked::after { transform: translateX(18px); }
 .method { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
 .method li { margin-bottom: 9px; }
 .method li:last-child { margin-bottom: 0; }
