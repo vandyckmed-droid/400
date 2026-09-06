@@ -1,7 +1,7 @@
 /* Price chart: daily bars on a canvas with the three gestures a phone
    needs — drag to pan time, pinch to zoom time, drag the price axis to stretch
-   it — plus two optional indicators: a linear regression channel and a
-   simple moving average. */
+   it — plus optional indicators: a linear regression channel and two simple
+   moving averages. */
 (function () {
   'use strict';
 
@@ -16,11 +16,19 @@
       limits: { len: [20, 360, 10], dev: [1, 3, 0.1], fill: [0, 0.4, 0.01] },
     },
     ma: {
-      name: 'Moving average',
+      name: 'Moving average 1',
       defaults: { on: false, period: 50 },
       limits: { period: [5, 200, 5] },
+      color: '--mid',
+    },
+    ma2: {
+      name: 'Moving average 2',
+      defaults: { on: false, period: 200 },
+      limits: { period: [5, 300, 5] },
+      color: '--ma2',
     },
   };
+  const MAS = ['ma', 'ma2'];     // the moving-average indicators, drawn the same way
 
   /* Fill in defaults and clamp every number, so a stale or hand-edited store
      can never put the chart in a state it cannot draw. */
@@ -104,7 +112,7 @@
     const ctx = canvas.getContext('2d');
     let cfg = normalize(opts.indicators);
     let channel = regression(c, cfg.channel.len);
-    let ma = sma(c, cfg.ma.period);
+    const mas = Object.fromEntries(MAS.map((id) => [id, sma(c, cfg[id].period)]));
 
     // View state. `right` is the fractional bar index sitting at the right edge
     // of the plot; `auto` means the price range follows the visible bars.
@@ -167,7 +175,9 @@
           lo = Math.min(lo, m - band); hi = Math.max(hi, m + band);
         }
       }
-      if (cfg.ma.on) {
+      for (const id of MAS) {
+        if (!cfg[id].on) continue;
+        const ma = mas[id];
         for (let i = from; i <= to; i++) { const v = ma[i]; if (!isNaN(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
       }
       if (!isFinite(lo)) { lo = c[n - 1] * 0.9; hi = c[n - 1] * 1.1; }
@@ -270,9 +280,11 @@
       }
       ctx.globalAlpha = 1;
 
-      // Moving average: one amber line over the bars, broken where it has no value.
-      if (cfg.ma.on) {
-        ctx.strokeStyle = colors.mid; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+      // Moving averages: one line each over the bars, broken where it has no value.
+      for (const id of MAS) {
+        if (!cfg[id].on) continue;
+        const ma = mas[id];
+        ctx.strokeStyle = css(INDICATORS[id].color); ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
         ctx.beginPath();
         let pen = false;
         for (let i = Math.max(0, from); i <= to; i++) {
@@ -461,7 +473,7 @@
       const was = cfg;
       cfg = normalize(merged);
       if (cfg.channel.len !== was.channel.len) channel = regression(c, cfg.channel.len);
-      if (cfg.ma.period !== was.ma.period) ma = sma(c, cfg.ma.period);
+      for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
       schedule();
     }
 

@@ -941,6 +941,12 @@
       fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
       summary: (m) => `Simple · ${m.period} days`,
     },
+    ma2: {
+      blurb: 'A second simple average, drawn in violet, so a short and a long one can be read '
+        + 'together (50 and 200 days is the common pair).',
+      fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
+      summary: (m) => `Simple · ${m.period} days`,
+    },
   };
 
   /* The panel has two screens: the list of indicators, each with a switch and

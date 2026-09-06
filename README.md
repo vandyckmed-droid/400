@@ -27,8 +27,9 @@ to work in this repository and with its owner.
   settings a tap away. Today there are two. The **regression channel** (on by default): a
   least-squares line through the closes with bands either side, with settings for length (20–360
   days, default 200), width (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0
-  leaves the lines only). The **moving average** (off by default): a simple average of the closes
-  drawn in amber, with a period setting (5–200 days, default 50). Changes draw live, a touch on the
+  leaves the lines only). Two **moving averages** (both off by default): simple averages of the
+  closes, the first drawn in amber (period 5–200 days, default 50), the second in violet (period
+  5–300 days, default 200), so the common 50/200 pair is two switches away. Changes draw live, a touch on the
   chart closes the panel, and every choice persists per device. A new indicator is a new entry in
   chart.js plus its drawing; the panel builds itself from that list.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
