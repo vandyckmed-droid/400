@@ -28,11 +28,9 @@ to work in this repository and with its owner.
   least-squares line through the closes with bands either side, with settings for length (20–360
   days, default 200), width (1–3 standard deviations, default 2) and fill (0–40%, default 7%; 0
   leaves the lines only). The **moving average** (off by default): a simple average of the closes
-  drawn in amber, with a period setting (5–200 days, default 50). A second tab, **Chart**, holds the
-  bars' own settings: weight (0.5–3 px, default 1), opacity (20–100%, default 100%) and one of three
-  colour pairs (green/red, blue/orange, mono), each following light and dark mode. Changes draw
-  live, a touch on the chart closes the panel, and every choice persists per device. A new indicator
-  is a new entry in chart.js plus its drawing; the panel builds itself from that list.
+  drawn in amber, with a period setting (5–200 days, default 50). Changes draw live, a touch on the
+  chart closes the panel, and every choice persists per device. A new indicator is a new entry in
+  chart.js plus its drawing; the panel builds itself from that list.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
   universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
@@ -131,8 +129,7 @@ The app is a single page routed by URL hash: the list at `/`, a ticker at `#/t/S
 chart at `#/t/SYMBOL/chart`, and `#/settings`. Files beyond the ranking are fetched lazily and
 memoised; a failed optional fetch leaves that piece out rather than breaking the page. Watchlist,
 sector filter, both settings, the chart interval and the chart's indicator settings persist in
-local storage (the last under one key, `sp400.chart.v1`, one object per indicator plus one for the
-bars).
+local storage (the last under one key, `sp400.chart.v1`, one object per indicator).
 
 Both settings buttons (list top bar and chart top bar) share one hand-drawn sliders icon, kept as
 an inline SVG symbol at the top of `index.html`.
