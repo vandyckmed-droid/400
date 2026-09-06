@@ -172,7 +172,6 @@
       colors = {
         bg: css('--bg'), ink: css('--ink'), ink3: css('--ink-3'), grid: css('--line-soft'),
         line: css('--line'), hot: css('--hot'), cold: css('--cold'), accent: css('--accent'),
-        mid: css('--mid'),
       };
     }
 
@@ -547,7 +546,7 @@
       schedule();
     }
 
-    return { view, zoom, set, indicators: () => cfg, reset: resetPrice, redraw: schedule };
+    return { zoom, set, indicators: () => cfg };
   }
 
   window.priceChart = priceChart;
