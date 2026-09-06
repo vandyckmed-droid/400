@@ -139,11 +139,15 @@
      view can ask for what it needs without tracking whether it already has
      it. A failed fetch resolves to null: a missing extra never breaks the
      ranking, it just leaves that piece of the page out. */
+  /* Every data file comes through here: fresh from the server, parsed, and
+     an HTTP failure turned into a rejection the caller decides about. */
+  const getJSON = (file) => fetch(file, { cache: 'no-cache' })
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
   function loadJSON(file, key) {
     const cached = key + 'Promise';
     if (!state[cached]) {
-      state[cached] = fetch(file, { cache: 'no-cache' })
-        .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      state[cached] = getJSON(file)
         .then((d) => { state[key] = d; return d; })
         .catch(() => null);
     }
@@ -159,8 +163,7 @@
 
   /* ---------- boot ---------- */
   Promise.all([
-    fetch('data/latest.json', { cache: 'no-cache' })
-      .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+    getJSON('data/latest.json'),
     loadSpark(),      // optional: rows still render without their strips
   ])
     .then(([payload]) => {
@@ -1156,9 +1159,7 @@
   function loadBars(symbol) {
     state.bars = state.bars || new Map();
     if (!state.bars.has(symbol)) {
-      state.bars.set(symbol, fetch(`data/bars/${symbol}.json`, { cache: 'no-cache' })
-        .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .catch(() => null));
+      state.bars.set(symbol, getJSON(`data/bars/${symbol}.json`).catch(() => null));
     }
     return state.bars.get(symbol);
   }

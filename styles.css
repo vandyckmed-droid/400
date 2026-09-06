@@ -189,8 +189,8 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
   align-items: center; gap: 8px;
   padding: 9px 6px;
   border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
 }
-.row { cursor: pointer; }
 .row:active { background: var(--bg-soft); }
 .rk { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-3); text-align: right; }
 .who { min-width: 0; }
