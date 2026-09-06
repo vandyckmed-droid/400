@@ -342,25 +342,33 @@ def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
     return gather(symbols, lambda s: fetch_prices(s, start), "prices")
 
 
-def write_bars(symbols: list[str]) -> None:
+def write_bars(symbols: list[str], daily: dict) -> None:
     """One compact file of daily bars per published name, columnar so the chart
-    can index straight into it. Rewritten whole on every run; git stores the
-    rewrite as a delta against the previous version, so a day's growth is a
-    few hundred bytes per name, not a fresh copy."""
+    can index straight into it, plus the name's daily score in every peer set
+    on the same dates (`daily[key][symbol][date]`, null where it has none), so
+    the chart can draw the rank beneath the price with nothing to align.
+    Rewritten whole on every run; git stores the rewrite as a delta against
+    the previous version, so a day's growth is a few hundred bytes per name,
+    not a fresh copy."""
     folder = DATA / "bars"
     folder.mkdir(exist_ok=True)
     start = price_start()
     bars = gather(symbols, lambda s: fetch_bars(s, start), "bars")
     for symbol, series in bars.items():
+        dates = [b[0] for b in series]
         payload = {
             "symbol": symbol,
             "asOf": series[-1][0],
             "adjusted": "dividends and splits",
-            "dates": [b[0] for b in series],
+            "dates": dates,
             "o": [b[1] for b in series],
             "h": [b[2] for b in series],
             "l": [b[3] for b in series],
             "c": [b[4] for b in series],
+            "score": {
+                key: [daily[key].get(symbol, {}).get(d) for d in dates]
+                for key in PEER_SETS
+            },
         }
         (folder / f"{symbol}.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
     # A name that left the published set leaves the chart too.
@@ -613,7 +621,8 @@ def main() -> None:
     as_of = calendar[-1]
     snapshot_dates = month_end_dates(calendar, HISTORY_MONTHS)
     weekly_dates = week_end_dates(calendar, HISTORY_WEEKS)
-    all_dates = sorted(set(snapshot_dates) | set(weekly_dates) | {as_of})
+    daily_dates = calendar[-BARS_DAYS:]          # one cross-section per bar the chart shows
+    all_dates = sorted(set(snapshot_dates) | set(weekly_dates) | set(daily_dates) | {as_of})
     log(f"as of {as_of}; {len(snapshot_dates)} monthly snapshots from {snapshot_dates[0]}")
 
     core_at = universes.membership_history(core_now, core_changes, all_dates)
@@ -664,6 +673,10 @@ def main() -> None:
     weekly, weekly_outside, kept_weeks = build_history(weekly_dates)
     log(f"history: {len(kept_dates)} monthly, {len(kept_weeks)} weekly cross-sections; "
         f"{sum(len(v) for v in history_outside.values())} name/peer-set pairs carry pre-membership bars")
+    # The daily series the chart draws beneath the price: about a minute of
+    # arithmetic for three years, written into the bar files by write_bars.
+    daily, _, kept_days = build_history(daily_dates)
+    log(f"daily scores: {len(kept_days)} of {len(daily_dates)} trading days from {kept_days[0]}")
     blocks = {
         key: rank_block(legs_now, meta, basis, adjust)
         for key, (basis, adjust) in PEER_SETS.items()
@@ -776,7 +789,7 @@ def main() -> None:
             },
         })
 
-    write_bars(sorted(published))
+    write_bars(sorted(published), daily)
 
 
 def write_json(path: Path, payload: object) -> None:

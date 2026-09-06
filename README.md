@@ -39,11 +39,17 @@ to work in this repository and with its owner.
   the lines only); and two **moving averages** (both off by default), simple averages of the
   closes, the first drawn in amber (period 5–200 days, default 50), the second in violet (period
   5–300 days, default 200), so the common 50/200 pair is two eyes away. A second divider, "Below
-  the chart", marks the section for indicators drawn in their own pane beneath the price; nothing
-  lives there yet. An item's settings open as a small sheet over the chart, so changes draw live
-  and a touch on the chart closes it. A Reset in the list's top row, confirmed by a second tap,
-  returns everything to defaults, and every choice persists per device. A new overlay is a new
-  entry in chart.js plus its drawing; the list builds itself from that.
+  the chart", holds what is drawn in its own pane beneath the price, on the same dates: the
+  **rank** (on by default), the name's daily score, 0–100, in the peer set chosen in Settings, as a
+  line with the latest value tagged on its axis. The pane pans with the bars; its scale is fixed.
+  An item's settings open as a small sheet over the chart, so changes draw live and a touch on the
+  chart closes it. A Reset in the list's top row, confirmed by a second tap, returns everything to
+  defaults, and every choice persists per device. A new overlay or pane is a new entry in chart.js
+  plus its drawing; the list builds itself from that.
+  **Press and hold** on either pane for a crosshair: a vertical through both panes that slides
+  from bar to bar under the finger, a horizontal at the finger, the date on the time axis, the
+  price (or rank) under the finger on the axis, and a readout of the bar's open, high, low, close,
+  day change and rank. It stays when the finger lifts; the next touch clears it.
 - **Settings.** Two settings (below), a data card, the methodology, and a description of the
   universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
@@ -107,7 +113,8 @@ not their data source.
 
 A name that joined the index recently is scored on earlier dates as an "outsider": inserted into
 that day's member distribution to find where it would have ranked, without changing the members'
-own percentiles. Those bars are dimmed on the charts and labelled "not yet a member".
+own percentiles. Those bars are dimmed on the charts and labelled "not yet a member". The daily
+rank line under the price chart does not make the distinction.
 
 ## How it is built
 
@@ -129,7 +136,9 @@ data/latest.json                   current ranking, all six peer sets, quotes, k
 data/spark/<key>.json              last 12 month-end scores per name, one file per peer set (6)
 data/history/<key>.json            36 month-end scores per name, one file per peer set (6)
 data/history/<key>w.json           78 week-end scores per name, loaded only when asked for
-data/bars/<SYMBOL>.json            756 adjusted daily bars (~3 years) per ranked name, ~20 MB in all
+data/bars/<SYMBOL>.json            756 adjusted daily bars (~3 years) per ranked name, with the
+                                   name's daily score in all six peer sets on the same dates;
+                                   ~35 MB in all
 data/universe.json                 MidCap 400 constituents + change log; also the offline fallback
 data/sp500.json                    S&P 500 constituents + change log; also the offline fallback
 
@@ -161,8 +170,10 @@ All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 | Quotes (market cap, 52-week range, last change) | FMP `batch-quote` |
 
 Six years of prices are fetched because the oldest month-end ranking on the history chart looks a
-further year back. They are used for the maths and not stored; only the last 378 bars per name are
-written to `data/bars/`. Responses are cached under `.cache/` (gitignored) for 12 hours.
+further year back. They are used for the maths and not stored; only the last 756 bars per name are
+written to `data/bars/`, each with the daily score alongside. The daily cross-sections (one per
+bar, about a minute of arithmetic) are computed the same way as the month-end and week-end ones.
+Responses are cached under `.cache/` (gitignored) for 12 hours.
 
 ### Safeguards
 

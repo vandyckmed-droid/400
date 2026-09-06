@@ -27,6 +27,15 @@
       limits: { period: [5, 300, 5] },
       color: '--ma2',
     },
+    /* Drawn in its own pane beneath the price (`pane: 'below'`), on the same
+       dates: the name's daily score in the peer set the app hands in. */
+    rank: {
+      name: 'Rank',
+      pane: 'below',
+      defaults: { on: true },
+      limits: {},
+      color: '--accent',
+    },
   };
   const MAS = ['ma', 'ma2'];     // the moving-average indicators, drawn the same way
 
@@ -73,6 +82,10 @@
     dateLabelPx: 46,     // minimum pixels between date labels
     snapMs: 160,         // snap-to-nice animation
     doubleTapMs: 320,
+    holdMs: 320,         // press-and-hold before the crosshair appears
+    holdSlop: 6,         // px a held finger may drift and still be a hold, not a pan
+    xhairEase: 0.35,     // per-frame share of the way the crosshair slides to its bar
+    lowerShare: 0.22,    // height of the pane below the price, as a share of the canvas
   };
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -125,14 +138,17 @@
     return out;
   }
 
-  /* opts: { indicators, view }. `indicators` is the whole settings object —
-     one entry per indicator plus `axis` — in the shape of SPECS' defaults;
-     the app owns where it is stored, hands it in, and changes it later
-     through set(). `view` is a zoom() snapshot from a previous chart,
-     so stepping between names keeps the same bar width and right edge. */
+  /* opts: { indicators, view, rank }. `indicators` is the whole settings
+     object — one entry per indicator plus `axis` — in the shape of SPECS'
+     defaults; the app owns where it is stored, hands it in, and changes it
+     later through set(). `view` is a zoom() snapshot from a previous chart,
+     so stepping between names keeps the same bar width and right edge.
+     `rank` is the daily score, one value (or null) per bar; without it the
+     lower pane stays closed whatever the switch says. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
+    const rank = Array.isArray(opts.rank) && opts.rank.length === n ? opts.rank : null;
     const ctx = canvas.getContext('2d');
     let cfg = normalize(opts.indicators);
     let channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
@@ -144,6 +160,7 @@
     if (opts.view) { view.barW = opts.view.barW; view.right = n - opts.view.fromEnd; }
     const zoom = () => ({ barW: view.barW, fromEnd: n - view.right });
     let W = 0, H = 0, dpr = 1, axisW = 64, timeH = 26, plotL = 0, plotR = 0, plotT = 8, plotB = 0;
+    let timeY = 0, lowT = 0, lowB = 0;      // the time axis, and the pane between the price and it
     let colors = {};
     let raf = 0;
     let tween = null;
@@ -154,6 +171,14 @@
     const xOf = (i) => plotR - (view.right - i - 0.5) * view.barW;
     const indexAt = (x) => view.right - (plotR - x) / view.barW;
     const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const barAt = (x) => clamp(Math.floor(indexAt(x)), 0, n - 1);
+
+    /* The lower pane: open when the rank is switched on and there is one to
+       draw. A fixed 0–100 scale with a little head and foot room. */
+    const lowerOn = () => !!(rank && cfg.rank.on);
+    const lowerH = () => (lowerOn() ? clamp(Math.round(H * TUNE.lowerShare), 72, 150) : 0);
+    const yR = (v) => lowB - 6 - (v / 100) * (lowB - lowT - 12);
+    const rankAt = (y) => 100 * (lowB - 6 - y) / (lowB - lowT - 12);
 
     /* Price <-> pixel goes through one transform: identity on a linear axis,
        natural log on a log axis. view.lo and view.hi stay prices on both, so
@@ -184,9 +209,15 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
       axisW = Math.ceil(ctx.measureText('8,888.88').width) + 18;
-      plotL = 0; plotR = W - axisW; plotB = H - timeH;
+      layout();
       clampView();
       draw();
+    }
+
+    function layout() {
+      plotL = 0; plotR = W - axisW; timeY = H - timeH;
+      plotB = timeY - lowerH();
+      lowT = plotB + 1; lowB = timeY;
     }
 
     function clampView() {
@@ -277,9 +308,9 @@
         if ((yr * 12 + mo) % stride) continue;
         const x = Math.round(xOf(i) - view.barW / 2) + 0.5;
         ctx.strokeStyle = colors.grid;
-        ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, plotB); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, timeY); ctx.stroke();
         ctx.fillStyle = mo === 0 ? colors.ink : colors.ink3;
-        ctx.fillText(mo === 0 ? String(yr) : MONTHS[mo], x, plotB + timeH / 2);
+        ctx.fillText(mo === 0 ? String(yr) : MONTHS[mo], x, timeY + timeH / 2);
       }
 
       ctx.save();
@@ -361,10 +392,14 @@
       ctx.setLineDash([]);
       ctx.restore();
 
-      // Axis divider and the last-price tag on the axis.
+      if (lowerOn()) drawLower(from, to);
+
+      // Axis divider, the line between the panes, the time axis, and the
+      // last-price tag on the axis.
       ctx.strokeStyle = colors.line;
-      ctx.beginPath(); ctx.moveTo(plotR + 0.5, 0); ctx.lineTo(plotR + 0.5, plotB); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(plotR + 0.5, 0); ctx.lineTo(plotR + 0.5, timeY); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, plotB + 0.5); ctx.lineTo(W, plotB + 0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, timeY + 0.5); ctx.lineTo(W, timeY + 0.5); ctx.stroke();
       if (ly > plotT && ly < plotB) {
         ctx.fillStyle = tagColor;
         ctx.fillRect(plotR + 1, ly - 10, axisW - 1, 20);
@@ -372,13 +407,133 @@
         ctx.textAlign = 'left';
         ctx.fillText(fmtPrice(last), plotR + 8, ly);
       }
+      drawCrosshair();
+    }
+
+    /* The rank pane: guide lines at 0, 50 and 100, the daily score as a line
+       with a light fill beneath it, broken where a day has no score, and the
+       latest value tagged on the axis. */
+    function drawLower(from, to) {
+      const color = css(INDICATORS.rank.color);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(plotL, lowT, plotW(), lowB - lowT); ctx.clip();
+      ctx.strokeStyle = colors.grid;
+      for (const v of [0, 50, 100]) {
+        const y = Math.round(yR(v)) + 0.5;
+        ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
+      }
+      const runs = [];                       // stretches of consecutive scored bars
+      for (let i = Math.max(0, from); i <= to; i++) {
+        if (rank[i] == null) continue;
+        if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
+        else runs.push([i, i]);
+      }
+      ctx.fillStyle = color; ctx.globalAlpha = 0.08;
+      for (const [a, b] of runs) {
+        ctx.beginPath(); ctx.moveTo(xOf(a), yR(0));
+        for (let i = a; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
+        ctx.lineTo(xOf(b), yR(0)); ctx.closePath(); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (const [a, b] of runs) {
+        ctx.moveTo(xOf(a), yR(rank[a]));
+        for (let i = a + 1; i <= b; i++) ctx.lineTo(xOf(i), yR(rank[i]));
+      }
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.fillStyle = colors.ink3; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(INDICATORS.rank.name, plotL + 8, lowT + 5);
+      ctx.restore();
+
+      let lastI = n - 1;
+      while (lastI >= 0 && rank[lastI] == null) lastI--;
+      const tagY = lastI >= 0 ? Math.round(yR(rank[lastI])) + 0.5 : -1e9;
+      ctx.fillStyle = colors.ink3; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      for (const v of [100, 50, 0]) {
+        const y = yR(v);
+        if (Math.abs(y - tagY) > 13) ctx.fillText(String(v), plotR + 8, y);
+      }
+      if (lastI >= 0) {
+        ctx.fillStyle = color;
+        ctx.fillRect(plotR + 1, tagY - 10, axisW - 1, 20);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(Math.round(rank[lastI])), plotR + 8, tagY);
+      }
+    }
+
+    /* ---------- crosshair ----------
+       Press and hold on either pane and a crosshair appears at that bar: a
+       vertical through both panes that slides to each bar the finger passes
+       rather than jumping, a horizontal at the finger, the date on the time
+       axis, the price (or rank) at the finger on the axis, and a readout of
+       the bar. It stays after the finger lifts; the next touch clears it. */
+    let xh = null;                           // { i, x, y }: bar, eased line x, finger y
+    const fmtDate = (d) => `${MONTHS[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}, ${d.slice(0, 4)}`;
+    const fmtPct = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(2)}%`;
+
+    function drawCrosshair() {
+      if (!xh) return;
+      const tx = xOf(xh.i);
+      if (Math.abs(tx - xh.x) > 0.3) { xh.x += (tx - xh.x) * TUNE.xhairEase; schedule(); } else xh.x = tx;
+      const i = xh.i, x = Math.round(xh.x) + 0.5;
+      const inLower = lowerOn() && xh.y >= plotB;
+      const y = Math.round(clamp(xh.y, inLower ? lowT : plotT, inLower ? lowB : plotB)) + 0.5;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(plotL, 0, plotW(), timeY); ctx.clip();
+      ctx.strokeStyle = colors.ink; ctx.globalAlpha = 0.5; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, plotT); ctx.lineTo(x, timeY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(plotL, y); ctx.lineTo(plotR, y); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      const dot = (cx, cy, color) => {
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = colors.bg; ctx.stroke();
+      };
+      const cy = yOf(c[i]);
+      if (cy > plotT && cy < plotB) dot(x, cy, colors.ink);
+      if (lowerOn() && rank[i] != null) dot(x, yR(rank[i]), css(INDICATORS.rank.color));
+      ctx.restore();
+
+      // Tags: the date on the time axis, the value under the finger on the price axis.
+      ctx.textBaseline = 'middle';
+      const label = fmtDate(dates[i]), lw = ctx.measureText(label).width + 12;
+      const lx = clamp(x - lw / 2, plotL, plotR - lw);
+      ctx.fillStyle = colors.ink;
+      ctx.fillRect(lx, timeY + 3, lw, timeH - 6);
+      ctx.fillStyle = colors.bg; ctx.textAlign = 'center';
+      ctx.fillText(label, lx + lw / 2, timeY + timeH / 2);
+      const value = inLower ? String(Math.round(clamp(rankAt(y), 0, 100))) : fmtPrice(priceAt(y));
+      ctx.fillStyle = colors.ink;
+      ctx.fillRect(plotR + 1, y - 10, axisW - 1, 20);
+      ctx.fillStyle = colors.bg; ctx.textAlign = 'left';
+      ctx.fillText(value, plotR + 8, y);
+
+      // Readout, top left: the bar's date and close with its day change, then
+      // open, high, low and the rank.
+      const chg = i > 0 ? c[i] / c[i - 1] - 1 : 0;
+      const line1 = [fmtDate(dates[i]), fmtPrice(c[i])], chgText = fmtPct(chg);
+      const line2 = `O ${fmtPrice(o[i])}   H ${fmtPrice(h[i])}   L ${fmtPrice(l[i])}`
+        + (rank ? `   Rank ${rank[i] == null ? '–' : rank[i].toFixed(1)}` : '');
+      const w1 = ctx.measureText(line1.join('   ')).width + ctx.measureText('   ' + chgText).width;
+      const bw = Math.max(w1, ctx.measureText(line2).width) + 16;
+      ctx.globalAlpha = 0.88; ctx.fillStyle = colors.bg;
+      ctx.fillRect(plotL + 6, plotT + 2, bw, 36);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colors.ink;
+      ctx.fillText(line1.join('   '), plotL + 14, plotT + 12);
+      ctx.fillStyle = chg >= 0 ? colors.hot : colors.cold;
+      ctx.fillText(chgText, plotL + 14 + ctx.measureText(line1.join('   ') + '   ').width, plotT + 12);
+      ctx.fillStyle = colors.ink3;
+      ctx.fillText(line2, plotL + 14, plotT + 28);
     }
 
     /* ---------- gestures ---------- */
     const pointers = new Map();
     let gesture = null;
     let lastAxisTap = 0;
-    const zone = (x, y) => (x >= plotR ? 'axis' : y >= plotB ? 'time' : 'plot');
+    const zone = (x, y) => (y >= timeY ? 'time' : y >= plotB ? 'lower' : x >= plotR ? 'axis' : 'plot');
     const local = (e) => { const b = canvas.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
 
     function freeze() {
@@ -397,15 +552,32 @@
       } else if (z === 'time') {
         gesture = { type: 'time', x0: p.x, barW0: view.barW };
       } else {
-        gesture = { type: 'pan', x: p.x, y: p.y };
+        // The lower pane pans time only: its scale is fixed.
+        gesture = { type: 'pan', x: p.x, y: p.y, flat: z === 'lower' };
       }
+    }
+
+    /* A held finger on either pane becomes the crosshair; drifting more than
+       a few pixels first makes it a pan instead, and a second finger cancels it. */
+    let hold = null;
+    const cancelHold = () => { if (hold) { clearTimeout(hold.timer); hold = null; } };
+    function armHold(p) {
+      const z = zone(p.x, p.y);
+      if (z !== 'plot' && z !== 'lower') return;
+      hold = { x: p.x, y: p.y, timer: setTimeout(() => {
+        hold = null;
+        if (pointers.size !== 1) return;
+        gesture = { type: 'xhair' };
+        xh = { i: barAt(p.x), x: p.x, y: p.y };
+        schedule();
+      }, TUNE.holdMs) };
     }
 
     function startPinch() {
       const [a, b] = [...pointers.values()];
       const dx = b.x - a.x, dy = b.y - a.y;
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const vertical = Math.abs(dy) > Math.abs(dx);
+      const vertical = Math.abs(dy) > Math.abs(dx) && mid.y < plotB;
       if (vertical) freeze();
       gesture = {
         type: 'pinch', vertical, d0: Math.hypot(dx, dy) || 1,
@@ -446,11 +618,14 @@
       view.lo = Tinv(hiT - span);
     }
 
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());   // a hold is the crosshair, not a menu
     canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, local(e));
-      if (pointers.size === 1) startSingle(pointers.get(e.pointerId));
+      cancelHold();
+      if (xh) { xh = null; schedule(); }
+      if (pointers.size === 1) { startSingle(pointers.get(e.pointerId)); armHold(pointers.get(e.pointerId)); }
       else if (pointers.size === 2) startPinch();
       else gesture = null;
     });
@@ -459,11 +634,16 @@
       if (!pointers.has(e.pointerId)) return;
       const p = local(e);
       pointers.set(e.pointerId, p);
+      if (hold && Math.hypot(p.x - hold.x, p.y - hold.y) > TUNE.holdSlop) cancelHold();
       if (!gesture) return;
       switch (gesture.type) {
+        case 'xhair': {
+          xh.i = barAt(clamp(p.x, plotL, plotR - 0.01)); xh.y = p.y;
+          break;
+        }
         case 'pan': {
           view.right -= (p.x - gesture.x) / view.barW;
-          if (!view.auto) {
+          if (!view.auto && !gesture.flat) {
             const dT = (p.y - gesture.y) * spanT() / plotH();
             const lo = Tinv(T(view.lo) + dT), hi = Tinv(T(view.hi) + dT);
             view.lo = lo; view.hi = hi;
@@ -504,7 +684,8 @@
     const end = (e) => {
       if (!pointers.has(e.pointerId)) return;
       pointers.delete(e.pointerId);
-      const g = gesture;
+      cancelHold();
+      const g = gesture;                     // a crosshair stays put after the finger lifts
       gesture = null;
       if (g && (g.type === 'axis' || (g.type === 'pinch' && g.vertical))) snapPrice();
       if (pointers.size === 1) startSingle([...pointers.values()][0]);
@@ -543,6 +724,7 @@
       if (cfg.channel.len !== was.channel.len || scaleChanged) channel = regression(c, cfg.channel.len, cfg.axis.scale === 'log');
       for (const id of MAS) if (cfg[id].period !== was[id].period) mas[id] = sma(c, cfg[id].period);
       if (scaleChanged) { view.auto = true; tween = null; }
+      if (cfg.rank.on !== was.rank.on) { layout(); clampView(); }
       schedule();
     }
 

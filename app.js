@@ -927,7 +927,7 @@
       </div>
       ${pagerHtml(r.symbol)}
       <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol}"></canvas>
-      <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
+      <p class="hint" id="chint">Drag to pan · pinch to zoom · hold for a crosshair · drag the price axis to stretch · double-tap it to reset</p>
       <div class="cpanel" id="cpanel" role="dialog" aria-label="Chart settings" hidden>
         <div class="sheet-handle" aria-hidden="true"></div>
         <div id="cpanel-root">
@@ -962,7 +962,10 @@
       const chg = last / prev - 1;
       $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
         `<small>${fmtDate(bars.dates[n - 1])}</small>`;
-      chart = priceChart($('price-chart'), bars, { indicators: state.chart, view: chartZoom });
+      chart = priceChart($('price-chart'), bars, {
+        indicators: state.chart, view: chartZoom,
+        rank: bars.score ? bars.score[peerKey()] : null,   // the daily score in the peer set in use
+      });
       // The gesture hint shows once per session, not on every name stepped to.
       setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, chartZoom ? 0 : 6000);
       wireChartPanel(chart, r.symbol);
@@ -995,6 +998,13 @@
       fields: [{ key: 'period', label: 'Period', fmt: (v) => `${v} days` }],
       summary: (m) => `Simple · ${m.period} days`,
     },
+    rank: {
+      blurb: 'The momentum score on each day, 0–100: where the name ranked in the peer set chosen in '
+        + 'Settings, 100 being the top. Drawn beneath the price on the same dates, so a move in the '
+        + 'rank reads against the bars that made it.',
+      fields: [],
+      summary: () => 'Daily · 0–100 · peer set from Settings',
+    },
     axis: {
       blurb: 'Linear spaces prices evenly. Log spaces them so equal percentage moves are equal '
         + 'heights, which keeps a name that has doubled or halved in proportion; the regression '
@@ -1005,35 +1015,38 @@
 
   /* The panel's root is a full-screen list of what the chart draws: the
      price plot first (its settings are the price axis), then the overlays,
-     each with an eye to show or hide it and a tap-through to its settings,
-     then a divider and the section for anything drawn below the chart, empty
-     until such an indicator exists. One item's settings open as a small
-     sheet over the chart so it redraws live as a control moves. The canvas
-     keeps its own gestures — a touch on it both closes the sheet and pans,
-     which is what a finger expects. */
+     then a divider and whatever is drawn in its own pane below the price —
+     each with an eye to show or hide it and a tap-through to its settings.
+     One item's settings open as a small sheet over the chart so it redraws
+     live as a control moves. The canvas keeps its own gestures — a touch on
+     it both closes the sheet and pans, which is what a finger expects. */
   function wireChartPanel(chart, symbol) {
     const IND = priceChart.INDICATORS, AXIS = priceChart.AXIS;
     const btn = $('ctune'), panel = $('cpanel'), root = $('cpanel-root'), setScreen = $('cpanel-set');
     let editing = null;
 
     const icon = (id) => `<svg class="tree-ic" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+    const row = ([id, spec]) => `
+        <li class="tree-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
+          <button type="button" class="ind-open" data-ind="${id}">${icon('wave')}<span><b>${spec.name} <i>›</i></b>
+            <small>${IND_UI[id].summary(state.chart[id])}</small></span></button>
+          <button type="button" class="eye" data-eye="${id}" aria-pressed="${state.chart[id].on}"
+                  aria-label="Show ${spec.name}"><svg aria-hidden="true"><use href="#i-eye${state.chart[id].on ? '' : '-off'}"/></svg></button>
+        </li>`;
     const renderList = () => {
       const scale = IND_UI.axis.labels[state.chart.axis.scale];
+      const entries = Object.entries(IND);
+      const above = entries.filter(([, spec]) => spec.pane !== 'below');
+      const below = entries.filter(([, spec]) => spec.pane === 'below');
       $('ind-list').innerHTML = `
         <li class="tree-row price on">
           <button type="button" class="ind-open" data-ind="axis">${icon('bars')}<span><b>${symbol} · 1D</b>
             <small>${AXIS.name} · ${scale}</small></span></button>
         </li>
         <li class="tree-sep" aria-hidden="true">On the chart</li>
-        ${Object.entries(IND).map(([id, spec]) => `
-        <li class="tree-row${state.chart[id].on ? ' on' : ''}" data-ind="${id}">
-          <button type="button" class="ind-open" data-ind="${id}">${icon('wave')}<span><b>${spec.name} <i>›</i></b>
-            <small>${IND_UI[id].summary(state.chart[id])}</small></span></button>
-          <button type="button" class="eye" data-eye="${id}" aria-pressed="${state.chart[id].on}"
-                  aria-label="Show ${spec.name}"><svg aria-hidden="true"><use href="#i-eye${state.chart[id].on ? '' : '-off'}"/></svg></button>
-        </li>`).join('')}
+        ${above.map(row).join('')}
         <li class="tree-sep" aria-hidden="true">Below the chart</li>
-        <li class="tree-empty">Nothing yet.</li>`;
+        ${below.length ? below.map(row).join('') : '<li class="tree-empty">Nothing yet.</li>'}`;
     };
     const renderFields = (id) => {
       if (id === 'axis') return renderAxis();
@@ -1077,6 +1090,7 @@
     const showSettings = (id) => {
       disarm();
       editing = id; renderFields(id);
+      $('creset').hidden = id !== 'axis' && !IND_UI[id].fields.length;   // nothing to reset
       root.hidden = true; setScreen.hidden = false; panel.classList.remove('full');
     };
     const open = () => {
