@@ -634,11 +634,7 @@
         <small>Daily bars with a regression channel and moving averages. Drag to pan, pinch to
           zoom, drag the price axis to stretch it.</small></a>
 
-      <div class="card">
-        <h3>Momentum legs</h3>
-        ${leg('12–1', '12 months, last month skipped', p.p12, r.m12, r.va12, r.rm12)}
-        ${leg('6–1', '6 months, last month skipped', p.p6, r.m6, r.va6, r.rm6)}
-      </div>
+      ${components(r, p, key)}
 
       <div class="card">
         <h3>Against its peers</h3>
@@ -690,17 +686,44 @@
 
   /* One momentum leg: percentile, then the three things a leg can measure.
      The one the active setting ranks on is marked. */
-  function leg(title, note, percentile, raw, adjusted, resid) {
-    const on = (k) => state.adjust === k ? ' class="on"' : '';
-    return `<div class="leg">
-      <h4>${title}<small>${note}</small></h4>
-      <dl class="stats quad">
-        <div><dt>Percentile</dt><dd style="color:${tone(percentile)}">${num(percentile)}</dd></div>
-        <div${on('raw')}><dt>Return</dt><dd class="${cls(raw)}">${pct(raw)}</dd></div>
-        <div${on('vol')}><dt>÷ Volatility</dt><dd class="${cls(adjusted)}">${signed(adjusted, 2)}</dd></div>
-        <div${on('resid')}><dt>Net of market</dt><dd class="${cls(resid)}">${resid == null ? '—' : spct(resid)}</dd></div>
-      </dl>
-    </div>`;
+  /* The score, taken apart: the two legs side by side, one row per measure
+     with the measure that feeds the percentile marked, the weights, and the
+     blend written out. Weights come from the data file, so the card follows
+     the pipeline if they ever change. */
+  function components(r, p, key) {
+    const [w1, w2] = state.meta.params.weights;
+    const wt = (w) => `${Math.round(w * 100)}%`;
+    const on = (k) => (state.adjust === k ? ' class="on"' : '');
+    const cell = (v, klass) => `<td class="${klass || ''}">${v}</td>`;
+    // The written sum uses the one-decimal percentiles on show; the score is
+    // the stored blend of the unrounded ones, so the two can differ by 0.1.
+    const shown = +p.p12.toFixed(1) * w1 + +p.p6.toFixed(1) * w2;
+    const eq = Math.abs(shown - p.s) < 0.05 ? '=' : '≈';
+    const peers = key[0] === 's' ? (r.sector ? `its ${esc(r.sector)} peers` : 'its sector') : 'the whole universe';
+    return `
+      <div class="card">
+        <h3>Score components</h3>
+        <p class="sub">Both periods skip the most recent month.</p>
+        <table class="comp">
+          <thead><tr><th></th><th>12–1<small>12 months</small></th><th>6–1<small>6 months</small></th></tr></thead>
+          <tbody>
+            <tr${on('raw')}><td>Return</td>${cell(pct(r.m12), cls(r.m12))}${cell(pct(r.m6), cls(r.m6))}</tr>
+            <tr${on('vol')}><td>Return ÷ volatility</td>${cell(signed(r.va12, 2), cls(r.va12))}${cell(signed(r.va6, 2), cls(r.va6))}</tr>
+            <tr${on('resid')}><td>Net of market</td>${cell(r.rm12 == null ? '—' : spct(r.rm12), cls(r.rm12))}${cell(r.rm6 == null ? '—' : spct(r.rm6), cls(r.rm6))}</tr>
+            <tr class="pct"><td>Percentile</td>
+              <td style="color:${tone(p.p12)}">${num(p.p12)}</td><td style="color:${tone(p.p6)}">${num(p.p6)}</td></tr>
+            <tr><td>Blend weight</td><td>${wt(w1)}</td><td>${wt(w2)}</td></tr>
+          </tbody>
+        </table>
+        <div class="blend">
+          <div><b>Blended score</b>
+            <small>${num(p.p12)} × ${wt(w1)} + ${num(p.p6)} × ${wt(w2)} ${eq} ${p.s.toFixed(1)}</small></div>
+          <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
+        </div>
+        <p class="legend">The marked row is the measure the percentiles rank, against ${peers}; both
+          are chosen in Settings.</p>
+        <a class="more" href="#/settings">Calculation details ›</a>
+      </div>`;
   }
 
   /* ---------- bar chart ----------
