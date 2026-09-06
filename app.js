@@ -511,6 +511,13 @@
       if (entries[0].isIntersecting && state.shown < state.view.length) appendChunk();
     }, { rootMargin: '600px' }).observe($('sentinel'));
 
+    addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.target.matches('input, select, textarea')) return;
+      const open = ['chart-view', 'detail-view'].map($).find((v) => !v.hidden);
+      const b = open && open.querySelector(`.pager .${e.key === 'ArrowLeft' ? 'prev' : 'next'}[data-go]`);
+      if (b) b.click();
+    });
     addEventListener('hashchange', route);
   }
 
@@ -555,6 +562,34 @@
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
+  /* ---------- previous / next ---------- */
+  /* The names either side of this one in the list as it stands (sort, sector,
+     watchlist), so the arrows walk the order on screen. A name the current
+     filter hides falls back to the full ranking. */
+  function neighbors(symbol) {
+    const order = state.view.some((r) => r.symbol === symbol) ? state.view : state.rows;
+    const i = order.findIndex((r) => r.symbol === symbol);
+    return { prev: order[i - 1] || null, next: order[i + 1] || null, pos: i + 1, count: order.length };
+  }
+  function pagerHtml(symbol) {
+    const { prev, next, pos, count } = neighbors(symbol);
+    const side = (r, dir) => r
+      ? `<button type="button" class="pg ${dir}" data-go="${r.symbol}" aria-label="${dir === 'prev' ? 'Previous' : 'Next'}: ${r.symbol}">`
+        + `${dir === 'prev' ? '‹ ' : ''}${r.symbol}${dir === 'next' ? ' ›' : ''}</button>`
+      : `<span class="pg ${dir}"></span>`;
+    return `<div class="pager">${side(prev, 'prev')}<span class="pos">${pos} of ${count}</span>${side(next, 'next')}</div>`;
+  }
+  /* Stepping replaces the current entry rather than stacking one per name,
+     so Back still returns to where the reader came from. */
+  function wirePager(el, suffix, before) {
+    el.querySelector('.pager').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-go]');
+      if (!b) return;
+      if (before) before();
+      location.replace(`#/t/${b.dataset.go}${suffix}`);
+    });
+  }
+
   function showDetail(r) {
     const key = peerKey();
     const p = r.r[key];
@@ -571,6 +606,7 @@
         <span class="grow"><b>${r.symbol}</b><small>${esc(r.name)}</small></span>
         <button class="star${state.watch.has(r.symbol) ? ' on' : ''}" id="dstar" aria-label="Watchlist">${state.watch.has(r.symbol) ? '★' : '☆'}</button>
       </div>
+      ${pagerHtml(r.symbol)}
       <div class="hero">
         <span class="big" style="color:${tone(p.s)}">${p.s.toFixed(1)}</span>
         <span class="lbl">blended score<b>${ordinal(p.k)} of ${p.n}${
@@ -634,6 +670,7 @@
       </div>`;
 
     $('back').addEventListener('click', goBack);
+    wirePager(el, '');
     $('dstar').addEventListener('click', (e) => toggleWatch(r.symbol, e.currentTarget));
     scrollTo(0, 0);
     el.querySelector('#grain').addEventListener('click', (e) => {
@@ -829,10 +866,12 @@
      A full-screen, non-scrolling view: every drag on it is a chart gesture.
      The drawing and the gestures live in chart.js, which knows nothing about
      the app; this only fetches the bars and frames them. */
+  let chartZoom = null;                    // bar width and right edge, carried from name to name
   function showChart(r) {
     const fromDetail = !$('detail-view').hidden;
     showView('chart-view');
     const el = $('chart-view');
+    let chart = null;
     el.innerHTML = `
       <div class="dtop">
         <button class="back" id="cback">‹ Back</button>
@@ -841,6 +880,7 @@
         <button type="button" class="ghost" id="ctune" aria-label="Indicators" aria-haspopup="dialog"
                 aria-expanded="false" hidden><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></button>
       </div>
+      ${pagerHtml(r.symbol)}
       <canvas id="price-chart" aria-label="Daily price bars for ${r.symbol}"></canvas>
       <p class="hint" id="chint">Drag to pan · pinch to zoom · drag the price axis to stretch · double-tap it to reset</p>
       <div class="cpanel" id="cpanel" role="dialog" aria-label="Indicators" hidden>
@@ -862,7 +902,8 @@
           <p class="fine" id="cset-blurb"></p>
         </div>
       </div>`;
-    $('cback').addEventListener('click', () => (fromDetail ? history.back() : (location.hash = `#/t/${r.symbol}`)));
+    $('cback').addEventListener('click', () => (fromDetail ? history.back() : location.replace(`#/t/${r.symbol}`)));
+    wirePager(el, '/chart', () => { if (chart) chartZoom = chart.zoom(); });
     loadBars(r.symbol).then((bars) => {
       if (!location.hash.startsWith(`#/t/${r.symbol}/chart`)) return;
       if (!bars) {
@@ -874,8 +915,9 @@
       const chg = last / prev - 1;
       $('cpx').innerHTML = `<b>${last.toFixed(2)}</b><small class="${cls(chg)}">${spct(chg, 2)}</small>` +
         `<small>${fmtDate(bars.dates[n - 1])}</small>`;
-      const chart = priceChart($('price-chart'), bars, { indicators: state.chart });
-      setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, 6000);
+      chart = priceChart($('price-chart'), bars, { indicators: state.chart, view: chartZoom });
+      // The gesture hint shows once per session, not on every name stepped to.
+      setTimeout(() => { const h = $('chint'); if (h) h.style.opacity = 0; }, chartZoom ? 0 : 6000);
       wireChartPanel(chart);
     });
   }

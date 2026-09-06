@@ -62,7 +62,8 @@
     return (m < 1.42 ? 1 : m < 3.17 ? 2 : m < 7.08 ? 5 : 10) * p;
   }
 
-  const fmtPrice = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtPrice = (v) => (Math.abs(v) < 0.005 ? 0 : v)   // never "-0.00" on a tick that lands on zero
+    .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   /* Ordinary least squares over the last `len` closes. Residual deviation is
@@ -93,8 +94,10 @@
     return out;
   }
 
-  /* opts: { indicators }, in the shape of INDICATORS' defaults. The app owns
-     where it is stored and hands it in, and changes it later through set(). */
+  /* opts: { indicators, view }. `indicators` is in the shape of INDICATORS'
+     defaults; the app owns where it is stored, hands it in, and changes it
+     later through set(). `view` is a zoom() snapshot from a previous chart,
+     so stepping between names keeps the same bar width and right edge. */
   function priceChart(canvas, bars, opts = {}) {
     const { dates, o, h, l, c } = bars;
     const n = c.length;
@@ -106,6 +109,8 @@
     // View state. `right` is the fractional bar index sitting at the right edge
     // of the plot; `auto` means the price range follows the visible bars.
     const view = { right: n + 2, barW: TUNE.barW, auto: true, lo: 0, hi: 1 };
+    if (opts.view) { view.barW = opts.view.barW; view.right = n - opts.view.fromEnd; }
+    const zoom = () => ({ barW: view.barW, fromEnd: n - view.right });
     let W = 0, H = 0, dpr = 1, axisW = 64, timeH = 26, plotL = 0, plotR = 0, plotT = 8, plotB = 0;
     let colors = {};
     let raf = 0;
@@ -460,7 +465,7 @@
       schedule();
     }
 
-    return { view, set, indicators: () => cfg, reset: resetPrice, redraw: schedule };
+    return { view, zoom, set, indicators: () => cfg, reset: resetPrice, redraw: schedule };
   }
 
   window.priceChart = priceChart;

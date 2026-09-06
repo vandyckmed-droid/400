@@ -227,6 +227,22 @@ h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
 .dtop .grow b { display: block; font-size: 16px; letter-spacing: -.01em; }
 .dtop .grow small { display: block; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Previous / next name in the list's current order, under the top bar of
+   the detail page and of the chart. */
+.pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 6px; border-bottom: 1px solid var(--line-soft); background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+.pager .pos { color: var(--ink-3); font-size: 12px; }
+.pager .pg {
+  min-width: 96px; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--accent); font-size: 13px; font-weight: 650; -webkit-tap-highlight-color: transparent;
+}
+.pager .pg.prev { text-align: left; }
+.pager .pg.next { text-align: right; }
+.pager button.pg:active { background: var(--bg-soft); }
+
 /* The price chart owns the whole screen and nothing on it scrolls, so a
    vertical drag is always a chart gesture and never a page scroll. */
 #chart-view {
