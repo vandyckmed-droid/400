@@ -34,6 +34,11 @@ GitHub settings.
 A quote or a suggestion is not authorization to build or change anything. Only build when I ask
 for it explicitly.
 
+Once I have asked for a change, finish it end to end: build, check it, merge to `main` and confirm
+when it is live. Don't stop to ask before merging unless I say otherwise, or the work is something
+other than a code change (a read-only question, say). Still check with me first before anything
+hard to undo: deleting data, changing the workflow, or anything touching the FMP key.
+
 ## How it is built, in brief
 
 Plain HTML, CSS and JavaScript in the repo root, no build step, no packages. Two Python scripts in
