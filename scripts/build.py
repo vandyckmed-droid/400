@@ -50,6 +50,9 @@ CACHE = ROOT / ".cache" / "prices"
 
 FMP = "https://financialmodelingprep.com/stable"
 WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
+# Same layout, same GICS labels: the source of every S&P 500 name's sector and
+# sub-industry, so both halves of the universe are labelled from one list.
+WIKI_SP500 = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 # The change log lived on that page until September 2026, when editors moved it
 # here. Both are read, so a move back costs nothing.
 WIKI_CHANGES = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P_400"
@@ -142,8 +145,10 @@ def normalise(symbol: str) -> str:
     return symbol.strip().upper().replace(".", "-")
 
 
-def scrape_universe() -> list[dict]:
-    page = http_get(WIKI).decode("utf-8", "replace")
+def scrape_universe(url: str = WIKI) -> list[dict]:
+    """Symbol, name, GICS sector and GICS sub-industry from a Wikipedia index
+    list page: the MidCap 400 by default, the S&P 500 for its labels."""
+    page = http_get(url).decode("utf-8", "replace")
     tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', page, re.S)
     for table in tables:
         headers = [strip_tags(h) for h in re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)]
@@ -167,7 +172,7 @@ def scrape_universe() -> list[dict]:
             )
         if len(out) > 300:
             return out
-    raise RuntimeError("could not locate the S&P 400 constituents table")
+    raise RuntimeError(f"could not locate the constituents table on {url.rsplit('/', 1)[-1]}")
 
 
 def strip_tags(fragment: str) -> str:
@@ -502,7 +507,7 @@ def legs_at(symbols, index_maps, date: str) -> dict:
 # of the market and the group, each by an in-window regression, so the reader
 # sees how much of a year's move the name's environment explains.
 
-DECOMP_GROUP = ("Regional banks", ("Regional Banks", "Banks - Regional"))
+DECOMP_GROUP = ("Regional banks", ("Regional Banks",))
 
 
 def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calendar: list[str], end: int):

@@ -103,12 +103,12 @@ so historical bars carry some survivorship bias. Present-day rankings are unaffe
 
 ### Momentum decomposition
 
-For one industry group so far, the regional banks (both industry labels merged, `DECOMP_GROUP` in
-`build.py`), each row carries `decomp`: the raw 12–1 return; the return net of the market (the
+For one industry group so far, the regional banks (GICS sub-industry *Regional Banks*,
+`DECOMP_GROUP` in `build.py`), each row carries `decomp`: the raw 12–1 return; the return net of the market (the
 leg's own residual); and the return net of the market and the group, where the group is the
 equal-weight average of the other members with its market component removed in-window before a
-two-factor in-window regression. `meta.decomp` names the group and its symbols. Extending it to
-every name needs the industry labels unified onto one GICS list first.
+two-factor in-window regression. `meta.decomp` names the group and its symbols. Every name now
+carries a GICS sub-industry from one list, so the same figure can be extended to other groups.
 
 ## The score
 
@@ -153,9 +153,11 @@ day's ladder of member scores.
 
 Defaults: blend, no adjustments, universe, percentile. All four persist per device.
 
-FMP labels S&P 500 sectors with a different taxonomy than the GICS names Wikipedia uses for the
-MidCap 400; `scripts/universes.py` maps them onto GICS so names are standardized against their
-sector, not their data source.
+Every name's sector and sub-industry are GICS labels read from Wikipedia's index list pages, the
+S&P 500 page for its members and the MidCap 400 page for the rest, so names are standardized
+against their sector, not their data source. FMP's own sector taxonomy (Yahoo/Morningstar names,
+which disagree with GICS on about thirty S&P 500 names) is only the last resort for a name the
+Wikipedia page does not carry; `scripts/universes.py` maps its sector names onto GICS.
 
 ### Recent joiners
 
@@ -217,6 +219,7 @@ All from FMP except the MidCap 400 list, which no FMP plan tier exposes:
 | MidCap 400 members | Scraped from Wikipedia's *List of S&P 400 companies*; a logged change the table has not caught up with is applied to it |
 | MidCap 400 change log | Scraped from Wikipedia's *Historical components of the S&P 400* (the list page is read as a fallback); an empty log counts as the source being down |
 | S&P 500 members and change log | FMP `sp500-constituent` and `historical-sp500-constituent` |
+| S&P 500 sector and sub-industry | Scraped from Wikipedia's *List of S&P 500 companies* (GICS, the same taxonomy as the MidCap 400 page); with Wikipedia down, the last run's labels stand in |
 | Prices and bars | FMP `historical-price-eod/dividend-adjusted`, 6 years, ~1,000 symbols |
 | Quotes (market cap, 52-week range, last change) | FMP `batch-quote` |
 
