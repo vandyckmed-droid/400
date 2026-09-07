@@ -315,16 +315,8 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
     volatilities, over any window O(1).
     """
     calendar = trading_days(prices)
-    at = {s: dict(v) for s, v in prices.items()}
-    cum = [0.0]
-    for prev, cur in zip(calendar, calendar[1:]):
-        rets = [m[cur] / m[prev] - 1.0 for m in at.values() if cur in m and prev in m]
-        cum.append(cum[-1] + math.log1p(sum(rets) / len(rets)) if rets else cum[-1])
-    market = dict(zip(calendar, cum))
-
-    def cum_at(date: str) -> float:
-        i = bisect_right(calendar, date) - 1
-        return cum[i] if i >= 0 else 0.0
+    market = cum_series(prices, calendar)
+    cum_at = cum_lookup(market, calendar)
 
     out = {}
     for symbol, series in prices.items():
@@ -341,6 +333,28 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
             pxx.append(pxx[-1] + x * x); pxy.append(pxy[-1] + x * y); pyy.append(pyy[-1] + y * y)
         out[symbol] = (dates, closes, px, py, pxx, pxy, pyy)
     return out
+
+
+def cum_series(prices: dict, calendar: list[str]) -> dict[str, float]:
+    """Cumulative log return of the equal-weight average of `prices`, rebalanced
+    daily, keyed by date: the market when given every name, an industry when
+    given a group."""
+    at = {s: dict(v) for s, v in prices.items()}
+    cum = [0.0]
+    for prev, cur in zip(calendar, calendar[1:]):
+        rets = [m[cur] / m[prev] - 1.0 for m in at.values() if cur in m and prev in m]
+        cum.append(cum[-1] + math.log1p(sum(rets) / len(rets)) if rets else cum[-1])
+    return dict(zip(calendar, cum))
+
+
+def cum_lookup(series: dict[str, float], calendar: list[str]):
+    """A date -> cumulative value function that carries the last value forward."""
+    cum = [series[d] for d in calendar]
+
+    def at(date: str) -> float:
+        i = bisect_right(calendar, date) - 1
+        return cum[i] if i >= 0 else 0.0
+    return at
 
 
 def price_start() -> str:
@@ -481,6 +495,53 @@ def legs_at(symbols, index_maps, date: str) -> dict:
         if long_leg and mid_leg and long_leg[1] >= MIN_VOL:
             out[symbol] = (long_leg, mid_leg)
     return out
+
+
+# --- Momentum decomposition ---------------------------------------------------
+# For one industry group so far: 12-1 momentum raw, net of the market, and net
+# of the market and the group, each by an in-window regression, so the reader
+# sees how much of a year's move the name's environment explains.
+
+DECOMP_GROUP = ("Regional banks", ("Regional Banks", "Banks - Regional"))
+
+
+def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calendar: list[str], end: int):
+    """Raw 12-1 return, the return net of the market (the leg's own residual,
+    so the two agree), and the return net of the market and the group: the
+    group is the equal-weight average of the other members, with its market
+    component removed in-window before it is used."""
+    dates, closes, px, py, pxx, pxy, _ = entry
+    stop, start = end - SKIP_DAYS, end - LONG_DAYS
+    n = stop - start
+    if start < 0 or n < MIN_OBS_LONG:
+        return None
+    others = {s: prices[s] for s in group if s != symbol and s in prices}
+    if len(others) < 2:
+        return None
+    grp = cum_lookup(cum_series(others, calendar), calendar)
+    xs = [px[i] - px[i - 1] for i in range(start + 1, stop + 1)]
+    ys = [py[i] - py[i - 1] for i in range(start + 1, stop + 1)]
+    gs = [grp(dates[i]) - grp(dates[i - 1]) for i in range(start + 1, stop + 1)]
+
+    def slope(a, b):
+        ma, mb = sum(a) / n, sum(b) / n
+        return sum((u - ma) * (v - mb) for u, v in zip(a, b)) / sum((u - ma) ** 2 for u in a)
+    zs = [g - slope(xs, gs) * x for g, x in zip(gs, xs)]     # the group net of the market
+    beta_m = slope(xs, ys)
+    # two regressors with an intercept
+    mx, mz, my = sum(xs) / n, sum(zs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs); szz = sum((z - mz) ** 2 for z in zs); sxz = sum((x - mx) * (z - mz) for x, z in zip(xs, zs))
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys)); szy = sum((z - mz) * (y - my) for z, y in zip(zs, ys))
+    det = sxx * szz - sxz * sxz
+    if det <= 1e-18:
+        return None
+    b_m2 = (sxy * szz - szy * sxz) / det; b_i = (szy * sxx - sxy * sxz) / det
+    return {
+        "raw": round(closes[stop] / closes[start] - 1.0, 6),
+        "mkt": round(sum(y - beta_m * x for x, y in zip(xs, ys)), 6),
+        "ind": round(sum(y - b_m2 * x - b_i * z for x, y, z in zip(xs, ys, zs)), 6),
+        "betaM": round(b_m2, 3), "betaI": round(b_i, 3),
+    }
 
 
 # --- 4. The score -------------------------------------------------------------
@@ -666,6 +727,15 @@ def main() -> None:
     ranked = sorted(legs_now)
     unscored = sorted(members_at[as_of] - live)
     log(f"members not scored today: {', '.join(unscored) or 'none'}")
+    group_name, labels = DECOMP_GROUP
+    group = sorted(s for s in ranked if meta.get(s, {}).get("industry", "") in labels)
+    decomp = {}
+    for s in group:
+        entry = index_maps[s]
+        d = decompose(s, entry, prices, group, calendar, bisect_right(entry[0], as_of) - 1)
+        if d:
+            decomp[s] = d
+    log(f"momentum decomposition: {len(decomp)} {group_name.lower()}")
     quotes = fetch_quotes(ranked)
     rows = []
     for symbol in ranked:
@@ -682,6 +752,7 @@ def main() -> None:
                          for period, leg in (("12", long_leg), ("6", mid_leg))
                          for i, name in enumerate(LEG_NAMES)},
                 "vol63": recent_vol(index_maps[symbol]),
+                **({"decomp": decomp[symbol]} if symbol in decomp else {}),
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
                 "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
                 "mktCap": q.get("marketCap"),
@@ -709,6 +780,7 @@ def main() -> None:
         # Cleanliness: the share classes left out, and today's members that
         # did not clear the history or volatility bar.
         "excluded": {"shareClass": sorted(second_class), "unscored": unscored},
+        "decomp": {"group": group_name, "symbols": group},
         "keys": KEYS,
         "params": {
             "skipDays": SKIP_DAYS,
