@@ -48,8 +48,8 @@ runs to the repository, unless I ask for files or code to be added.
 
 Plain HTML, CSS and JavaScript in the repo root, no build step, no packages. Two Python scripts in
 `scripts/` (standard library only) fetch prices from FMP, compute the ranking and write static JSON
-under `data/`. A GitHub Action runs them each weekday morning and commits the result. GitHub Pages
-serves `main` as-is.
+under `data/`. A GitHub Action runs them each weekday morning and publishes code plus data as one
+commit on the `site` branch, which GitHub Pages serves; `main` holds only the code.
 
 ## Commands
 
