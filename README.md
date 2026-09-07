@@ -60,7 +60,8 @@ to work in this repository and with its owner.
   from bar to bar under the finger, a horizontal at the finger, the date on the time axis, the
   price (or score) under the finger on the axis, and a readout of the bar's open, high, low,
   close, day change and score. It stays when the finger lifts; the next touch clears it.
-- **Settings.** The Score section (four choices, below), a data card, the methodology as the
+- **Settings.** The Score section (four choices, below; a ⓘ by *Market residualization* reveals
+  the residual formula), a data card, the methodology as the
   settings define it, and a description of the universe.
 - Installable to the iOS home screen as a standalone app. Follows the phone's light or dark mode.
 - If the published data is more than four days old the list shows an amber warning.

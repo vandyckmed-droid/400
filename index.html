@@ -107,9 +107,13 @@
       <input type="checkbox" id="adj-vol" role="switch">
     </label>
     <label class="switch">
-      <span class="grow"><b>Market residualization</b>
+      <span class="grow"><b>Market residualization
+          <button type="button" class="info" id="resid-info" aria-label="Show the formula"
+            aria-expanded="false" aria-controls="resid-formula">ⓘ</button></b>
         <small>Residual momentum = momentum after removing the stock’s exposure to the
-        equal-weight market.</small></span>
+        equal-weight market.</small>
+        <small class="formula" id="resid-formula" hidden>Daily residual return = Stock return −
+          (3-year rolling β × Equal-weight universe return)</small></span>
       <input type="checkbox" id="adj-resid" role="switch">
     </label>
     <div class="choice">
