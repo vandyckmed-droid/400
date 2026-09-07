@@ -92,18 +92,12 @@
 
   <div class="card">
     <h3>Score</h3>
-    <div class="choice">
-      <span class="grow"><b>Period</b><small id="period-note"></small></span>
-      <div class="segmented" id="period-seg" role="radiogroup" aria-label="Period">
-        <button type="button" role="radio" data-period="12">12–1</button>
-        <button type="button" role="radio" data-period="6">6–1</button>
-        <button type="button" role="radio" data-period="blend">Blend</button>
-      </div>
-    </div>
+    <p class="sub">The score is the 9–1 return: the nine months ending one month ago, with the most
+      recent month skipped. Two switches change what is measured.</p>
     <label class="switch">
       <span class="grow"><b>Volatility adjustment</b>
-        <small>Divide each period's return by its own annualised volatility, so a steady climb
-        outscores an equally large but erratic one.</small></span>
+        <small>Divide the return by its own annualised volatility, so a steady climb outscores an
+        equally large but erratic one.</small></span>
       <input type="checkbox" id="adj-vol" role="switch">
     </label>
     <label class="switch">
@@ -124,8 +118,8 @@
         <button type="button" role="radio" data-display="pct">Percentile</button>
       </div>
     </div>
-    <p class="legend">One universe, one score. These choices change how it is built and how it is
-      read, not which names are in it. The list, its order, the detail page and the score pane under
+    <p class="legend">One universe, one score, one window. These choices change how it is built and
+      how it is read, not which names are in it. The list, its order, the detail page and the score pane under
       each price chart all use the same settings, so the same name on the same day reads the same
       everywhere.</p>
   </div>
@@ -149,8 +143,8 @@
       than a fact about a company, so every name is measured against all the others, whichever
       index happens to hold it.</p>
     <p class="fine">Three things keep a member out of the day's ranking: fewer than two years of
-      trading history, so a 12-month window never starts inside a new listing's first months; a
-      12-month volatility under 8%, the mark of a name trading on a pending takeover rather than on
+      trading history, so the window never starts inside a new listing's first months; a window
+      volatility under 8%, the mark of a name trading on a pending takeover rather than on
       its own merits; and being the second share class of a company already in the list, where
       only the Class A share is kept. Today's cases are on the data card above.</p>
     <p class="fine">Membership is point-in-time: the score pane under each price chart re-runs the
