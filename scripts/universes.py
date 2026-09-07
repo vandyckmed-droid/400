@@ -6,10 +6,12 @@ One universe, assembled from two sources:
 * the **S&P MidCap 400**. Current members come from Wikipedia (no FMP plan tier
   exposes a MidCap 400 constituent endpoint); history comes from Wikipedia's
   historical-components page, walked backwards from today.
-* the **S&P 500**, members and change log from FMP.
+* the **S&P 500**, members and change log from FMP, sector and industry labels
+  from Wikipedia's S&P 500 list page.
 
 Together they are the S&P 900: roughly 900 names, each ranked against all the
-others whichever index happens to hold it.
+others whichever index happens to hold it, every one labelled with its GICS
+sector and sub-industry from the same source.
 """
 
 from __future__ import annotations
@@ -30,12 +32,10 @@ def strip_tags(fragment: str) -> str:
 VALID = re.compile(r"[A-Z][A-Z0-9-]{0,6}")
 
 # FMP's S&P 500 endpoint labels sectors with the Yahoo/Morningstar taxonomy while
-# Wikipedia's MidCap 400 table uses GICS names. Left unmapped, the extended
-# universe would rank a name against others from its own *source* rather than
-# its own sector. GICS is the target because it is what the index itself uses.
-# The mapping is exact for the eleven sector names; at the company level the two
-# taxonomies disagree on a handful of edge cases (payment processors, for one),
-# which no name-level mapping can fix.
+# Wikipedia uses GICS names. Every S&P 500 name normally takes its sector and
+# sub-industry from Wikipedia's S&P 500 page (the same list the MidCap 400
+# labels come from); this sector map is the last resort for a name that page
+# does not carry. Its industry then stays in FMP's wording.
 GICS = {
     "Technology": "Information Technology",
     "Healthcare": "Health Care",
@@ -113,10 +113,36 @@ def load_sp500() -> tuple[list[dict], list[dict]]:
     """S&P 500 constituents and change log, from FMP or data/sp500.json."""
     payload = build.snapshot(
         "sp500",
-        lambda: {"constituents": sp500_constituents(), "changes": sp500_changes()},
+        lambda: {"constituents": gics_labelled(sp500_constituents()), "changes": sp500_changes()},
         "S&P 500 universe",
     )
     return payload["constituents"], payload.get("changes", [])
+
+
+def gics_labelled(constituents: list[dict]) -> list[dict]:
+    """The same names carrying the GICS sector and sub-industry Wikipedia lists
+    for them. With Wikipedia down, the labels of the last successful run
+    (data/sp500.json) stand in; a name neither source knows keeps FMP's
+    mapped sector and its own industry wording, and is logged."""
+    try:
+        labels = {c["symbol"]: c for c in build.scrape_universe(build.WIKI_SP500)}
+    except Exception as exc:  # noqa: BLE001 - fall back to the previous run's labels
+        build.log(f"S&P 500 labels: Wikipedia failed ({exc}); using the last run's")
+        labels = {}
+        path = build.DATA / "sp500.json"
+        if path.exists():
+            labels = {c["symbol"]: c for c in json.loads(path.read_text()).get("constituents", [])}
+    out, unlabelled = [], []
+    for c in constituents:
+        found = labels.get(c["symbol"])
+        if found:
+            c = {**c, "sector": found["sector"], "industry": found["industry"]}
+        else:
+            unlabelled.append(c["symbol"])
+        out.append(c)
+    if unlabelled:
+        build.log(f"S&P 500 labels: no GICS labels for {', '.join(unlabelled)}; keeping FMP's")
+    return out
 
 
 # --- Current membership -------------------------------------------------------
