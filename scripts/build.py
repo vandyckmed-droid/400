@@ -64,6 +64,8 @@ LONG_DAYS = 252         # 12-month formation window
 MID_DAYS = 126          # 6-month formation window
 MIN_OBS_LONG = 180      # min daily returns required in the 12-1 window
 MIN_OBS_MID = 90        # min daily returns required in the 6-1 window
+BETA_DAYS = 756         # rolling window for a name's market beta (~3 years), ending on the day
+MIN_OBS_BETA = 252      # min daily returns in that window before a beta is trusted
 SPARK_MONTHS = 12       # month-end scores drawn as a strip in each list row
 YEARS_OF_PRICES = 6     # history depth to request from FMP
 BARS_DAYS = 756         # ~3 trading years of daily bars, and daily scores, per name
@@ -80,8 +82,10 @@ VOL_DAYS = 63           # the list's volatility: the most recent 63 trading days
 # The score is one definition with four choices, and every combination is
 # published so the app can switch between them without a rebuild:
 #   period   12-1, 6-1, or a 50/50 blend of the two
-#   adjust   the return itself; over its own volatility; net of the market;
-#            or net of the market over the residual volatility
+#   adjust   the return itself; over its own volatility; net of the market
+#            (return minus beta times the market's, beta from a rolling three-
+#            year regression on the equal-weight universe as it stood each
+#            day); or net of the market over the residual volatility
 #   basis    standardised (z-scored) against the whole universe or the name's
 #            own GICS sector
 # The fourth choice, how the score is displayed (value, rank, percentile), is
@@ -309,10 +313,11 @@ def trading_days(prices: dict[str, list[tuple[str, float]]]) -> list[str]:
     return sorted(d for d, n in count.items() if n >= floor)
 
 
-def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
+def make_index_maps(prices: dict[str, list[tuple[str, float]]], members_at: dict[str, set[str]]) -> dict:
     """Per symbol: (dates, closes, and prefix sums for the window maths).
 
-    The market is the equal-weight average of every priced name, rebalanced
+    The market is the investable universe: the equal-weight average of the
+    names that were index members on each day (`members_at`), rebalanced
     daily. For each symbol the market's log return is measured between that
     symbol's own consecutive bars, so a name with a missing day is regressed
     on the market over the same gap. Prefix sums of the stock's log return (y),
@@ -320,7 +325,7 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
     volatilities, over any window O(1).
     """
     calendar = trading_days(prices)
-    market = cum_series(prices, calendar)
+    market = cum_series(prices, calendar, members_at)
     cum_at = cum_lookup(market, calendar)
 
     out = {}
@@ -340,14 +345,16 @@ def make_index_maps(prices: dict[str, list[tuple[str, float]]]) -> dict:
     return out
 
 
-def cum_series(prices: dict, calendar: list[str]) -> dict[str, float]:
+def cum_series(prices: dict, calendar: list[str], members_at: dict[str, set[str]] | None = None) -> dict[str, float]:
     """Cumulative log return of the equal-weight average of `prices`, rebalanced
-    daily, keyed by date: the market when given every name, an industry when
-    given a group."""
+    daily, keyed by date: the market when given the universe, an industry when
+    given a group. With `members_at`, only that day's members count."""
     at = {s: dict(v) for s, v in prices.items()}
     cum = [0.0]
     for prev, cur in zip(calendar, calendar[1:]):
-        rets = [m[cur] / m[prev] - 1.0 for m in at.values() if cur in m and prev in m]
+        today = members_at.get(cur) if members_at is not None else None
+        rets = [m[cur] / m[prev] - 1.0 for s, m in at.items()
+                if cur in m and prev in m and (today is None or s in today)]
         cum.append(cum[-1] + math.log1p(sum(rets) / len(rets)) if rets else cum[-1])
     return dict(zip(calendar, cum))
 
@@ -437,11 +444,11 @@ def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
 
     `end` indexes the most recent bar at or before the snapshot date. The
     window runs from `end - lookback` to `end - SKIP_DAYS`, so the most recent
-    month is excluded (the "-1" in 12-1 / 6-1). Net of the market: the name's
-    daily log returns are regressed on the equal-weight universe's with an
-    intercept; the residual return is the intercept times the number of days,
-    the window's return net of beta times the market's; the residual
-    volatility is that of what the regression leaves over."""
+    month is excluded (the "-1" in 12-1 / 6-1). Net of the market: the
+    window's log return minus beta times the market's, where beta comes from
+    `beta_at` (the rolling three-year regression ending on the day); the
+    residual volatility is that of the daily residuals y - beta * x over the
+    window."""
     _, closes, px, py, pxx, pxy, pyy = entry
     stop, start = end - SKIP_DAYS, end - lookback
     n = stop - start
@@ -450,22 +457,40 @@ def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
     p0, p1 = closes[start], closes[stop]
     if p0 <= 0 or p1 <= 0:
         return None
+    beta = beta_at(entry, end)
+    if beta is None:
+        return None
     raw = p1 / p0 - 1.0
     sx, sy = px[stop] - px[start], py[stop] - py[start]
     sxx, sxy, syy = pxx[stop] - pxx[start], pxy[stop] - pxy[start], pyy[stop] - pyy[start]
     var = (syy - sy * sy / n) / (n - 1)
     if var <= 1e-12:
         return None
-    denom = n * sxx - sx * sx
-    if denom <= 1e-12:
-        return None
-    beta = (n * sxy - sx * sy) / denom
-    alpha = (sy - beta * sx) / n
-    rvar = max(syy - alpha * sy - beta * sxy, 0.0) / (n - 1)
+    resid = sy - beta * sx
+    rsq = syy - 2.0 * beta * sxy + beta * beta * sxx        # sum of squared residuals
+    rvar = max(rsq - resid * resid / n, 0.0) / (n - 1)
     if rvar <= 1e-12:
         return None
     return (round(raw, 6), round(math.sqrt(var * 252.0), 6),
-            round(sy - beta * sx, 6), round(math.sqrt(rvar * 252.0), 6))
+            round(resid, 6), round(math.sqrt(rvar * 252.0), 6))
+
+
+def beta_at(entry: tuple, end: int):
+    """The name's market beta on the day: the slope of its daily log returns on
+    the equal-weight universe's over the BETA_DAYS ending at `end` (or as much
+    of that as the name has traded, MIN_OBS_BETA at least). None where the
+    history is too short or the market did not move."""
+    _, _, px, py, pxx, pxy, _ = entry
+    start = max(0, end - BETA_DAYS)
+    n = end - start
+    if n < MIN_OBS_BETA:
+        return None
+    sx, sy = px[end] - px[start], py[end] - py[start]
+    sxx, sxy = pxx[end] - pxx[start], pxy[end] - pxy[start]
+    denom = n * sxx - sx * sx
+    if denom <= 1e-12:
+        return None
+    return (n * sxy - sx * sy) / denom
 
 
 def recent_vol(entry: tuple, days: int = VOL_DAYS):
@@ -503,22 +528,24 @@ def legs_at(symbols, index_maps, date: str) -> dict:
 
 
 # --- Momentum decomposition ---------------------------------------------------
-# For one industry group so far: 12-1 momentum raw, net of the market, and net
-# of the market and the group, each by an in-window regression, so the reader
-# sees how much of a year's move the name's environment explains.
+# For one industry group so far: 12-1 momentum raw, net of the market (the
+# same rolling beta the score uses), and net of the market and the group by an
+# in-window regression, so the reader sees how much of a year's move the
+# name's environment explains.
 
 DECOMP_GROUP = ("Regional banks", ("Regional Banks",))
 
 
 def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calendar: list[str], end: int):
     """Raw 12-1 return, the return net of the market (the leg's own residual,
-    so the two agree), and the return net of the market and the group: the
-    group is the equal-weight average of the other members, with its market
-    component removed in-window before it is used."""
+    beta from `beta_at`, so the two agree), and the return net of the market
+    and the group: the group is the equal-weight average of the other members,
+    with its market component removed in-window before it is used."""
     dates, closes, px, py, pxx, pxy, _ = entry
     stop, start = end - SKIP_DAYS, end - LONG_DAYS
     n = stop - start
-    if start < 0 or n < MIN_OBS_LONG:
+    beta = beta_at(entry, end)
+    if start < 0 or n < MIN_OBS_LONG or beta is None:
         return None
     others = {s: prices[s] for s in group if s != symbol and s in prices}
     if len(others) < 2:
@@ -532,7 +559,6 @@ def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calenda
         ma, mb = sum(a) / n, sum(b) / n
         return sum((u - ma) * (v - mb) for u, v in zip(a, b)) / sum((u - ma) ** 2 for u in a)
     zs = [g - slope(xs, gs) * x for g, x in zip(gs, xs)]     # the group net of the market
-    beta_m = slope(xs, ys)
     # two regressors with an intercept
     mx, mz, my = sum(xs) / n, sum(zs) / n, sum(ys) / n
     sxx = sum((x - mx) ** 2 for x in xs); szz = sum((z - mz) ** 2 for z in zs); sxz = sum((x - mx) * (z - mz) for x, z in zip(xs, zs))
@@ -543,9 +569,9 @@ def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calenda
     b_m2 = (sxy * szz - szy * sxz) / det; b_i = (szy * sxx - sxy * sxz) / det
     return {
         "raw": round(closes[stop] / closes[start] - 1.0, 6),
-        "mkt": round(sum(y - beta_m * x for x, y in zip(xs, ys)), 6),
+        "mkt": round(sum(y - beta * x for x, y in zip(xs, ys)), 6),
         "ind": round(sum(y - b_m2 * x - b_i * z for x, y, z in zip(xs, ys, zs)), 6),
-        "betaM": round(b_m2, 3), "betaI": round(b_i, 3),
+        "betaM": round(beta, 3), "betaI": round(b_i, 3),
     }
 
 
@@ -671,29 +697,30 @@ def main() -> None:
     core_now -= second_class
     sp500_now -= second_class
 
-    window_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
+    window_start = price_start()
     ever = set(core_now) | set(sp500_now)
     for change in core_changes + sp500_changes:
         if change["date"] >= window_start and change["removed"]:
             ever.add(change["removed"])
     ever -= second_class
-    log(f"pricing {len(ever)} symbols (current members plus former ones still in window)")
+    log(f"pricing {len(ever)} symbols (current members plus former ones within the price history)")
 
     prices = fetch_all_prices(sorted(ever))
-    index_maps = make_index_maps(prices)
     calendar = trading_days(prices)
     as_of = calendar[-1]
     daily_dates = calendar[-BARS_DAYS:]          # one cross-section per bar the chart shows
     spark_dates = set(month_end_dates(calendar, SPARK_MONTHS))
     log(f"as of {as_of}; scoring {len(daily_dates)} trading days from {daily_dates[0]}")
 
-    core_at = universes.membership_history(core_now, core_changes, daily_dates)
-    sp500_at = universes.membership_history(sp500_now, sp500_changes, daily_dates)
-
-    # The universe: the S&P 500 and the MidCap 400, each as it stood that day.
+    # The universe: the S&P 500 and the MidCap 400, each as it stood that day,
+    # over the whole price history so the market benchmark behind every beta
+    # window is the index of its day, not today's survivors.
+    core_at = universes.membership_history(core_now, core_changes, calendar)
+    sp500_at = universes.membership_history(sp500_now, sp500_changes, calendar)
     members_at = {}
-    for date in daily_dates:
+    for date in calendar:
         members_at[date] = (core_at[date] | sp500_at[date]) & set(prices)
+    index_maps = make_index_maps(prices, members_at)
     log(f"universe today: {len(members_at[as_of])} names "
         f"({len(core_at[as_of] & set(prices))} from the MidCap 400 + "
         f"{len(members_at[as_of]) - len(core_at[as_of] & set(prices))} from the S&P 500)")
@@ -791,6 +818,7 @@ def main() -> None:
             "skipDays": SKIP_DAYS,
             "longDays": LONG_DAYS,
             "midDays": MID_DAYS,
+            "betaDays": BETA_DAYS,
             "minSector": MIN_SECTOR,
             "minHistory": MIN_HISTORY,
             "minVol": MIN_VOL,

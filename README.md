@@ -26,8 +26,8 @@ to work in this repository and with its owner.
   volatility. For the names that have it (the regional banks, so far), a **12–1 momentum
   decomposition**: three bars on one zero line, the raw 12–1 return, the return net of the
   market, and the return net of the market and the name's industry group, with the two gaps
-  named; each by an in-window regression, the middle bar being the same number as the "Net of
-  market" row in Score components. Below, a link row to the price chart and three sections that expand in
+  named; the middle bar is the same number as the "Net of market" row in Score components (the
+  score's rolling beta), the third comes from an in-window two-factor regression. Below, a link row to the price chart and three sections that expand in
   place, each with its one key fact in the row: **Score components** (the two periods side by
   side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
   and standard deviation, the z-score, and the blend written out), **Against its peers** (the same
@@ -105,7 +105,7 @@ so historical bars carry some survivorship bias. Present-day rankings are unaffe
 
 For one industry group so far, the regional banks (GICS sub-industry *Regional Banks*,
 `DECOMP_GROUP` in `build.py`), each row carries `decomp`: the raw 12–1 return; the return net of the market (the
-leg's own residual); and the return net of the market and the group, where the group is the
+leg's own residual, so the same rolling beta); and the return net of the market and the group, where the group is the
 equal-weight average of the other members with its market component removed in-window before a
 two-factor in-window regression. `meta.decomp` names the group and its symbols. Every name now
 carries a GICS sub-industry from one list, so the same figure can be extended to other groups.
@@ -122,10 +122,11 @@ For each name, on each trading day:
    trading days ending 21 trading days ago; the last month is skipped to avoid short-term
    reversal. *6–1*: the same over 126 trading days, again ending 21 days ago.
 2. **Adjustments**, each a switch, applied to each period:
-   - *Market residualization*: over the window the name's daily log returns are regressed on the
-     equal-weight average of every priced name, and the period's return becomes what the
-     regression leaves unexplained (the intercept times the number of days: the return net of
-     beta times the market's).
+   - *Market residualization*: the period's return (as a log return) minus beta times the
+     market's over the same window. The market is the equal-weight average of the names that were
+     index members on each day, rebalanced daily; beta is the slope of the name's daily log
+     returns on the market's over the 756 trading days (about three years) ending on the day, or
+     as much of that as the name has traded, 252 days at least.
    - *Volatility adjustment*: the (possibly residual) return is divided by the annualised standard
      deviation of the (possibly residual) daily log returns over the same window.
 3. **Standardize** the period's measure against its peers on that day: (measure − peer mean) ÷
