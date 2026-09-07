@@ -422,10 +422,11 @@
     ].map(([k, v]) => `<li><b>${k}.</b> ${v}</li>`).join('');
   }
 
-  /* What the two numbers on a row mean. The left column is the name's position
-     in whatever the list is ordered by; the right column is the score in the
-     chosen display, or the market cap when that is the order. Ticker A–Z is
-     a lookup order, not a ranking, so rows keep their score standing. */
+  /* What the numbers on a row mean. The left column is the name's position in
+     whatever the list is ordered by; on the right, the score in the chosen
+     display (or the market cap when that is the order) over the name's
+     recent volatility. Ticker A–Z is a lookup order, not a ranking, so rows
+     keep their score standing. */
   const SORTS = {
     score: { label: 'score', value: (r) => fmtShown(scoreOf(r)) },
     mktCap: { label: 'market cap', value: (r) => cap(r.mktCap) },
@@ -492,18 +493,19 @@
     li.dataset.symbol = r.symbol;
     li.innerHTML =
       `<span class="rk">${state.ranks ? state.ranks.get(r.symbol) : (sc.rank ?? '—')}</span>` +
-      `<a class="who" href="#/t/${r.symbol}"><b>${r.symbol}</b>` +
-      `<small>${esc(r.name)}</small></a>` +
-      sparkline(r.symbol) +
-      `<span class="sc"><b style="color:${state.sort === 'mktCap' ? 'inherit' : tone(sc.pct)}">${SORTS[state.sort].value(r)}</b></span>` +
+      `<a class="who" href="#/t/${r.symbol}" aria-label="${r.symbol}, ${esc(r.name)}"><b>${r.symbol}</b>` +
+      `<small>${esc(r.sector || '—')}</small></a>` +
+      `<span class="sc"><b style="color:${state.sort === 'mktCap' ? 'inherit' : tone(sc.pct)}">${SORTS[state.sort].value(r)}</b>` +
+      `<small title="Annualised volatility, last ${state.meta.params.volDays || 63} trading days">vol ${pct(r.vol63, 0)}</small></span>` +
       `<button class="star${state.watch.has(r.symbol) ? ' on' : ''}" aria-label="Watchlist">` +
       `${state.watch.has(r.symbol) ? '★' : '☆'}</button>`;
     return li;
   }
 
-  /* A year of month-end standings as a strip of tone-coloured bars: each
-     bar's height and colour is that month's percentile, so the strip reads
-     the same whatever the display shows, and the label carries the display. */
+  /* A year of month-end standings as a strip of tone-coloured bars, on the
+     detail page: each bar's height and colour is that month's percentile, so
+     the strip reads the same whatever the display shows, and the label
+     carries the display. */
   const SPARK = { w: 6, gap: 2, h: 22 };
   function sparkline(symbol) {
     const sp = state[`spark_${scoreKey()}`];
@@ -698,6 +700,7 @@
             <span>${scoreSummary()} · ${fmtDate(state.meta.asOf)}</span></span>
         </div>
         ${meta ? `<p class="meta">${meta}</p>` : ''}
+        <div class="strip">${sparkline(r.symbol)}<small>Month-end standing, last 12 months · vol ${pct(r.vol63, 0)} over the last ${state.meta.params.volDays || 63} days</small></div>
       </section>
 
       <a class="sect link" href="#/t/${r.symbol}/chart"><b>Price chart</b>
@@ -721,6 +724,7 @@
             <div><dt>Price</dt><dd>${money(r.price)}</dd></div>
             <div><dt>Change</dt><dd class="${cls(r.chg)}">${r.chg == null ? '—' : signed(r.chg, 2) + '%'}</dd></div>
             <div><dt>Market cap</dt><dd>${cap(r.mktCap)}</dd></div>
+            <div><dt>Ann. vol (63d)</dt><dd>${pct(r.vol63)}</dd></div>
             <div><dt>Ann. vol (12m)</dt><dd>${pct(r.legs.v12)}</dd></div>
             <div><dt>Ann. vol (6m)</dt><dd>${pct(r.legs.v6)}</dd></div>
             <div><dt>In 52w range</dt><dd>${range == null ? '—' : num(range, 0) + '%'}</dd></div>
@@ -732,6 +736,11 @@
     wirePager(el, '');
     $('dstar').addEventListener('click', (e) => toggleWatch(r.symbol, e.currentTarget));
     scrollTo(0, 0);
+    // The strip file may still be on its way on a cold start.
+    loadSpark().then(() => {
+      const strip = el.querySelector('.strip svg');
+      if (strip && location.hash === `#/t/${r.symbol}`) strip.outerHTML = sparkline(r.symbol);
+    });
   }
 
   /* The score, taken apart: the two periods side by side, one row per step —

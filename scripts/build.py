@@ -72,6 +72,7 @@ MIN_HISTORY = 504       # bars of trading history before a name is scored (~2 ye
                         # 12-month window never starts inside a new listing's first months
 MIN_VOL = 0.08          # annualised 12-month volatility below this means the name is not
                         # trading on its own merits (a pending takeover), so it is left out
+VOL_DAYS = 63           # the list's volatility: the most recent 63 trading days, no skip
 
 # The score is one definition with four choices, and every combination is
 # published so the app can switch between them without a rebuild:
@@ -448,6 +449,20 @@ def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
             round(sy - beta * sx, 6), round(math.sqrt(rvar * 252.0), 6))
 
 
+def recent_vol(entry: tuple, days: int = VOL_DAYS):
+    """Annualised volatility of the name's last `days` daily log returns, to
+    the latest bar, with no skipped month: the list's risk figure. None with
+    too little history."""
+    _, _, _, py, _, _, pyy = entry
+    end = len(py) - 1
+    start = end - days
+    if start < 0:
+        return None
+    sy, syy = py[end] - py[start], pyy[end] - pyy[start]
+    var = (syy - sy * sy / days) / (days - 1)
+    return round(math.sqrt(max(var, 0.0) * 252.0), 6)
+
+
 def legs_at(symbols, index_maps, date: str) -> dict:
     """The 12-1 and 6-1 legs for every name in `symbols` that is scorable at
     `date`, as {symbol: (leg12, leg6)}: at least MIN_HISTORY bars of history
@@ -666,6 +681,7 @@ def main() -> None:
                 "legs": {f"{name}{period}": leg[i]
                          for period, leg in (("12", long_leg), ("6", mid_leg))
                          for i, name in enumerate(LEG_NAMES)},
+                "vol63": recent_vol(index_maps[symbol]),
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
                 "chg": round(q["changePercentage"], 2) if q.get("changePercentage") is not None else None,
                 "mktCap": q.get("marketCap"),
@@ -701,6 +717,7 @@ def main() -> None:
             "minSector": MIN_SECTOR,
             "minHistory": MIN_HISTORY,
             "minVol": MIN_VOL,
+            "volDays": VOL_DAYS,
             "dailyDays": len(kept_days),
             "sparkMonths": SPARK_MONTHS,
         },
