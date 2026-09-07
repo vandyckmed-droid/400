@@ -552,6 +552,14 @@
     }
     $('adj-vol').addEventListener('change', (e) => scoreChanged({ vol: e.target.checked }));
     $('adj-resid').addEventListener('change', (e) => scoreChanged({ resid: e.target.checked }));
+    // The ⓘ sits inside the switch's label: preventDefault keeps a tap on it
+    // from flipping the switch as well.
+    $('resid-info').addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const f = $('resid-formula');
+      f.hidden = !f.hidden;
+      e.currentTarget.setAttribute('aria-expanded', String(!f.hidden));
+    });
     $('sback').addEventListener('click', goBack);
     $('sector-btn').addEventListener('click', openSectorSheet);
     $('sector-done').addEventListener('click', closeSectorSheet);
