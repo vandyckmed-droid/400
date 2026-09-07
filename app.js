@@ -701,6 +701,7 @@
         </div>
         ${meta ? `<p class="meta">${meta}</p>` : ''}
         <div class="strip">${sparkline(r.symbol)}<small>Month-end standing, last 12 months · vol ${pct(r.vol63, 0)} over the last ${state.meta.params.volDays || 63} days</small></div>
+        ${r.decomp ? decomposition(r) : ''}
       </section>
 
       <a class="sect link" href="#/t/${r.symbol}/chart"><b>Price chart</b>
@@ -741,6 +742,42 @@
       const strip = el.querySelector('.strip svg');
       if (strip && location.hash === `#/t/${r.symbol}`) strip.outerHTML = sparkline(r.symbol);
     });
+  }
+
+  /* 12–1 momentum taken apart for the names that have it: raw, net of the
+     market, net of the market and the name's industry group, as three bars
+     on one zero line so the shrinking bar is the point, with the two gaps
+     named between them. Published only for one industry group so far. */
+  function decomposition(r) {
+    const d = r.decomp, group = (state.meta.decomp && state.meta.decomp.group) || 'its industry';
+    const bars = [['Raw', d.raw, 'raw'], ['After market', d.mkt, 'mkt'], [`After market + ${group.toLowerCase()}`, d.ind, 'ind']];
+    const span = Math.max(0.1, ...bars.map((b) => Math.abs(b[1])));
+    const W = 340, L = 150, R = 52, H = 22, plot = W - L - R;
+    // Zero sits so that the most negative bar still fits: a share of the plot to the left of zero.
+    const worst = Math.max(0, -Math.min(0, ...bars.map((b) => b[1])));
+    const negShare = worst / (span + worst);
+    const zero = L + plot * negShare, unit = (plot * (1 - negShare)) / span;
+    const rows = bars.map(([label, v, klass], i) => {
+      const y = 6 + i * (H + 8), w = Math.abs(v) * unit;
+      return `<text class="lbl" x="${L - 8}" y="${y + H / 2 + 4}" text-anchor="end">${label}</text>`
+        + `<rect class="${klass}" x="${(v < 0 ? zero - w : zero).toFixed(1)}" y="${y}" width="${Math.max(1, w).toFixed(1)}" height="${H}" rx="3"/>`
+        + `<text class="val" x="${(v < 0 ? zero + 6 : zero + w + 6).toFixed(1)}" y="${y + H / 2 + 4}">${spct(v, 0)}</text>`;
+    }).join('');
+    const gaps = [[d.raw - d.mkt, 'market'], [d.mkt - d.ind, group.toLowerCase()]].map(([g, what], i) =>
+      `<text class="gap" x="${L - 8}" y="${6 + (i + 1) * (H + 8) - 3}" text-anchor="end">${what} ${spct(g, 0)}</text>`).join('');
+    const total = 3 * (H + 8) + 10;
+    return `
+        <div class="decomp">
+          <h4>12–1 momentum, taken apart</h4>
+          <svg viewBox="0 0 ${W} ${total}" width="100%" role="img"
+               aria-label="Raw ${spct(d.raw, 0)}, after market ${spct(d.mkt, 0)}, after market and ${group.toLowerCase()} ${spct(d.ind, 0)}">
+            <line class="zero" x1="${zero.toFixed(1)}" x2="${zero.toFixed(1)}" y1="2" y2="${total - 2}"/>
+            ${rows}${gaps}
+          </svg>
+          <p class="legend">The last bar is the part of the year's move that neither the S&amp;P 900 nor the
+            other ${group.toLowerCase()} explain: each bar takes out what an in-window regression on those
+            factors accounts for. A description of the move, not a forecast.</p>
+        </div>`;
   }
 
   /* The score, taken apart: the two periods side by side, one row per step —

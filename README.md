@@ -23,7 +23,11 @@ to work in this repository and with its owner.
 - **Detail page.** One focus card: the score in the chosen display, coloured by percentile, with
   the other two readings and the settings that built it beside it, a muted line of sector,
   industry and market cap, and a 12-month strip of month-end standings with the 63-day
-  volatility. Below, a link row to the price chart and three sections that expand in
+  volatility. For the names that have it (the regional banks, so far), a **12–1 momentum
+  decomposition**: three bars on one zero line, the raw 12–1 return, the return net of the
+  market, and the return net of the market and the name's industry group, with the two gaps
+  named; each by an in-window regression, the middle bar being the same number as the "Net of
+  market" row in Score components. Below, a link row to the price chart and three sections that expand in
   place, each with its one key fact in the row: **Score components** (the two periods side by
   side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
   and standard deviation, the z-score, and the blend written out), **Against its peers** (the same
@@ -96,6 +100,15 @@ clear the first two bars; the Settings data card shows them.
 
 **Known limitation.** Names that have since left the index are absent from older cross-sections,
 so historical bars carry some survivorship bias. Present-day rankings are unaffected.
+
+### Momentum decomposition
+
+For one industry group so far, the regional banks (both industry labels merged, `DECOMP_GROUP` in
+`build.py`), each row carries `decomp`: the raw 12–1 return; the return net of the market (the
+leg's own residual); and the return net of the market and the group, where the group is the
+equal-weight average of the other members with its market component removed in-window before a
+two-factor in-window regression. `meta.decomp` names the group and its symbols. Extending it to
+every name needs the industry labels unified onto one GICS list first.
 
 ## The score
 
