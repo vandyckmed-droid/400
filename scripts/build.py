@@ -67,6 +67,12 @@ BARS_DAYS = 756         # ~3 trading years of daily bars, and daily scores, per 
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
 MIN_SECTOR = 5          # smallest sector a name can be standardised against
 
+# Cleanliness: what keeps a member out of a day's cross-section.
+MIN_HISTORY = 504       # bars of trading history before a name is scored (~2 years), so a
+                        # 12-month window never starts inside a new listing's first months
+MIN_VOL = 0.08          # annualised 12-month volatility below this means the name is not
+                        # trading on its own merits (a pending takeover), so it is left out
+
 # The score is one definition with four choices, and every combination is
 # published so the app can switch between them without a rebuild:
 #   period   12-1, 6-1, or a 50/50 blend of the two
@@ -443,20 +449,21 @@ def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
 
 
 def legs_at(symbols, index_maps, date: str) -> dict:
-    """The 12-1 and 6-1 legs for every name in `symbols` with enough history
-    at `date`, as {symbol: (leg12, leg6)}. Sorted, so everything downstream
-    is the same on every run."""
+    """The 12-1 and 6-1 legs for every name in `symbols` that is scorable at
+    `date`, as {symbol: (leg12, leg6)}: at least MIN_HISTORY bars of history
+    by then, both windows complete, and a 12-month volatility of at least
+    MIN_VOL. Sorted, so everything downstream is the same on every run."""
     out = {}
     for symbol in sorted(symbols):
         entry = index_maps.get(symbol)
         if not entry:
             continue
         pos = bisect_right(entry[0], date) - 1
-        if pos < 0:
+        if pos + 1 < MIN_HISTORY:
             continue
         long_leg = leg_at(entry, pos, LONG_DAYS, MIN_OBS_LONG)
         mid_leg = leg_at(entry, pos, MID_DAYS, MIN_OBS_MID)
-        if long_leg and mid_leg:
+        if long_leg and mid_leg and long_leg[1] >= MIN_VOL:
             out[symbol] = (long_leg, mid_leg)
     return out
 
@@ -575,11 +582,20 @@ def main() -> None:
     core_now = {c["symbol"] for c in core_universe}
     sp500_now = {c["symbol"] for c in sp500_universe}
 
+    # One line per company: where two share classes are both members, only
+    # the Class A share is kept, on every date.
+    second_class = universes.second_classes(core_universe + sp500_universe)
+    if second_class:
+        log(f"share classes left out: {', '.join(sorted(second_class))}")
+    core_now -= second_class
+    sp500_now -= second_class
+
     window_start = (dt.date.today() - dt.timedelta(days=365 * 4)).isoformat()
     ever = set(core_now) | set(sp500_now)
     for change in core_changes + sp500_changes:
         if change["date"] >= window_start and change["removed"]:
             ever.add(change["removed"])
+    ever -= second_class
     log(f"pricing {len(ever)} symbols (current members plus former ones still in window)")
 
     prices = fetch_all_prices(sorted(ever))
@@ -633,6 +649,8 @@ def main() -> None:
     log(f"scored {len(kept_days)} of {len(daily_dates)} trading days")
 
     ranked = sorted(legs_now)
+    unscored = sorted(members_at[as_of] - live)
+    log(f"members not scored today: {', '.join(unscored) or 'none'}")
     quotes = fetch_quotes(ranked)
     rows = []
     for symbol in ranked:
@@ -672,12 +690,17 @@ def main() -> None:
         "generatedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         "fromCore": core_priced,
         "members": len(members_at[as_of]),
+        # Cleanliness: the share classes left out, and today's members that
+        # did not clear the history or volatility bar.
+        "excluded": {"shareClass": sorted(second_class), "unscored": unscored},
         "keys": KEYS,
         "params": {
             "skipDays": SKIP_DAYS,
             "longDays": LONG_DAYS,
             "midDays": MID_DAYS,
             "minSector": MIN_SECTOR,
+            "minHistory": MIN_HISTORY,
+            "minVol": MIN_VOL,
             "dailyDays": len(kept_days),
             "sparkMonths": SPARK_MONTHS,
         },

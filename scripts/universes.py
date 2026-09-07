@@ -223,3 +223,35 @@ def membership_history(current: set[str], changes: list[dict], dates: list[str])
             cursor += 1
         out[date] = set(members)
     return out
+
+
+# --- Share classes ------------------------------------------------------------
+
+CLASS_WORDS = re.compile(r"\s*\(class [a-c]\)|\bclass [a-c]\b|\b(common|ordinary) (stock|shares)\b", re.I)
+
+
+def company_key(name: str) -> str:
+    """A company's name with the share-class wording and corporate suffixes
+    stripped, so two classes of one company collide."""
+    base = CLASS_WORDS.sub("", name).lower()
+    base = re.sub(r"[.,'()-]", " ", base)
+    words = [w for w in base.split() if w not in ("inc", "corp", "corporation", "co", "ltd", "plc", "the", "company")]
+    return " ".join(words)
+
+
+def second_classes(constituents: list[dict]) -> set[str]:
+    """The symbols to leave out so each company appears once: where several
+    members share a company name, every class but the Class A share, or,
+    with no class named A, every symbol but the first alphabetically."""
+    by_company: dict[str, list[dict]] = {}
+    for c in constituents:
+        by_company.setdefault(company_key(c["name"]), []).append(c)
+    out = set()
+    for members in by_company.values():
+        symbols = sorted({m["symbol"] for m in members})
+        if len(symbols) < 2:
+            continue
+        class_a = sorted({m["symbol"] for m in members if re.search(r"class a\b", m["name"], re.I)})
+        keep = class_a[0] if class_a else symbols[0]
+        out.update(s for s in symbols if s != keep)
+    return out
