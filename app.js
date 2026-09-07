@@ -771,8 +771,9 @@
             ${rows}${gaps}
           </svg>
           <p class="legend">The last bar is the part of the year's move that neither the S&amp;P 900 nor the
-            other ${group.toLowerCase()} explain: each bar takes out what an in-window regression on those
-            factors accounts for. A description of the move, not a forecast.</p>
+            other ${group.toLowerCase()} explain: the middle bar takes out the name's usual sensitivity to the
+            market (the score's rolling three-year beta), the last what a regression over the year on the
+            market and the group accounts for. A description of the move, not a forecast.</p>
         </div>`;
   }
 
