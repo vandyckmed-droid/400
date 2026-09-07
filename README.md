@@ -75,6 +75,23 @@ about a company, so every name is ranked against all the others whichever index 
 Membership is point-in-time, so a historical cross-section uses both indices as they stood that
 day.
 
+### Cleanliness
+
+Three rules keep a member out of a day's cross-section, on every date:
+
+- **Seasoning.** At least 504 bars (about two years) of trading history by that date, so a
+  12-month window never starts inside a new listing's or spin-off's first months of price
+  discovery. Without it a name like Sandisk, spun off in early 2025, scored +13.8 standard
+  deviations and stretched the whole scale.
+- **Flat names.** A 12-month annualised volatility of at least 8%. Below that a stock is
+  trading on a pending takeover, not on its own merits.
+- **One line per company.** Where two share classes of one company are both members, only the
+  Class A share is kept (GOOGL, FOXA, NWSA; not GOOG, FOX, NWS). With no class named A, the first
+  symbol alphabetically stays.
+
+`latest.json`'s `meta.excluded` lists the share classes left out and today's members that did not
+clear the first two bars; the Settings data card shows them.
+
 **Known limitation.** Names that have since left the index are absent from older cross-sections,
 so historical bars carry some survivorship bias. Present-day rankings are unaffected.
 

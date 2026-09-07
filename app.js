@@ -392,6 +392,10 @@
       ['From the S&P 500', m.members - m.fromCore],
       ['From the MidCap 400', m.fromCore],
       ['Skip', `${m.params.skipDays} trading days`],
+      ...(m.excluded ? [
+        ['Not scored today', m.excluded.unscored.length ? m.excluded.unscored.join(', ') : 'none'],
+        ['Second share classes', m.excluded.shareClass.length ? m.excluded.shareClass.join(', ') : 'none'],
+      ] : []),
     ].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 
     /* The method has to describe the score the reader is actually getting, so
