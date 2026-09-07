@@ -206,25 +206,34 @@ Responses are cached under `.cache/` (gitignored) for 12 hours.
 
 ## Automation
 
+Two branches:
+
+- **`main`** holds the code. `data/` is git-ignored there and never committed.
+- **`site`** holds what GitHub Pages serves: the code plus `data/`, as a single commit that the
+  refresh job rewrites (force-pushes) on every run. No history of the data is kept, so the
+  repository stays the size of one day's site instead of growing by every day's rewrite. A
+  `site.txt` at its root carries the time it was published.
+
 `.github/workflows/refresh.yml` runs Tuesday to Saturday at 10:00 UTC, the morning after each
-weekday close. It runs `scripts/build.py` and commits `data/` if anything changed. The script exits
-non-zero on a degraded result, which stops the job before the commit.
+weekday close. It checks out `main`, restores `data/` from `site` (the membership snapshots
+`build.py` falls back to and the previous `latest.json` its guards compare against), runs
+`scripts/build.py`, then publishes `site`. The script exits non-zero on a degraded result, which
+stops the job before the publish. A push to `main` runs the same job without the rebuild, so a
+code change is live within a minute with the previous day's data.
 
 On-demand rebuild: **Actions → Refresh momentum data → Run workflow**.
-
-Publishing is GitHub Pages serving the `main` branch root directly. There is no deploy workflow;
-every push to `main`, including the daily data commit, republishes the site.
 
 ### One-time setup already done
 
 - Repository secret `FMP_API_KEY` for the workflow.
-- Pages configured to deploy from branch `main`, folder `/ (root)`. This cannot be set from CI.
+- Pages configured to deploy from branch `site`, folder `/ (root)`. This cannot be set from CI.
 
 ### Running locally
 
 ```sh
-FMP_API_KEY=your_key python3 scripts/build.py     # rebuild data/ (about 10 minutes, cached after)
-python3 -m http.server 8000                        # then open http://localhost:8000
+git fetch origin site && git restore --source=origin/site -- data   # today's data, from the site branch
+python3 -m http.server 8000                                          # then open http://localhost:8000
+FMP_API_KEY=your_key python3 scripts/build.py                        # or rebuild data/ (a few minutes)
 ```
 
 ## Things that affect future work
