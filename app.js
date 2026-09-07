@@ -405,9 +405,10 @@
     $('method').innerHTML = [
       ...periods.map((p) => [`${PERIODS[p]} return`, `Total return on dividend- and split-adjusted closes over the `
         + `${p} months ending one month ago. The most recent month is skipped to sidestep short-term reversal.`]),
-      ...(s.resid ? [['Market residualization', 'Over that same window each name\'s daily log returns are '
-        + 'regressed on the equal-weight average of every priced name. The measure becomes the return that '
-        + 'regression leaves unexplained — the name\'s own move, net of its beta times the market\'s.']] : []),
+      ...(s.resid ? [['Market residualization', 'The measure becomes the window\'s return minus beta times '
+        + 'the market\'s, where the market is the equal-weight average of the index members of each day and '
+        + 'beta is the slope of the name\'s daily log returns on the market\'s over the three years ending '
+        + 'on the day. The name\'s own move, net of what its usual sensitivity to the market explains.']] : []),
       ...(s.vol ? [['Volatility adjustment', `The ${s.resid ? 'residual ' : ''}return is divided by the `
         + `annualised standard deviation of the ${s.resid ? 'residual ' : ''}daily log returns over that same `
         + 'window, so a steady climb outscores an equally large but erratic one.']] : []),
