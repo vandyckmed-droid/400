@@ -10,18 +10,20 @@ to work in this repository and with its owner.
 
 ## What the app does
 
-- **List.** Every name in the universe ranked by the score, shown in the chosen display (value,
-  rank or percentile), with a 12-month strip of month-end standings per row, a watchlist (star any
-  row), a multi-select sector filter, and a sort menu: score (strongest first, under the active
-  Score settings), market cap, or ticker A–Z. Rows load in chunks as you scroll.
+- **List.** Every name in the universe ranked by the score. Each row: the rank, the ticker with
+  its sector beneath, and on the right the score in the chosen display (value, rank or
+  percentile) over the name's annualised volatility of the last 63 trading days. A watchlist
+  (star any row), a multi-select sector filter, and a sort menu: score (strongest first, under
+  the active Score settings), market cap, or ticker A–Z. Rows load in chunks as you scroll.
 - **Previous / next.** Under the top bar of the detail page and of the chart, a strip steps to the
   name either side of this one in the list as it stands (its sort, sector filter and watchlist
   state), showing the position ("12 of 646"). Stepping between charts keeps the zoom. Left and
   right arrow keys do the same on a keyboard. Steps replace the current history entry, so Back
   still returns to where the reader came from.
 - **Detail page.** One focus card: the score in the chosen display, coloured by percentile, with
-  the other two readings and the settings that built it beside it, and a muted line of sector,
-  industry and market cap. Below, a link row to the price chart and three sections that expand in
+  the other two readings and the settings that built it beside it, a muted line of sector,
+  industry and market cap, and a 12-month strip of month-end standings with the 63-day
+  volatility. Below, a link row to the price chart and three sections that expand in
   place, each with its one key fact in the row: **Score components** (the two periods side by
   side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
   and standard deviation, the z-score, and the blend written out), **Against its peers** (the same
@@ -164,8 +166,9 @@ manifest.webmanifest  icon-*.png   home-screen install
 scripts/build.py                   the whole ranking pipeline, standard library only
 scripts/universes.py               universe definition, point-in-time membership, market caps
 
-data/latest.json                   today's rows (legs, quote, key stats) and the day's peer
-                                   statistics: everything the browser needs to score the list
+data/latest.json                   today's rows (legs, 63-day volatility, quote, key stats) and
+                                   the day's peer statistics: everything the browser needs to
+                                   score the list
 data/score/<key>.json              one per score definition (24): for each of the last 756
                                    trading days, the member count, the peer statistics it
                                    standardizes against, and the ladder of member scores
