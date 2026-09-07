@@ -327,7 +327,7 @@
     period: {
       12: 'The return over the 12 months ending one month ago.',
       6: 'The return over the 6 months ending one month ago.',
-      blend: 'Both periods, each standardized on its own, then averaged 50/50.',
+      blend: 'Both periods, each z-scored on its own, then averaged 50/50.',
     },
     display: {
       value: 'The completed score, in standard deviations from the peer mean: 0 is average, '
@@ -399,14 +399,13 @@
       ...(s.vol ? [['Volatility adjustment', `The ${s.resid ? 'residual ' : ''}return is divided by the `
         + `annualised standard deviation of the ${s.resid ? 'residual ' : ''}daily log returns over that same `
         + 'window, so a steady climb outscores an equally large but erratic one.']] : []),
-      ['Standardize', `Each period's measure is turned into a z-score against all of ${UNIVERSE.label} on the same day: `
-        + '(measure − peer mean) ÷ peer standard deviation, to two decimals.'],
+      ['Z-score', `Each period's measure is compared with every scored name in ${UNIVERSE.label} on the same day: `
+        + '(measure − mean) ÷ standard deviation, to two decimals.'],
       [s.period === 'blend' ? 'Blend' : 'Score', s.period === 'blend'
         ? 'The score is the 50/50 average of the 12–1 and 6–1 z-scores.'
         : `The score is the ${PERIODS[s.period]} z-score.`],
       ['Display', `${DISPLAYS[s.display]}: ${NOTES.display[s.display].charAt(0).toLowerCase()}${NOTES.display[s.display].slice(1)} `
-        + 'Rank and percentile are read across the whole universe whatever the score is standardized against, '
-        + 'and all three displays keep the same order.'],
+        + 'All three displays keep the same order.'],
     ].map(([k, v]) => `<li><b>${k}.</b> ${v}</li>`).join('');
   }
 
@@ -779,7 +778,7 @@
 
   /* The score, taken apart: the two periods side by side, one row per step —
      the legs, the measure the adjustments pick, the peer statistics it is
-     standardized against, the z-score — and the blend written out. Only the
+     compared with, the z-score — and the blend written out. Only the
      rows the settings use are marked; the others are shown for reference. */
   function components(r, sc) {
     const s = state.score, legs = r.legs;
