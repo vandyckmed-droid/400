@@ -23,14 +23,14 @@ to work in this repository and with its owner.
 - **Detail page.** One focus card: the score in the chosen display, coloured by percentile, with
   the other two readings and the settings that built it beside it, a muted line of sector,
   industry and market cap, and a 12-month strip of month-end standings with the 63-day
-  volatility. For the names that have it (the regional banks, so far), a **12–1 momentum
-  decomposition**: three bars on one zero line, the raw 12–1 return, the return net of the
+  volatility. For the names that have it (the regional banks, so far), a **9–1 momentum
+  decomposition**: three bars on one zero line, the raw 9–1 return, the return net of the
   market, and the return net of the market and the name's industry group, with the two gaps
   named; the middle bar is the same number as the "Net of market" row in Score components (the
   score's rolling beta), the third comes from an in-window two-factor regression. Below, a link row to the price chart and three sections that expand in
-  place, each with its one key fact in the row: **Score components** (the two periods side by
-  side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
-  and standard deviation, the z-score, and the blend written out), **Against its peers** (the name's
+  place, each with its one key fact in the row: **Score components** (the window's ingredients —
+  return, net-of-market return, volatility, residual volatility — with the ones in use marked and
+  the score written out), **Against its peers** (the name's
   percentile and rank across the universe and within its own GICS sector, by the same score), and
   **Quote & risk** (price and change). The score through time lives under the price chart.
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
@@ -86,11 +86,11 @@ day.
 
 Three rules keep a member out of a day's cross-section, on every date:
 
-- **Seasoning.** At least 504 bars (about two years) of trading history by that date, so a
-  12-month window never starts inside a new listing's or spin-off's first months of price
+- **Seasoning.** At least 504 bars (about two years) of trading history by that date, so the
+  window never starts inside a new listing's or spin-off's first months of price
   discovery. Without it a name like Sandisk, spun off in early 2025, scored +13.8 standard
   deviations and stretched the whole scale.
-- **Flat names.** A 12-month annualised volatility of at least 8%. Below that a stock is
+- **Flat names.** A window annualised volatility of at least 8%. Below that a stock is
   trading on a pending takeover, not on its own merits.
 - **One line per company.** Where two share classes of one company are both members, only the
   Class A share is kept (GOOGL, FOXA, NWSA; not GOOG, FOX, NWS). With no class named A, the first
@@ -105,7 +105,7 @@ so historical bars carry some survivorship bias. Present-day rankings are unaffe
 ### Momentum decomposition
 
 For one industry group so far, the regional banks (GICS sub-industry *Regional Banks*,
-`DECOMP_GROUP` in `build.py`), each row carries `decomp`: the raw 12–1 return; the return net of the market (the
+`DECOMP_GROUP` in `build.py`), each row carries `decomp`: the raw 9–1 return; the return net of the market (the
 leg's own residual, so the same rolling beta); and the return net of the market and the group, where the group is the
 equal-weight average of the other members with its market component removed in-window before a
 two-factor in-window regression. `meta.decomp` names the group and its symbols. Every name now
@@ -119,38 +119,39 @@ pipeline does for the daily series, on the same rounded numbers, so every view a
 
 For each name, on each trading day:
 
-1. **Two periods.** *12–1*: total return on dividend- and split-adjusted closes over the 252
-   trading days ending 21 trading days ago; the last month is skipped to avoid short-term
-   reversal. *6–1*: the same over 126 trading days, again ending 21 days ago.
-2. **Adjustments**, each a switch, applied to each period:
-   - *Market residualization*: the period's return (as a log return) minus beta times the
+1. **One window, 9–1.** Total return on dividend- and split-adjusted closes over the 189 trading
+   days ending 21 trading days ago; the last month is skipped to avoid short-term reversal.
+2. **Adjustments**, each a switch:
+   - *Market residualization*: the window's return (as a log return) minus beta times the
      market's over the same window. The market is the equal-weight average of the names that were
      index members on each day, rebalanced daily; beta is the slope of the name's daily log
      returns on the market's over the 756 trading days (about three years) ending on the day, or
      as much of that as the name has traded, 252 days at least.
    - *Volatility adjustment*: the (possibly residual) return is divided by the annualised standard
      deviation of the (possibly residual) daily log returns over the same window.
-3. **Standardize** the period's measure against every scored member of the universe on that
-   day: (measure − mean) ÷ standard deviation (population), rounded to two decimals.
-4. **Period choice**: the score is the 12–1 z-score, the 6–1 z-score, or *Blend*: the two
-   z-scores averaged 50/50, again to two decimals.
-5. **Display**, a reading of the completed score that never changes the order:
-   - *Score value*: the number itself, signed; 0 is the peer average.
+3. **That measure is the score.** There is no standardization step, so the score
+   is a return, or a return per unit of risk when the volatility switch is on. Nothing about the
+   rest of the universe enters it.
+4. **Display**, a reading of the same number that never changes the order:
+   - *Score value*: the number itself, signed; a percentage, or a plain ratio when the volatility
+     switch is on.
    - *Rank*: integer position across the whole scored universe, 1 = best; ties share the better
      position.
    - *Percentile*: 100 × (n − rank) ÷ (n − 1) across the whole scored universe, 100 = best.
 
-A name needs at least 180 daily returns in the 12-month window and 90 in the 6-month window, so
-recent listings sit out until they season.
+A name needs at least 135 daily returns in the window, so recent listings sit out until they
+season.
 
-### The 12 definitions
+### The 4 definitions
 
-Period (3) × adjustments (4 combinations) gives 12 score definitions, keyed `<period>-<adjust>`:
-period `12`, `6` or `blend`; adjust `none`, `vol`, `resid` or `volresid`. Every one is published,
-so a change of settings is a different file, not a rebuild. Display needs nothing extra: rank and
-percentile are read off the day's ladder of member scores.
+The four adjustment combinations give four score definitions, keyed by the adjustment alone:
+`none`, `vol`, `resid` or `volresid`. Every one is published, so a change of settings is a
+different file, not a rebuild. Display needs nothing extra: rank and percentile are read off the
+day's ladder of member scores, the members' scores as ascending fixed-point integers (the score
+× 1,000,000, the same integer in Python and in the browser so a rank never turns on a rounding
+difference).
 
-Defaults: blend, no adjustments, percentile. All three persist per device.
+Defaults: no adjustments, percentile. Both persist per device.
 
 A detail page's *Against its peers* section also ranks the name within its own GICS sector, by the
 same score, among the sector's scored members: a position, not a different score.
@@ -163,9 +164,9 @@ Wikipedia page does not carry; `scripts/universes.py` maps its sector names onto
 
 ### Recent joiners
 
-A name that joined the index recently is scored on earlier dates as an outsider: standardized
-against that day's members and ranked on their ladder to find where it would have stood, without
-entering the members' statistics. Present-day rankings are unaffected.
+A name that joined the index recently is scored on earlier dates as an outsider: ranked on that
+day's members' ladder to find where it would have stood, without entering it. Present-day
+rankings are unaffected.
 
 ## How it is built
 
@@ -183,17 +184,15 @@ manifest.webmanifest  icon-*.png   home-screen install
 scripts/build.py                   the whole ranking pipeline, standard library only
 scripts/universes.py               universe definition, point-in-time membership, market caps
 
-data/latest.json                   today's rows (legs, 63-day volatility, quote, key stats) and
-                                   the day's peer statistics: everything the browser needs to
-                                   score the list
-data/score/<key>.json              one per score definition (24): for each of the last 756
-                                   trading days, the member count, the peer statistics it
-                                   standardizes against, and the ladder of member scores
-                                   (base64 int16); ~1.3 MB each, fetched only when the chart opens
+data/latest.json                   today's rows (legs, 63-day volatility, quote, key stats):
+                                   everything the browser needs to score the list
+data/score/<key>.json              one per score definition (4): for each of the last 756 trading
+                                   days, the member count and the ladder of member scores
+                                   (base64 int32); fetched only when the chart opens
 data/spark/<key>.json              last 12 month-end scores and ranks per name, one per definition
 data/bars/<SYMBOL>.json            756 adjusted daily bars (~3 years) per ranked name, with the
-                                   name's two legs (return, volatility, net-of-market return,
-                                   residual volatility) on the same dates; ~55 MB in all
+                                   name's 9-1 legs (return, volatility, net-of-market return,
+                                   residual volatility) on the same dates
 data/universe.json                 MidCap 400 constituents + change log; also the offline fallback
 data/sp500.json                    S&P 500 constituents + change log; also the offline fallback
 

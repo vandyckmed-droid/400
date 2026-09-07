@@ -7,15 +7,14 @@ Pipeline
    S&P 500 and the S&P MidCap 400 together, ~900 names. Each source falls
    back to a committed snapshot if it is down.
 2. Pull ~6 years of dividend/split-adjusted daily closes per ticker from FMP.
-3. On every trading day of the last three years, compute the 12-1 and 6-1
-   legs once per name (return, volatility, return net of the market, residual
-   volatility), then score them under every setting the app offers: each
-   period's measure standardised (z-scored) against the whole universe or the
-   name's sector, and the two periods blended 50/50 or taken alone.
+3. On every trading day of the last three years, compute the 9-1 legs once
+   per name (return, volatility, return net of the market, residual
+   volatility), then take the measure each of the app's four adjustments
+   picks. The measure is the score: there is no standardisation step.
 4. Refuse to publish if the result looks degraded (guard()), else emit
-   data/latest.json (today's legs and peer statistics, from which the browser
-   scores the list), data/score/<key>.json (per day: member count, peer
-   statistics, and the ladder of member scores) and data/spark/<key>.json.
+   data/latest.json (today's legs, from which the browser scores the list),
+   data/score/<key>.json (per day: member count and the ladder of member
+   scores) and data/spark/<key>.json.
 5. Write data/bars/<SYMBOL>.json for every published name: the adjusted daily
    bars the price chart draws plus the name's legs on the same dates.
 
@@ -59,11 +58,9 @@ WIKI_CHANGES = "https://en.wikipedia.org/wiki/Historical_components_of_the_S%26P
 
 # --- Ranking parameters -------------------------------------------------------
 # Trading-day windows. 21d ~ 1 month, 252d ~ 12 months.
-SKIP_DAYS = 21          # the "-1" in 12-1 / 6-1: skip the most recent month
-LONG_DAYS = 252         # 12-month formation window
-MID_DAYS = 126          # 6-month formation window
-MIN_OBS_LONG = 180      # min daily returns required in the 12-1 window
-MIN_OBS_MID = 90        # min daily returns required in the 6-1 window
+SKIP_DAYS = 21          # the "-1" in 9-1: skip the most recent month
+WINDOW_DAYS = 189       # 9-month formation window
+MIN_OBS = 135           # min daily returns required in the 9-1 window
 BETA_DAYS = 756         # rolling window for a name's market beta (~3 years), ending on the day
 MIN_OBS_BETA = 252      # min daily returns in that window before a beta is trusted
 SPARK_MONTHS = 12       # month-end scores drawn as a strip in each list row
@@ -78,20 +75,20 @@ MIN_VOL = 0.08          # annualised 12-month volatility below this means the na
                         # trading on its own merits (a pending takeover), so it is left out
 VOL_DAYS = 63           # the list's volatility: the most recent 63 trading days, no skip
 
-# The score is one definition with three choices, and every combination is
-# published so the app can switch between them without a rebuild:
-#   period   12-1, 6-1, or a 50/50 blend of the two
-#   adjust   the return itself; over its own volatility; net of the market
-#            (return minus beta times the market's, beta from a rolling three-
-#            year regression on the equal-weight universe as it stood each
-#            day); or net of the market over the residual volatility
-# Each period's measure is standardised (z-scored) against the whole universe.
-# The third choice, how the score is displayed (value, rank, percentile), is
-# a reading of the completed score and needs nothing extra published.
-PERIODS = ("12", "6", "blend")
+# The score is the 9-1 window's measure itself, under one of four adjustments,
+# each published so the app can switch between them without a rebuild:
+#   none      the return
+#   vol       the return over its own volatility
+#   resid     net of the market: the return minus beta times the market's,
+#             beta from a rolling three-year regression on the equal-weight
+#             universe as it stood each day
+#   volresid  net of the market, over the residual volatility
+# There is no standardisation step, so the score is a return (or a return per
+# unit of risk), not a z-score. How it is displayed (value, rank, percentile)
+# is a reading of the same number and needs nothing extra published.
 ADJUSTS = ("none", "vol", "resid", "volresid")
-KEYS = [f"{p}-{a}" for p in PERIODS for a in ADJUSTS]
-LEG_INDEX = {"12": 0, "6": 1}
+KEYS = list(ADJUSTS)
+SCALE = 1_000_000       # the ladder's fixed point: the six decimals the legs carry
 
 WORKERS = 5            # the vendor throttles above this on large payloads
 RETRIES = 6
@@ -254,7 +251,7 @@ def fetch_prices(symbol: str, start: str) -> list[tuple[str, float]]:
         if isinstance(r, dict) and r.get("adjClose") not in (None, 0)
         and r["date"] != UNSETTLED_TODAY
     )
-    return series if len(series) > LONG_DAYS else []
+    return series if len(series) > WINDOW_DAYS else []
 
 
 def fetch_bars(symbol: str, start: str) -> list[tuple[str, float, float, float, float]]:
@@ -377,7 +374,7 @@ def fetch_all_prices(symbols: list[str]) -> dict[str, list[tuple[str, float]]]:
 
 def write_bars(symbols: list[str], legs: dict) -> None:
     """One compact file of daily bars per published name, columnar so the chart
-    can index straight into it, plus the name's two momentum legs on the same
+    can index straight into it, plus the name's 9-1 legs on the same
     dates (`legs[symbol][date]`, null where it has none), so the chart can
     score any day under any setting with nothing to align. Rewritten whole on
     every run; git stores the rewrite as a delta against the previous version,
@@ -398,11 +395,8 @@ def write_bars(symbols: list[str], legs: dict) -> None:
             "h": [b[2] for b in series],
             "l": [b[3] for b in series],
             "c": [b[4] for b in series],
-            "legs": {
-                f"{name}{period}": [None if d not in mine else mine[d][LEG_INDEX[period]][i] for d in dates]
-                for period in ("12", "6")
-                for i, name in enumerate(LEG_NAMES)
-            },
+            "legs": {name: [None if d not in mine else mine[d][i] for d in dates]
+                     for i, name in enumerate(LEG_NAMES)},
         }
         (folder / f"{symbol}.json").write_text(json.dumps(payload, separators=(",", ":")) + "\n")
     # A name that left the published set leaves the chart too.
@@ -441,7 +435,7 @@ def leg_at(entry: tuple, end: int, lookback: int, min_obs: int):
 
     `end` indexes the most recent bar at or before the snapshot date. The
     window runs from `end - lookback` to `end - SKIP_DAYS`, so the most recent
-    month is excluded (the "-1" in 12-1 / 6-1). Net of the market: the
+    month is excluded (the "-1" in 9-1). Net of the market: the
     window's log return minus beta times the market's, where beta comes from
     `beta_at` (the rolling three-year regression ending on the day); the
     residual volatility is that of the daily residuals y - beta * x over the
@@ -505,10 +499,10 @@ def recent_vol(entry: tuple, days: int = VOL_DAYS):
 
 
 def legs_at(symbols, index_maps, date: str) -> dict:
-    """The 12-1 and 6-1 legs for every name in `symbols` that is scorable at
-    `date`, as {symbol: (leg12, leg6)}: at least MIN_HISTORY bars of history
-    by then, both windows complete, and a 12-month volatility of at least
-    MIN_VOL. Sorted, so everything downstream is the same on every run."""
+    """The 9-1 legs for every name in `symbols` that is scorable at `date`, as
+    {symbol: leg}: at least MIN_HISTORY bars of history by then, the window
+    complete, and a window volatility of at least MIN_VOL. Sorted, so
+    everything downstream is the same on every run."""
     out = {}
     for symbol in sorted(symbols):
         entry = index_maps.get(symbol)
@@ -517,32 +511,31 @@ def legs_at(symbols, index_maps, date: str) -> dict:
         pos = bisect_right(entry[0], date) - 1
         if pos + 1 < MIN_HISTORY:
             continue
-        long_leg = leg_at(entry, pos, LONG_DAYS, MIN_OBS_LONG)
-        mid_leg = leg_at(entry, pos, MID_DAYS, MIN_OBS_MID)
-        if long_leg and mid_leg and long_leg[1] >= MIN_VOL:
-            out[symbol] = (long_leg, mid_leg)
+        leg = leg_at(entry, pos, WINDOW_DAYS, MIN_OBS)
+        if leg and leg[1] >= MIN_VOL:
+            out[symbol] = leg
     return out
 
 
 # --- Momentum decomposition ---------------------------------------------------
-# For one industry group so far: 12-1 momentum raw, net of the market (the
+# For one industry group so far: 9-1 momentum raw, net of the market (the
 # same rolling beta the score uses), and net of the market and the group by an
-# in-window regression, so the reader sees how much of a year's move the
-# name's environment explains.
+# in-window regression, so the reader sees how much of the move the name's
+# environment explains.
 
 DECOMP_GROUP = ("Regional banks", ("Regional Banks",))
 
 
 def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calendar: list[str], end: int):
-    """Raw 12-1 return, the return net of the market (the leg's own residual,
+    """Raw 9-1 return, the return net of the market (the leg's own residual,
     beta from `beta_at`, so the two agree), and the return net of the market
     and the group: the group is the equal-weight average of the other members,
     with its market component removed in-window before it is used."""
     dates, closes, px, py, pxx, pxy, _ = entry
-    stop, start = end - SKIP_DAYS, end - LONG_DAYS
+    stop, start = end - SKIP_DAYS, end - WINDOW_DAYS
     n = stop - start
     beta = beta_at(entry, end)
-    if start < 0 or n < MIN_OBS_LONG or beta is None:
+    if start < 0 or n < MIN_OBS or beta is None:
         return None
     others = {s: prices[s] for s in group if s != symbol and s in prices}
     if len(others) < 2:
@@ -573,12 +566,12 @@ def decompose(symbol: str, entry: tuple, prices: dict, group: list[str], calenda
 
 
 # --- 4. The score -------------------------------------------------------------
-# app.js carries the same three steps in the same order, on the same rounded
-# inputs, so the list it scores in the browser and the daily series published
-# here agree to the last digit.
+# app.js carries the same arithmetic on the same rounded inputs, so the list it
+# scores in the browser and the daily series published here agree to the last
+# digit.
 
 def measure(leg: tuple, adjust: str) -> float:
-    """What one period measures under an adjustment."""
+    """What the window measures under an adjustment: the score itself."""
     raw, vol, resid, rvol = leg
     if adjust == "none":
         return raw
@@ -589,59 +582,40 @@ def measure(leg: tuple, adjust: str) -> float:
     return resid / rvol
 
 
-def round2(v: float) -> float:
-    """Two decimals, the same way in Python and JavaScript."""
-    return math.floor(v * 100 + 0.5) / 100
+def quant(v: float) -> int:
+    """The score as the fixed-point integer the ladder is built from, the same
+    way in Python and JavaScript, so a rank never turns on a last-bit
+    difference between the two."""
+    return math.floor(v * SCALE + 0.5)
 
 
-def cross_section(legs: dict, members: set) -> tuple[dict, dict, dict]:
+def cross_section(legs: dict, members: set) -> tuple[dict, dict]:
     """Score every name in `legs` on one date, against the members.
 
-    Returns (stats, scores, ladder):
-      stats[period][adjust]["*"] = (mean, sd) over the members,
-      scores[key][symbol] = the completed score, None where unscored,
-      ladder[key] = the members' scores x 100 as ascending ints — the
-        cross-section the app ranks any name against.
+    Returns (scores, ladder):
+      scores[key][symbol] = the score as its fixed-point integer,
+      ladder[key] = the members' scores as ascending ints — the cross-section
+        the app ranks any name against.
     A name outside the members (a recent joiner, on an earlier date) is scored
-    against the members' statistics without entering them."""
-    peers = [s for s in legs if s in members]
-    xs, stats = {}, {}
-    for period in ("12", "6"):
-        stats[period] = {}
-        for adjust in ADJUSTS:
-            x = {s: measure(legs[s][LEG_INDEX[period]], adjust) for s in legs}
-            xs[period, adjust] = x
-            vals = [x[s] for s in peers]
-            mu = sum(vals) / len(vals)
-            sd = math.sqrt(sum((v - mu) ** 2 for v in vals) / len(vals))
-            stats[period][adjust] = {"*": (round(mu, 6), round(sd, 6))}
-
-    def z(s, period, adjust):
-        mu, sd = stats[period][adjust]["*"]
-        return round2((xs[period, adjust][s] - mu) / sd) if sd > 0 else 0.0
-
+    without entering the ladder."""
     scores, ladder = {}, {}
-    for key in KEYS:
-        period, adjust = key.split("-")
-        per = {}
-        for s in legs:
-            if period == "blend":
-                per[s] = round2((z(s, "12", adjust) + z(s, "6", adjust)) / 2)
-            else:
-                per[s] = z(s, period, adjust)
-        scores[key] = per
-        ladder[key] = sorted(int(round(per[s] * 100)) for s in members if per.get(s) is not None)
-    return stats, scores, ladder
+    for adjust in KEYS:
+        per = {s: quant(measure(leg, adjust)) for s, leg in legs.items()}
+        scores[adjust] = per
+        ladder[adjust] = sorted(per[s] for s in members if s in per)
+    return scores, ladder
 
 
-def rank_in(ladder: list[int], score: float) -> int:
+def rank_in(ladder: list[int], scaled: int) -> int:
     """Position among the members, 1 = best; ties share the better position."""
-    return 1 + len(ladder) - bisect_right(ladder, int(round(score * 100)))
+    return 1 + len(ladder) - bisect_right(ladder, scaled)
 
 
 def pack(ints: list[int]) -> str:
-    """A ladder as base64 little-endian int16, a third the size of JSON."""
-    return base64.b64encode(struct.pack(f"<{len(ints)}h", *ints)).decode("ascii")
+    """A ladder as base64 little-endian int32. Wider than the old two-decimal
+    z-scores needed, because the score is now a return: at six decimals ~900
+    names keep their own place instead of sharing manufactured ties."""
+    return base64.b64encode(struct.pack(f"<{len(ints)}i", *ints)).decode("ascii")
 
 
 def month_end_dates(calendar: list[str], count: int) -> list[str]:
@@ -712,22 +686,19 @@ def main() -> None:
     # --- every day's cross-section, under every setting ---
     legs_now = legs_at(members_at[as_of], index_maps, as_of)
     live = set(legs_now)                          # every name the site will publish
-    per_day = []                                  # (date, stats, ladder) in order
-    daily_legs = {}                               # symbol -> {date: (leg12, leg6)}
+    per_day = []                                  # (date, ladder) in order
+    daily_legs = {}                               # symbol -> {date: leg}
     spark = {key: {"dates": [], "n": [], "s": {}, "k": {}} for key in KEYS}
-    asof_stats = None
     for date in daily_dates:
         legs = legs_at(members_at[date] | live, index_maps, date)
         members = {s for s in legs if s in members_at[date]}
         if len(members) < MIN_NAMES_PER_SNAPSHOT:
             continue
-        stats, scores, ladder = cross_section(legs, members)
-        per_day.append((date, stats, ladder))
-        for s, pair in legs.items():
+        scores, ladder = cross_section(legs, members)
+        per_day.append((date, ladder))
+        for s, leg in legs.items():
             if s in live:
-                daily_legs.setdefault(s, {})[date] = pair
-        if date == as_of:
-            asof_stats = stats
+                daily_legs.setdefault(s, {})[date] = leg
         if date in spark_dates:
             for key in KEYS:
                 sp = spark[key]
@@ -735,9 +706,9 @@ def main() -> None:
                 sp["n"].append(len(ladder[key]))
                 for s in live:
                     v = scores[key].get(s)
-                    sp["s"].setdefault(s, []).append(None if v is None else int(round(v * 100)))
+                    sp["s"].setdefault(s, []).append(v)
                     sp["k"].setdefault(s, []).append(None if v is None else rank_in(ladder[key], v))
-    kept_days = [d for d, _, _ in per_day]
+    kept_days = [d for d, _ in per_day]
     log(f"scored {len(kept_days)} of {len(daily_dates)} trading days")
 
     ranked = sorted(legs_now)
@@ -755,7 +726,7 @@ def main() -> None:
     quotes = fetch_quotes(ranked)
     rows = []
     for symbol in ranked:
-        long_leg, mid_leg = legs_now[symbol]
+        leg = legs_now[symbol]
         info = meta.get(symbol, {})
         q = quotes.get(symbol, {})
         rows.append(
@@ -764,9 +735,7 @@ def main() -> None:
                 "name": q.get("name") or info.get("name", symbol),
                 "sector": info.get("sector", ""),
                 "industry": info.get("industry", ""),
-                "legs": {f"{name}{period}": leg[i]
-                         for period, leg in (("12", long_leg), ("6", mid_leg))
-                         for i, name in enumerate(LEG_NAMES)},
+                "legs": dict(zip(LEG_NAMES, leg)),
                 "vol63": recent_vol(index_maps[symbol]),
                 **({"decomp": decomp[symbol]} if symbol in decomp else {}),
                 "price": q.get("price") or round(index_maps[symbol][1][-1], 2),
@@ -786,7 +755,7 @@ def main() -> None:
         before = len(json.loads(previous.read_text())["rows"])
         guard(len(rows) >= 0.95 * before, f"ranked {len(rows)} names, down from {before} last run")
     guard(len(kept_days) >= BARS_DAYS - 5, f"only {len(kept_days)} daily cross-sections")
-    guard(asof_stats is not None, "no cross-section on the as-of date")
+    guard(kept_days[-1] == as_of, "no cross-section on the as-of date")
 
     meta_block = {
         "asOf": as_of,
@@ -800,35 +769,28 @@ def main() -> None:
         "keys": KEYS,
         "params": {
             "skipDays": SKIP_DAYS,
-            "longDays": LONG_DAYS,
-            "midDays": MID_DAYS,
+            "windowDays": WINDOW_DAYS,
             "betaDays": BETA_DAYS,
+            "scale": SCALE,
             "minHistory": MIN_HISTORY,
             "minVol": MIN_VOL,
             "volDays": VOL_DAYS,
             "dailyDays": len(kept_days),
             "sparkMonths": SPARK_MONTHS,
         },
-        # The as-of date's peer statistics: with the rows' legs, enough for
-        # the browser to build every score itself.
-        "stats": asof_stats,
     }
     write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
     # One file per score definition: for every day, how many members were
-    # scored, the universe's peer statistics, and the ladder of member scores.
-    # With a name's legs from its bar file that is the whole daily series, in
-    # any display.
+    # scored and the ladder of member scores. With a name's legs from its bar
+    # file that is the whole daily series, in any display.
     (DATA / "score").mkdir(exist_ok=True)
     for key in KEYS:
-        period, adjust = key.split("-")
-        periods = ("12", "6") if period == "blend" else (period,)
         write_json(DATA / "score" / f"{key}.json", {
-            "key": key, "period": period, "adjust": adjust,
+            "key": key, "adjust": key,
             "dates": kept_days,
-            "n": [len(ladder[key]) for _, _, ladder in per_day],
-            "stats": {"*": {p: [st[p][adjust]["*"] for _, st, _ in per_day] for p in periods}},
-            "ladder": [pack(ladder[key]) for _, _, ladder in per_day],
+            "n": [len(ladder[key]) for _, ladder in per_day],
+            "ladder": [pack(ladder[key]) for _, ladder in per_day],
         })
 
     # The list rows draw a year of month-end standings per name: the score and
