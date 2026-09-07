@@ -30,8 +30,8 @@ to work in this repository and with its owner.
   score's rolling beta), the third comes from an in-window two-factor regression. Below, a link row to the price chart and three sections that expand in
   place, each with its one key fact in the row: **Score components** (the two periods side by
   side: return, net-of-market return, volatility, the measure the settings pick, the peer mean
-  and standard deviation, the z-score, and the blend written out), **Against its peers** (the same
-  name standardized against the universe and against its sector, with the rank each gives), and
+  and standard deviation, the z-score, and the blend written out), **Against its peers** (the name's
+  percentile and rank across the universe and within its own GICS sector, by the same score), and
   **Quote & risk** (price and change). The score through time lives under the price chart.
 - **Price chart.** A full-screen chart of three years of adjusted daily bars. Drag to pan, pinch to
   zoom, drag the price axis to stretch it. A button in its top bar opens a full-screen list of what
@@ -113,7 +113,7 @@ carries a GICS sub-industry from one list, so the same figure can be extended to
 
 ## The score
 
-One definition, with four choices made in Settings. The pipeline publishes the ingredients for
+One definition, with three choices made in Settings. The pipeline publishes the ingredients for
 every combination; the browser builds the score the reader has chosen, step for step as the
 pipeline does for the daily series, on the same rounded numbers, so every view agrees.
 
@@ -130,34 +130,34 @@ For each name, on each trading day:
      as much of that as the name has traded, 252 days at least.
    - *Volatility adjustment*: the (possibly residual) return is divided by the annualised standard
      deviation of the (possibly residual) daily log returns over the same window.
-3. **Standardize** the period's measure against its peers on that day: (measure − peer mean) ÷
-   peer standard deviation (population), rounded to two decimals. Peers are *Universe* (every
-   scored member) or *Sector* (the members of the name's GICS sector; a sector under five names
-   is left unscored).
+3. **Standardize** the period's measure against every scored member of the universe on that
+   day: (measure − mean) ÷ standard deviation (population), rounded to two decimals.
 4. **Period choice**: the score is the 12–1 z-score, the 6–1 z-score, or *Blend*: the two
    z-scores averaged 50/50, again to two decimals.
 5. **Display**, a reading of the completed score that never changes the order:
    - *Score value*: the number itself, signed; 0 is the peer average.
-   - *Rank*: integer position across the whole scored universe, 1 = best, whatever the score was
-     standardized against; ties share the better position.
+   - *Rank*: integer position across the whole scored universe, 1 = best; ties share the better
+     position.
    - *Percentile*: 100 × (n − rank) ÷ (n − 1) across the whole scored universe, 100 = best.
 
 A name needs at least 180 daily returns in the 12-month window and 90 in the 6-month window, so
 recent listings sit out until they season.
 
-### The 24 definitions
+### The 12 definitions
 
-Period (3) × adjustments (4 combinations) × basis (2) gives 24 score definitions, keyed
-`<period>-<adjust>-<basis>`: period `12`, `6` or `blend`; adjust `none`, `vol`, `resid` or
-`volresid`; basis `universe` or `sector`. Every one is published, so a change of settings is a
-different file, not a rebuild. Display needs nothing extra: rank and percentile are read off the
-day's ladder of member scores.
+Period (3) × adjustments (4 combinations) gives 12 score definitions, keyed `<period>-<adjust>`:
+period `12`, `6` or `blend`; adjust `none`, `vol`, `resid` or `volresid`. Every one is published,
+so a change of settings is a different file, not a rebuild. Display needs nothing extra: rank and
+percentile are read off the day's ladder of member scores.
 
-Defaults: blend, no adjustments, universe, percentile. All four persist per device.
+Defaults: blend, no adjustments, percentile. All three persist per device.
+
+A detail page's *Against its peers* section also ranks the name within its own GICS sector, by the
+same score, among the sector's scored members: a position, not a different score.
 
 Every name's sector and sub-industry are GICS labels read from Wikipedia's index list pages, the
-S&P 500 page for its members and the MidCap 400 page for the rest, so names are standardized
-against their sector, not their data source. FMP's own sector taxonomy (Yahoo/Morningstar names,
+S&P 500 page for its members and the MidCap 400 page for the rest, so the sector filter, the
+sector rank and the industry groups follow one taxonomy, not the data source. FMP's own sector taxonomy (Yahoo/Morningstar names,
 which disagree with GICS on about thirty S&P 500 names) is only the last resort for a name the
 Wikipedia page does not carry; `scripts/universes.py` maps its sector names onto GICS.
 

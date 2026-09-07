@@ -70,7 +70,6 @@ SPARK_MONTHS = 12       # month-end scores drawn as a strip in each list row
 YEARS_OF_PRICES = 6     # history depth to request from FMP
 BARS_DAYS = 756         # ~3 trading years of daily bars, and daily scores, per name
 MIN_NAMES_PER_SNAPSHOT = 50   # skip cross-sections thinner than this
-MIN_SECTOR = 5          # smallest sector a name can be standardised against
 
 # Cleanliness: what keeps a member out of a day's cross-section.
 MIN_HISTORY = 504       # bars of trading history before a name is scored (~2 years), so a
@@ -79,21 +78,19 @@ MIN_VOL = 0.08          # annualised 12-month volatility below this means the na
                         # trading on its own merits (a pending takeover), so it is left out
 VOL_DAYS = 63           # the list's volatility: the most recent 63 trading days, no skip
 
-# The score is one definition with four choices, and every combination is
+# The score is one definition with three choices, and every combination is
 # published so the app can switch between them without a rebuild:
 #   period   12-1, 6-1, or a 50/50 blend of the two
 #   adjust   the return itself; over its own volatility; net of the market
 #            (return minus beta times the market's, beta from a rolling three-
 #            year regression on the equal-weight universe as it stood each
 #            day); or net of the market over the residual volatility
-#   basis    standardised (z-scored) against the whole universe or the name's
-#            own GICS sector
-# The fourth choice, how the score is displayed (value, rank, percentile), is
+# Each period's measure is standardised (z-scored) against the whole universe.
+# The third choice, how the score is displayed (value, rank, percentile), is
 # a reading of the completed score and needs nothing extra published.
 PERIODS = ("12", "6", "blend")
 ADJUSTS = ("none", "vol", "resid", "volresid")
-BASES = ("universe", "sector")
-KEYS = [f"{p}-{a}-{b}" for p in PERIODS for a in ADJUSTS for b in BASES]
+KEYS = [f"{p}-{a}" for p in PERIODS for a in ADJUSTS]
 LEG_INDEX = {"12": 0, "6": 1}
 
 WORKERS = 5            # the vendor throttles above this on large payloads
@@ -597,54 +594,41 @@ def round2(v: float) -> float:
     return math.floor(v * 100 + 0.5) / 100
 
 
-def cross_section(legs: dict, members: set, meta: dict) -> tuple[dict, dict, dict]:
+def cross_section(legs: dict, members: set) -> tuple[dict, dict, dict]:
     """Score every name in `legs` on one date, against the members.
 
     Returns (stats, scores, ladder):
-      stats[period][adjust][group] = (mean, sd) over the members of the group
-        ("*" is the universe; a sector appears only with MIN_SECTOR members),
+      stats[period][adjust]["*"] = (mean, sd) over the members,
       scores[key][symbol] = the completed score, None where unscored,
       ladder[key] = the members' scores x 100 as ascending ints — the
         cross-section the app ranks any name against.
     A name outside the members (a recent joiner, on an earlier date) is scored
     against the members' statistics without entering them."""
-    groups = {"*": [s for s in legs if s in members]}
-    for s in groups["*"]:
-        sector = meta.get(s, {}).get("sector", "")
-        if sector:
-            groups.setdefault(sector, []).append(s)
-    groups = {g: m for g, m in groups.items() if g == "*" or len(m) >= MIN_SECTOR}
+    peers = [s for s in legs if s in members]
     xs, stats = {}, {}
     for period in ("12", "6"):
         stats[period] = {}
         for adjust in ADJUSTS:
             x = {s: measure(legs[s][LEG_INDEX[period]], adjust) for s in legs}
             xs[period, adjust] = x
-            stats[period][adjust] = {}
-            for g, m in groups.items():
-                vals = [x[s] for s in m]
-                mu = sum(vals) / len(vals)
-                sd = math.sqrt(sum((v - mu) ** 2 for v in vals) / len(vals))
-                stats[period][adjust][g] = (round(mu, 6), round(sd, 6))
+            vals = [x[s] for s in peers]
+            mu = sum(vals) / len(vals)
+            sd = math.sqrt(sum((v - mu) ** 2 for v in vals) / len(vals))
+            stats[period][adjust] = {"*": (round(mu, 6), round(sd, 6))}
 
-    def z(s, period, adjust, basis):
-        g = "*" if basis == "universe" else meta.get(s, {}).get("sector", "")
-        st = stats[period][adjust].get(g)
-        if st is None:
-            return None
-        mu, sd = st
+    def z(s, period, adjust):
+        mu, sd = stats[period][adjust]["*"]
         return round2((xs[period, adjust][s] - mu) / sd) if sd > 0 else 0.0
 
     scores, ladder = {}, {}
     for key in KEYS:
-        period, adjust, basis = key.split("-")
+        period, adjust = key.split("-")
         per = {}
         for s in legs:
             if period == "blend":
-                a, b = z(s, "12", adjust, basis), z(s, "6", adjust, basis)
-                per[s] = None if a is None or b is None else round2((a + b) / 2)
+                per[s] = round2((z(s, "12", adjust) + z(s, "6", adjust)) / 2)
             else:
-                per[s] = z(s, period, adjust, basis)
+                per[s] = z(s, period, adjust)
         scores[key] = per
         ladder[key] = sorted(int(round(per[s] * 100)) for s in members if per.get(s) is not None)
     return stats, scores, ladder
@@ -737,7 +721,7 @@ def main() -> None:
         members = {s for s in legs if s in members_at[date]}
         if len(members) < MIN_NAMES_PER_SNAPSHOT:
             continue
-        stats, scores, ladder = cross_section(legs, members, meta)
+        stats, scores, ladder = cross_section(legs, members)
         per_day.append((date, stats, ladder))
         for s, pair in legs.items():
             if s in live:
@@ -819,7 +803,6 @@ def main() -> None:
             "longDays": LONG_DAYS,
             "midDays": MID_DAYS,
             "betaDays": BETA_DAYS,
-            "minSector": MIN_SECTOR,
             "minHistory": MIN_HISTORY,
             "minVol": MIN_VOL,
             "volDays": VOL_DAYS,
@@ -833,21 +816,18 @@ def main() -> None:
     write_json(DATA / "latest.json", {"meta": meta_block, "rows": rows})
 
     # One file per score definition: for every day, how many members were
-    # scored, the peer statistics of the groups it standardises against, and
-    # the ladder of member scores. With a name's legs from its bar file that
-    # is the whole daily series, in any display.
+    # scored, the universe's peer statistics, and the ladder of member scores.
+    # With a name's legs from its bar file that is the whole daily series, in
+    # any display.
     (DATA / "score").mkdir(exist_ok=True)
     for key in KEYS:
-        period, adjust, basis = key.split("-")
+        period, adjust = key.split("-")
         periods = ("12", "6") if period == "blend" else (period,)
-        groups = sorted({g for _, st, _ in per_day for p in periods for g in st[p][adjust]
-                         if (g == "*") == (basis == "universe")})
         write_json(DATA / "score" / f"{key}.json", {
-            "key": key, "period": period, "adjust": adjust, "basis": basis,
+            "key": key, "period": period, "adjust": adjust,
             "dates": kept_days,
             "n": [len(ladder[key]) for _, _, ladder in per_day],
-            "stats": {g: {p: [st[p][adjust].get(g) for _, st, _ in per_day] for p in periods}
-                      for g in groups},
+            "stats": {"*": {p: [st[p][adjust]["*"] for _, st, _ in per_day] for p in periods}},
             "ladder": [pack(ladder[key]) for _, _, ladder in per_day],
         })
 
@@ -857,6 +837,11 @@ def main() -> None:
     (DATA / "spark").mkdir(exist_ok=True)
     for key in KEYS:
         write_json(DATA / "spark" / f"{key}.json", spark[key])
+    # A definition that no longer exists leaves the site with it.
+    for folder in ("score", "spark"):
+        for stale in (DATA / folder).glob("*.json"):
+            if stale.stem not in KEYS:
+                stale.unlink()
 
     write_bars(sorted(live), daily_legs)
 

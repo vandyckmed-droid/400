@@ -21,19 +21,17 @@
      One definition, built here step for step as scripts/build.py builds it,
      on the same rounded inputs, so what this scores in the browser (the list)
      and what the pipeline published (every day's cross-section, for the
-     score pane) agree to the last digit. Four choices:
+     score pane) agree to the last digit. Three choices:
        period   '12' (12–1), '6' (6–1) or 'blend' (the two averaged 50/50)
        vol      divide each period's return by its own volatility
        resid    use the return net of the market instead of the return
-       basis    z-score against the whole 'universe' or the name's 'sector'
-     and one reading of the completed score, `display`: its 'value', its
+     each period's measure z-scored against the whole universe, and one reading of the completed score, `display`: its 'value', its
      integer 'rank' across the whole universe (1 = best), or its percentile
      'pct' across the whole universe (100 = best). Display never changes the
      order, only the number shown. */
-  const SCORE_DEFAULTS = { period: 'blend', vol: false, resid: false, basis: 'universe', display: 'pct' };
+  const SCORE_DEFAULTS = { period: 'blend', vol: false, resid: false, display: 'pct' };
   const PERIODS = { 12: '12–1', 6: '6–1', blend: 'Blend' };
   const DISPLAYS = { value: 'Score value', rank: 'Rank', pct: 'Percentile' };
-  const BASES = { universe: 'Universe', sector: 'Sector' };
 
   const state = {
     rows: [],
@@ -49,7 +47,7 @@
   };
 
   const adjustKey = (s) => (s.vol && s.resid ? 'volresid' : s.vol ? 'vol' : s.resid ? 'resid' : 'none');
-  const scoreKey = (s = state.score) => `${s.period}-${adjustKey(s)}-${s.basis}`;
+  const scoreKey = (s = state.score) => `${s.period}-${adjustKey(s)}`;
   const round2 = (v) => Math.floor(v * 100 + 0.5) / 100;         // as build.py's round2
   /* What one period measures under the adjustments, from its legs: r the
      return, v its volatility, e the return net of the market, w the residual
@@ -71,11 +69,10 @@
     const z = per(s.period);
     return { z12: s.period === '12' ? z : null, z6: s.period === '6' ? z : null, s: z };
   }
-  const groupOf = (row, s = state.score) => (s.basis === 'universe' ? '*' : row.sector || '');
-  /* Today's peer statistics, from latest.json, for one row. */
-  const statToday = (row, s = state.score) => (p) => {
+  /* Today's peer statistics, from latest.json ("*" is the whole universe). */
+  const statToday = (s = state.score) => (p) => {
     const by = state.meta.stats[p] && state.meta.stats[p][adjustKey(s)];
-    return by ? by[groupOf(row, s)] || null : null;
+    return by ? by['*'] || null : null;
   };
   /* Rank against a ladder — the members' scores × 100, ascending — as
      1 + the number strictly better, so ties share the better position. */
@@ -90,7 +87,7 @@
      ladder and member count the ranks came from. */
   function scoreAll(s = state.score) {
     const by = {};
-    for (const r of state.rows) by[r.symbol] = scoreFrom(r.legs, statToday(r, s), s);
+    for (const r of state.rows) by[r.symbol] = scoreFrom(r.legs, statToday(s), s);
     const ladder = Object.values(by).filter((x) => x.s != null).map((x) => Math.round(x.s * 100)).sort((a, b) => a - b);
     for (const x of Object.values(by)) {
       x.rank = x.s == null ? null : rankIn(ladder, x.s);
@@ -107,9 +104,9 @@
     pct: (v) => (v == null ? '—' : v.toFixed(1)),
   };
   const fmtShown = (sc, d = state.score.display) => FMT[d](displayed(sc, d));
-  /* One line naming the score as built: "Blend · ÷ volatility · vs universe". */
+  /* One line naming the score as built: "Blend · ÷ volatility · net of market". */
   const scoreSummary = (s = state.score) => [
-    PERIODS[s.period], s.vol ? '÷ volatility' : '', s.resid ? 'net of market' : '', `vs ${s.basis}`,
+    PERIODS[s.period], s.vol ? '÷ volatility' : '', s.resid ? 'net of market' : '',
   ].filter(Boolean).join(' · ');
 
   /* ---------- persistence ---------- */
@@ -131,15 +128,14 @@
   function saveSectors() {
     try { localStorage.setItem(SECTORS_KEY, JSON.stringify([...state.sectors])); } catch { /* private mode */ }
   }
-  /* The score's four choices. Anything unreadable falls back to the defaults;
-     the two settings the app had before (basis, adjustment) carry over. */
+  /* The score's three choices. Anything unreadable falls back to the defaults;
+     the adjustment setting the app had before carries over. */
   function loadScoreSettings() {
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(SCORE_KEY)); } catch { /* absent or malformed */ }
     if (!raw || typeof raw !== 'object') {
       raw = {};
       try {
-        if (localStorage.getItem('sp400.basis.v1') === 'sector') raw.basis = 'sector';
         const adj = localStorage.getItem('sp400.adjust.v1');
         if (adj === 'vol') raw.vol = true;
         if (adj === 'resid') raw.resid = true;
@@ -149,7 +145,6 @@
     if (raw.period in PERIODS) s.period = String(raw.period);
     s.vol = !!raw.vol;
     s.resid = !!raw.resid;
-    if (raw.basis === 'sector') s.basis = 'sector';
     if (raw.display in DISPLAYS) s.display = raw.display;
     return s;
   }
@@ -285,7 +280,7 @@
   }
 
   /* One row per sector, tapped to toggle membership in state.sectors. Built
-     once per data load (or basis/universe change, same as before); after that,
+     once per data load; after that,
      toggling a row updates its own class in place rather than rebuilding the
      list, so the sheet doesn't flash or lose scroll position while in use. */
   function renderSectorList() {
@@ -334,11 +329,6 @@
       6: 'The return over the 6 months ending one month ago.',
       blend: 'Both periods, each standardized on its own, then averaged 50/50.',
     },
-    basis: {
-      universe: `Each period's measure is z-scored against all of ${UNIVERSE.label}.`,
-      sector: 'Each period\'s measure is z-scored against the name\'s own GICS sector, so a strong '
-        + 'name in a weak sector still scores well.',
-    },
     display: {
       value: 'The completed score, in standard deviations from the peer mean: 0 is average, '
         + 'negative is below it.',
@@ -355,12 +345,10 @@
       }
     };
     seg('period-seg', 'period', state.score.period);
-    seg('basis-seg', 'basis', state.score.basis);
     seg('display-seg', 'display', state.score.display);
     $('adj-vol').checked = state.score.vol;
     $('adj-resid').checked = state.score.resid;
     $('period-note').textContent = NOTES.period[state.score.period];
-    $('basis-note').textContent = NOTES.basis[state.score.basis];
     $('display-note').textContent = NOTES.display[state.score.display];
   }
 
@@ -401,7 +389,6 @@
     /* The method has to describe the score the reader is actually getting, so
        each step appears only when it is switched on. */
     const periods = s.period === 'blend' ? ['12', '6'] : [s.period];
-    const against = s.basis === 'sector' ? 'the name\'s own GICS sector' : `all of ${UNIVERSE.label}`;
     $('method').innerHTML = [
       ...periods.map((p) => [`${PERIODS[p]} return`, `Total return on dividend- and split-adjusted closes over the `
         + `${p} months ending one month ago. The most recent month is skipped to sidestep short-term reversal.`]),
@@ -412,7 +399,7 @@
       ...(s.vol ? [['Volatility adjustment', `The ${s.resid ? 'residual ' : ''}return is divided by the `
         + `annualised standard deviation of the ${s.resid ? 'residual ' : ''}daily log returns over that same `
         + 'window, so a steady climb outscores an equally large but erratic one.']] : []),
-      ['Standardize', `Each period's measure is turned into a z-score against ${against} on the same day: `
+      ['Standardize', `Each period's measure is turned into a z-score against all of ${UNIVERSE.label} on the same day: `
         + '(measure − peer mean) ÷ peer standard deviation, to two decimals.'],
       [s.period === 'blend' ? 'Blend' : 'Score', s.period === 'blend'
         ? 'The score is the 50/50 average of the 12–1 and 6–1 z-scores.'
@@ -543,7 +530,7 @@
 
   /* ---------- events ---------- */
   function wire() {
-    for (const [id, attr] of [['period-seg', 'period'], ['basis-seg', 'basis'], ['display-seg', 'display']]) {
+    for (const [id, attr] of [['period-seg', 'period'], ['display-seg', 'display']]) {
       $(id).addEventListener('click', (e) => {
         const b = e.target.closest(`button[data-${attr}]`);
         if (!b || b.dataset[attr] === state.score[attr]) return;
@@ -784,8 +771,9 @@
             ${rows}${gaps}
           </svg>
           <p class="legend">The last bar is the part of the year's move that neither the S&amp;P 900 nor the
-            other ${group.toLowerCase()} explain: each bar takes out what an in-window regression on those
-            factors accounts for. A description of the move, not a forecast.</p>
+            other ${group.toLowerCase()} explain: the middle bar takes out the name's usual sensitivity to the
+            market (the score's rolling three-year beta), the last what a regression over the year on the
+            market and the group accounts for. A description of the move, not a forecast.</p>
         </div>`;
   }
 
@@ -832,29 +820,28 @@
     return { summary: s.period === 'blend' ? `(${FMT.value(sc.z12)} + ${FMT.value(sc.z6)}) ÷ 2 = ${FMT.value(sc.s)}` : `${PERIODS[s.period]} z-score ${FMT.value(sc.s)}`, body };
   }
 
-  /* The same name standardized the other way: against the universe and
-     against its sector, with the rank and percentile each gives. The marked
-     row is the one the headline uses. */
+  /* Where the name stands by the same score across the whole universe and
+     within its own GICS sector: the sector rank counts only the sector's
+     scored members, so it is a position, not a different score. */
   function againstPeers(r) {
-    const s = state.score;
-    const rows = ['universe', 'sector'].map((basis) => {
-      const alt = basis === s.basis ? state.scored : scoreAll({ ...s, basis });
-      const sc = alt.by[r.symbol];
-      return { basis, sc, n: alt.n, on: basis === s.basis };
-    });
-    const other = rows.find((x) => !x.on);
-    const summary = other && other.sc.s != null
-      ? `vs ${other.basis}: ${FMT.value(other.sc.s)} · rank ${other.sc.rank} of ${other.n}` : '';
+    const sc = scoreOf(r);
+    const ladder = state.rows.filter((x) => x.sector && x.sector === r.sector).map(scoreOf)
+      .filter((x) => x.s != null).map((x) => Math.round(x.s * 100)).sort((a, b) => a - b);
+    const sRank = sc.s == null || !ladder.length ? null : rankIn(ladder, sc.s);
+    const sPct = sRank == null ? null : pctOf(sRank, ladder.length);
+    const sector = esc(r.sector) || 'its sector';
+    const summary = sRank == null ? '' : `${sRank} of ${ladder.length} in ${sector}`;
+    const line = (label, pct, rank, n) => `<tr>
+                <td>${label}</td>
+                <td class="v" style="color:${tone(pct)}">${FMT.pct(pct)}</td>
+                <td class="k">${rank == null ? '—' : `${rank} / ${n}`}</td></tr>`;
     const body = `
           <table class="peers">
-            <tbody>${rows.map(({ basis, sc, n, on }) => `<tr class="${on ? 'on' : ''}">
-                <td>${basis === 'universe' ? `Against all of ${UNIVERSE.label}` : `Against ${esc(r.sector) || 'its sector'}`}</td>
-                <td class="v" style="color:${tone(sc.pct)}">${FMT.value(sc.s)}</td>
-                <td class="k">${sc.rank == null ? '—' : `${sc.rank} / ${n}`}</td></tr>`).join('')}</tbody>
+            <tbody>${line(`Across all of ${UNIVERSE.label}`, sc.pct, sc.rank, state.scored.n)}${line(`Within ${sector}`, sPct, sRank, ladder.length)}</tbody>
           </table>
-          <p class="legend">A name can look ordinary against the whole universe and strong against its
-            own sector, or the reverse. Rank and percentile are always across the whole universe; the
-            marked row is the standardization the headline uses.</p>`;
+          <p class="legend">Percentile and rank, by the same score: across the whole scored universe,
+            and among the scored members of the name's own GICS sector. A name can be ordinary across the
+            universe and lead its sector, or the reverse.</p>`;
     return { summary, body };
   }
 
@@ -942,7 +929,7 @@
     const s = state.score, kind = s.display;
     const at = new Map(file.dates.map((d, i) => [d, i]));
     if (!file.decoded) file.decoded = file.ladder.map(unpackLadder);
-    const group = file.stats[groupOf(r)] || {};
+    const group = file.stats['*'] || {};
     const values = bars.dates.map((d, i) => {
       const k = at.get(d);
       if (k == null) return null;
