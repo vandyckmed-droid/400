@@ -1,0 +1,5 @@
+.cache/
+__pycache__/
+# The data lives on the site branch, never on main: fetch it with
+#   git fetch origin site && git restore --source=origin/site -- data
+data/

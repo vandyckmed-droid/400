@@ -1,0 +1,495 @@
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f5f6f8;
+  --card: #ffffff;
+  --line: #e3e5ea;
+  --line-soft: #eef0f3;
+  --ink: #14161a;
+  --ink-2: #5c626e;
+  --ink-3: #8a909c;
+  --accent: #2f6df6;
+  --hot: #10893e;
+  --cold: #cf2f3f;
+  --mid: #b07d12;
+  --ma2: #7a5bd6;
+  --track: #eceef2;
+  --shadow: 0 1px 2px rgba(16, 20, 28, .06);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d12;
+    --bg-soft: #12151c;
+    --card: #12151c;
+    --line: #242935;
+    --line-soft: #1b1f28;
+    --ink: #e9ecf2;
+    --ink-2: #a2aab9;
+    --ink-3: #6f7787;
+    --accent: #6d9bff;
+    --hot: #35c46a;
+    --cold: #ff6b76;
+    --mid: #e0a83a;
+    --ma2: #a98bff;
+    --track: #1c212b;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overscroll-behavior-y: none;
+}
+button, input, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bg);
+  padding: calc(14px + var(--safe-t)) 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; font-weight: 700; }
+/* The universe names the app. It was a control once; it is a statement now. */
+.title { display: inline-flex; align-items: baseline; gap: 6px; }
+.title .pill {
+  padding: 1px 8px 2px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--bg-soft);
+}
+.asof { margin: 2px 0 10px; font-size: 12px; color: var(--ink-3); }
+.stale {
+  margin: -4px 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
+  background: color-mix(in srgb, var(--mid) 14%, transparent); border: 1px solid var(--mid); color: var(--ink);
+}
+.ghost {
+  width: 32px; height: 32px; flex: 0 0 auto; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--bg-soft); color: var(--ink-2);
+}
+.ghost:active { background: var(--line); }
+
+.controls { display: grid; gap: 8px; }
+
+.segmented { display: flex; gap: 4px; padding: 3px; background: var(--bg-soft); border-radius: 10px; border: 1px solid var(--line); }
+.segmented button {
+  flex: 1; padding: 7px 8px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--ink-2); font-size: 13px; font-weight: 600;
+}
+.segmented button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+@media (prefers-color-scheme: dark) { .segmented button.on { background: #242935; } }
+#watch-count { color: var(--ink-3); font-weight: 500; }
+
+.selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Sector labels carry a member count, so the longest of them needs more
+   room than an even split gives. Narrow phones keep the even split: the
+   count is still readable in the open list and in the line below. */
+@media (min-width: 380px) { .selects { grid-template-columns: 1.6fr 1fr; } }
+.sel { display: block; position: relative; }
+/* Direct child only: the sector trigger nests a second span (its value text)
+   inside .sel-btn, and an unscoped .sel span would pull that into the same
+   absolutely-positioned label slot, overlapping the two. */
+.sel > span {
+  position: absolute; top: 4px; left: 10px; z-index: 1;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
+}
+.sel select, .sel-btn {
+  width: 100%; padding: 18px 26px 6px 9px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg-soft);
+  -webkit-appearance: none; appearance: none; font-size: 13px; font-weight: 600;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 14px) 60%, calc(100% - 9px) 60%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+/* The button stands in for a <select> (it opens a sheet instead of a native
+   picker), so it carries the same look rather than inventing a new one next
+   to the Sort control it sits beside. */
+.sel-btn {
+  display: block; text-align: left; color: inherit; font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.sel-btn span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.sel-btn:active { background-color: var(--line-soft); }
+
+/* A bottom sheet: the trigger opens a scrollable checklist rather than a
+   native <select>, because more than one sector can be on at once. Instant
+   apply — a tap changes the list immediately, so the sheet only needs a way
+   to close it, not a way to commit or discard a pending choice. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .4);
+  opacity: 0; transition: opacity .2s;
+}
+.sheet-backdrop.open { opacity: 1; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41;
+  max-height: min(72vh, 560px); display: flex; flex-direction: column;
+  background: var(--card); border-radius: 18px 18px 0 0;
+  padding-bottom: var(--safe-b);
+  transform: translateY(100%); transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .25);
+}
+.sheet.open { transform: translateY(0); }
+.sheet-handle {
+  width: 36px; height: 4px; border-radius: 2px; background: var(--line);
+  margin: 10px auto 2px;
+}
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px 8px;
+}
+.sheet-head h2 { margin: 0; font-size: 17px; }
+.sheet-clear {
+  color: var(--accent); font-size: 14px; font-weight: 600; padding: 4px 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.sheet-list {
+  list-style: none; margin: 0; padding: 0 6px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  border-top: 1px solid var(--line-soft);
+}
+.sheet-row {
+  display: flex; align-items: center; width: 100%; gap: 10px;
+  padding: 13px 10px; text-align: left; font-size: 15px; color: var(--ink);
+  border-bottom: 1px solid var(--line-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+.sheet-row:active { background: var(--bg-soft); }
+.sheet-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-row small { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sheet-row i {
+  font-style: normal; width: 18px; text-align: center; color: var(--accent);
+  font-weight: 700; opacity: 0; transform: scale(.6); transition: opacity .1s, transform .1s;
+}
+.sheet-row.on i { opacity: 1; transform: scale(1); }
+.sheet-row.on span { color: var(--accent); font-weight: 650; }
+.sheet-done {
+  margin: 12px 16px;
+  padding: 13px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--line);
+  font-weight: 650; font-size: 14px; color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.count { margin: 10px 14px 6px; font-size: 12px; color: var(--ink-3); }
+
+/* ---------- list ---------- */
+.rows { list-style: none; margin: 0; padding: 0 8px; }
+.row {
+  display: grid;
+  grid-template-columns: 30px 1fr auto 38px;
+  align-items: center; gap: 8px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.row:active { background: var(--bg-soft); }
+.rk { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-3); text-align: right; }
+.who { min-width: 0; }
+.who b { display: block; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.who small {
+  display: block; font-size: 11.5px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.spark { display: block; }
+.spark line { stroke: var(--line); stroke-width: 1; }
+.sc { min-width: 42px; text-align: right; display: block; }
+.sc b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.sc small { display: block; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; margin-top: 1px; }
+.strip { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.strip small { font-size: 11.5px; color: var(--ink-3); line-height: 1.3; }
+.decomp { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.decomp h4 { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
+.decomp svg { display: block; overflow: visible; }
+.decomp .lbl { font-size: 11.5px; fill: var(--ink-2); }
+.decomp .val { font-size: 12px; font-weight: 700; fill: var(--ink); font-variant-numeric: tabular-nums; }
+.decomp .gap { font-size: 9.5px; fill: var(--ink-3); }
+.decomp .zero { stroke: var(--ink-3); stroke-width: 1; }
+.decomp rect.raw { fill: var(--ink-3); opacity: .55; }
+.decomp rect.mkt { fill: var(--accent); opacity: .5; }
+.decomp rect.ind { fill: var(--accent); }
+.decomp .legend { margin-top: 6px; }
+.star {
+  width: 38px; height: 38px; border: 0; background: transparent;
+  color: var(--ink-3); font-size: 18px; line-height: 1; border-radius: 50%;
+}
+.star.on { color: #f0a819; }
+.star:active { background: var(--bg-soft); }
+
+.empty { text-align: center; color: var(--ink-3); padding: 40px 20px; }
+.foot { padding: 22px 16px calc(28px + var(--safe-b)); color: var(--ink-3); font-size: 11.5px; }
+.foot p { margin: 0 0 6px; }
+
+/* ---------- detail ---------- */
+#detail-view { padding-bottom: calc(28px + var(--safe-b)); }
+.dtop {
+  position: sticky; top: 0; z-index: 20; background: var(--bg);
+  border-bottom: 1px solid var(--line); padding: calc(10px + var(--safe-t)) 12px 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.back {
+  border: 1px solid var(--line); background: var(--bg-soft); border-radius: 9px;
+  padding: 6px 11px; font-size: 13px; font-weight: 600;
+}
+.dtop .grow { flex: 1; min-width: 0; }
+.dtop .grow b { display: block; font-size: 16px; letter-spacing: -.01em; }
+.dtop .grow small { display: block; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Previous / next name in the list's current order, under the top bar of
+   the detail page and of the chart. */
+.pager {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 6px; border-bottom: 1px solid var(--line-soft); background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+.pager .pos { color: var(--ink-3); font-size: 12px; }
+.pager .pg {
+  min-width: 96px; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--accent); font-size: 13px; font-weight: 650; -webkit-tap-highlight-color: transparent;
+}
+.pager .pg.prev { text-align: left; }
+.pager .pg.next { text-align: right; }
+.pager button.pg:active { background: var(--bg-soft); }
+
+/* The price chart owns the whole screen and nothing on it scrolls, so a
+   vertical drag is always a chart gesture and never a page scroll. */
+#chart-view {
+  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
+  background: var(--bg); touch-action: none; overscroll-behavior: none;
+}
+#chart-view[hidden] { display: none; }
+#chart-view .dtop { position: static; }
+#chart-view .cpx { text-align: right; font-variant-numeric: tabular-nums; line-height: 1.2; }
+#chart-view .cpx b { display: block; font-size: 16px; }
+#chart-view .cpx small { font-size: 11.5px; color: var(--ink-3); margin-left: 6px; }
+#chart-view .cpx small.pos { color: var(--hot); }
+#chart-view .cpx small.neg { color: var(--cold); }
+#price-chart {
+  flex: 1; min-height: 0; width: 100%; display: block; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  margin-bottom: var(--safe-b);
+}
+#chart-view .hint {
+  position: absolute; left: 0; right: 0; top: 112px; margin: 0;   /* over the head of the price pane, clear of the rank pane */
+  text-align: center; font-size: 12px; color: var(--ink-3); pointer-events: none;
+  transition: opacity .4s; padding: 0 20px;
+}
+
+/* The chart's own settings. The root is a full-screen list of what the chart
+   draws (`.full`); one indicator's settings are a small sheet over the foot
+   of the chart with no backdrop, so the chart stays visible and redraws live
+   as a control moves. Touching the chart itself closes it. */
+.cpanel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  background: var(--card); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  padding: 0 16px calc(14px + var(--safe-b));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .18);
+  transform: translateY(100%); transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+}
+.cpanel.open { transform: translateY(0); }
+.cpanel[hidden] { display: none; }
+.cpanel.full { top: 0; z-index: 25; border-top: 0; border-radius: 0; box-shadow: none; overflow-y: auto; padding-top: var(--safe-t, 0px); }
+.cpanel.full .sheet-handle { display: none; }
+.cpanel.full .cpanel-head { padding: 12px 0 8px; }
+.cpanel.full .cpanel-head b { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+.cpanel-head { display: flex; align-items: center; gap: 16px; padding: 6px 0 10px; }
+.cpanel-head b { flex: 1; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cpanel-head button {
+  border: 0; background: transparent; padding: 4px 2px; font-size: 14px; font-weight: 600;
+  color: var(--accent); -webkit-tap-highlight-color: transparent;
+}
+.cpanel-head button.done { font-weight: 700; }
+.cpanel-head .backlink { padding-left: 0; }
+.cpanel-head .done { margin-left: auto; }
+.cpanel-head button.armed { color: var(--cold); }
+.cpanel-head .segmented.mini { flex: 1; max-width: 220px; }
+.cpanel-head .segmented.mini button { flex: 1; font-size: 12.5px; padding: 5px 8px; color: var(--ink-2); }
+.cpanel-head .segmented.mini button.on { color: var(--ink); }
+.cchoice { padding: 8px 0 2px; }
+.cchoice > span { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.cchoice .segmented button { flex: 1; padding: 8px 4px; font-size: 13px; }
+/* The tree: the price plot first, then the overlays, then a divider and
+   whatever is drawn below the chart (nothing yet). A row's name opens its
+   settings; the eye shows or hides it. */
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree-row { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line-soft); }
+.tree-row:first-child, .tree-sep + .tree-row { border-top: 0; }
+.tree-row .tree-ic { flex: 0 0 auto; width: 22px; height: 22px; color: var(--ink-2); }
+.tree-row.price .ind-open b { font-weight: 800; }
+.tree-row:not(.on) .tree-ic { color: var(--ink-3); }
+.tree-sep {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0 4px;
+  font-size: 11.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
+}
+.tree-sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.tree-empty { padding: 10px 0 14px; font-size: 13px; color: var(--ink-3); }
+.eye {
+  flex: 0 0 auto; width: 40px; height: 40px; margin-right: -8px; display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--ink-2); border-radius: 10px; -webkit-tap-highlight-color: transparent;
+}
+.eye[aria-pressed="false"] { color: var(--ink-3); }
+.eye svg { width: 20px; height: 20px; }
+.ind-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  border: 0; background: transparent; padding: 12px 0; color: var(--ink); -webkit-tap-highlight-color: transparent;
+}
+.ind-open > span { min-width: 0; }
+.ind-open b { display: block; font-size: 15px; }
+.ind-open b i { font-style: normal; color: var(--ink-3); font-weight: 400; }
+.ind-open small { display: block; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.tree-row:not(.on) .ind-open b { color: var(--ink-2); }
+.cslider { display: block; padding: 6px 0 2px; }
+.cslider span { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
+.cslider output { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 650; }
+.cslider input {
+  appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 32px;
+  margin: 4px 0 0; background: transparent; cursor: pointer; touch-action: none;
+}
+.cslider input::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--track); }
+.cslider input::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
+.cslider input::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none; width: 26px; height: 26px; margin-top: -11px;
+  border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.cslider input::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.cpanel .fine { margin: 6px 0 0; font-size: 11.5px; color: var(--ink-3); }
+
+/* The focus card: the score, its rank and the history chart as one thing.
+   The headline doubles as the chart's readout. */
+.card.focus { margin-top: 12px; padding: 16px 14px 12px; }
+.hero { display: flex; align-items: flex-end; gap: 12px; }
+.hero .big { font-size: 50px; font-weight: 800; letter-spacing: -.04em; line-height: .9; font-variant-numeric: tabular-nums; }
+.hero .lbl { font-size: 12px; color: var(--ink-3); padding-bottom: 3px; min-width: 0; }
+.hero .lbl b { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.hero .lbl span { display: block; margin-top: 2px; }
+.focus .meta { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0 6px; }
+.chart-head h3 { margin: 0; }
+.legend.key { margin-top: 8px; }
+.disc { margin: 6px 2px 0; }
+.disc summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--accent); padding: 4px 0; -webkit-tap-highlight-color: transparent; }
+.disc summary::-webkit-details-marker { display: none; }
+.disc summary::after { content: ' ›'; }
+.disc[open] summary::after { content: ' ⌄'; }
+.disc .legend { margin-top: 4px; }
+
+/* Supporting sections: one tap row each, expanding in place. The row's
+   right-hand text carries the one fact worth seeing without opening it. */
+.sect { display: block; margin: 0 12px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: inherit; }
+.sect summary, .sect.link { list-style: none; display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sect summary::-webkit-details-marker { display: none; }
+.sect b { font-size: 15px; font-weight: 650; color: var(--ink); white-space: nowrap; }
+.sect.link b { color: var(--accent); }
+.sect small { flex: 1; min-width: 0; text-align: right; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sect i { font-style: normal; color: var(--ink-3); font-size: 18px; line-height: 1; transition: transform .15s; }
+.sect[open] > summary i { transform: rotate(90deg); }
+.sect summary:active, .sect.link:active { background: var(--bg-soft); border-radius: 14px; }
+.sect .body { padding: 4px 14px 14px; border-top: 1px solid var(--line-soft); }
+.sect .body .sub { margin: 10px 0; }
+
+.card { margin: 0 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.card h3 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-3); font-weight: 700; }
+.card h3.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.segmented.mini { padding: 2px; border-radius: 8px; flex: 0 0 auto; }
+.segmented.mini button {
+  padding: 4px 9px; font-size: 11px; border-radius: 6px;
+  text-transform: none; letter-spacing: 0;
+}
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 14px; }
+.stats div { min-width: 0; }
+.stats dt { font-size: 11px; color: var(--ink-3); margin-bottom: 2px; }
+.stats dd { margin: 0; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.pos { color: var(--hot); } .neg { color: var(--cold); }
+/* Score components: the two legs as columns, one row per measure, with the
+   row the percentiles rank marked, then the blend written out. */
+.card .sub, .sect .sub { margin: -6px 0 10px; font-size: 12px; color: var(--ink-3); }
+.comp { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.comp th { font-weight: 700; font-size: 14px; text-align: right; padding: 0 0 8px; color: var(--ink); vertical-align: bottom; }
+.comp th small { display: block; font-weight: 500; font-size: 11px; color: var(--ink-3); }
+.comp td { padding: 9px 0; border-top: 1px solid var(--line-soft); color: var(--ink-2); }
+.comp td:first-child { color: var(--ink-2); padding-right: 8px; }
+.comp td + td { text-align: right; width: 24%; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.comp tr.on td:first-child { color: var(--ink); font-weight: 650; }
+.comp tr.on td:first-child::before { content: '▸ '; color: var(--accent); }
+.comp tr.pct td + td { font-weight: 700; }
+.blend {
+  margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg-soft);
+  border: 1px solid var(--line-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.blend b { display: block; font-size: 15px; }
+.blend small { display: block; margin-top: 3px; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.blend .big { font-size: 30px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.card .more, .sect .more { display: block; margin: 12px -14px -14px; padding: 12px 14px; border-top: 1px solid var(--line-soft); color: var(--accent); font-size: 14px; font-weight: 600; }
+.card .more:active, .sect .more:active { background: var(--bg-soft); }
+
+.peers { width: 100%; border-collapse: collapse; font-size: 13px; }
+.peers td { padding: 7px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
+.peers tr:last-child td { border-bottom: 0; }
+.peers tr.on td { color: var(--ink); font-weight: 650; }
+.peers tr.on td:first-child::before { content: '▸ '; color: var(--accent); }
+.peers .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; width: 58px; }
+.peers .k { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3);
+            font-size: 11.5px; width: 78px; }
+
+/* Settings: a labelled switch row, and a card that is itself a link. */
+.switch { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+/* Two settings in one card need a line between them, or the second one's
+   description reads as more of the first one's. */
+.switch + .switch { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.switch .grow b { display: block; font-size: 14px; }
+.switch .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
+.switch .info { border: 0; background: none; padding: 0 6px; margin-left: 2px; font: inherit; font-size: 15px;
+  line-height: 1; color: var(--accent); cursor: pointer; vertical-align: -1px; }
+.switch .info[aria-expanded="true"] { color: var(--ink-2); }
+.switch .grow small.formula { color: var(--ink-2); margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-soft); font-variant-numeric: tabular-nums; }
+.choice { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.choice .grow b { display: block; font-size: 14px; }
+.choice .grow small { display: block; font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; min-height: 2.9em; }
+.choice .segmented { margin-top: 10px; }
+.choice .segmented button { flex: 1; }
+.switch input {
+  appearance: none; -webkit-appearance: none; flex: 0 0 auto; margin: 0;
+  width: 46px; height: 28px; border-radius: 14px; background: var(--track); position: relative;
+  transition: background .15s; cursor: pointer;
+}
+.switch input::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .15s;
+}
+.switch input:checked { background: var(--hot); }
+.switch input:checked::after { transform: translateX(18px); }
+.method { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
+.method li { margin-bottom: 9px; }
+.method li:last-child { margin-bottom: 0; }
+.method b { color: var(--ink); }
+.fine { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin: 0 0 10px; }
+.fine:last-child { margin-bottom: 0; }
+.fine a { color: var(--accent); }
+
+.chartwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+svg.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .mid { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+.chart text { fill: var(--ink-3); font-size: 9px; font-family: inherit; }
+.chart .ma { stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; opacity: .95; }
+.chart .ma-dot { fill: var(--accent); stroke: var(--card); stroke-width: 1.5; }
+.legend { margin: 10px 2px 0; font-size: 11px; color: var(--ink-3); line-height: 1.4; }
+
+@media (min-width: 720px) {
+  #list-view, #detail-view { max-width: 760px; margin: 0 auto; }
+  .stats { grid-template-columns: repeat(3, 1fr); }
+  .selects { grid-template-columns: 1fr 1fr 1fr; }
+}

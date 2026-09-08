@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="description" content="Momentum ranking of the S&P 500 and S&P MidCap 400 together, refreshed every weekday.">
+<title>S&amp;P 900 Momentum</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="S&amp;P 900">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%230b0d12%22/%3E%3Crect x=%226%22 y=%2218%22 width=%224%22 height=%228%22 fill=%22%23cf6b2f%22/%3E%3Crect x=%2212%22 y=%2213%22 width=%224%22 height=%2213%22 fill=%22%23c9b02f%22/%3E%3Crect x=%2218%22 y=%229%22 width=%224%22 height=%2217%22 fill=%22%2358c04a%22/%3E%3Crect x=%2224%22 y=%225%22 width=%224%22 height=%2221%22 fill=%22%2335c46a%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- The one icon the app draws itself: a sketched set of sliders, used for
+     both settings buttons. Kept as a symbol so each button is one <use>. -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><symbol id="i-tune" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 6.9c3.1-.5 6.1-.4 9.1-.3"/><path d="M19.1 6.5c.5 0 .9.1 1.3.2"/>
+  <path d="M3.4 12.3c.6-.1 1.1-.2 1.6-.2"/><path d="M11.5 11.9c3 .1 6-.1 9 .2"/>
+  <path d="M3.5 17.4c2.1.2 4.2 0 6.3.1"/><path d="M16.3 17.7c1.4-.2 2.8-.2 4.2-.3"/>
+  <path d="M15.8 3.8c1.7-.3 3 1.1 2.9 2.6-.1 1.4-1.4 2.5-2.8 2.3-1.4-.2-2.3-1.5-2-2.8.2-1 1-1.9 1.9-2.1z"/>
+  <path d="M8.3 9.4c1.6-.1 2.7 1.2 2.6 2.6-.1 1.4-1.3 2.4-2.7 2.3-1.3-.1-2.3-1.3-2.2-2.6.1-1.2 1-2.2 2.3-2.3z"/>
+  <path d="M12.9 14.9c1.5-.2 2.8 1 2.8 2.4 0 1.5-1.3 2.6-2.7 2.5-1.4-.1-2.4-1.3-2.3-2.7.1-1.1.9-2 2.2-2.2z"/>
+</symbol><symbol id="i-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7.2 4.5v15"/><path d="M4.3 9.2h2.9"/><path d="M7.2 14.1h2.9"/>
+  <path d="M16.6 3.2v17.6"/><path d="M13.8 7.4h2.8"/><path d="M16.6 16.3h2.9"/>
+</symbol><symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.8 13.6c2.4-5.3 4.7-5.6 7-.9s4.6 4.9 7-.2c.9-1.9 2.5-2.4 4.4-1.3"/>
+</symbol><symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.6 12.1c2.7-4.1 5.8-6.1 9.4-6.1s6.7 2 9.4 6.1c-2.7 4.1-5.8 6.1-9.4 6.1s-6.7-2-9.4-6.1z"/>
+  <path d="M12 9.1c1.6 0 2.9 1.3 2.9 2.9S13.6 15 12 15s-2.9-1.3-2.9-3 1.3-2.9 2.9-2.9z"/>
+</symbol><symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.2 8.6c-.6.9-1.2 2-1.6 3.5 2.7 4.1 5.8 6.1 9.4 6.1 1.3 0 2.6-.3 3.8-.9"/>
+  <path d="M8.9 5.7c1-.4 2-.6 3.1-.6 3.6 0 6.7 2 9.4 6.1-.7 1.1-1.5 2.1-2.3 2.9"/>
+  <path d="M9.9 9.9c-.5.5-.8 1.3-.8 2.1 0 1.6 1.3 3 2.9 3 .8 0 1.5-.3 2-.8"/>
+  <path d="M3.8 3.6l16.4 16.6"/>
+</symbol></svg>
+
+<main id="list-view">
+  <header class="topbar">
+    <div class="titlerow">
+      <h1 class="title">S&amp;P<span class="pill">900</span></h1>
+      <a class="ghost" href="#/settings" aria-label="Settings and how the score works"><svg width="16" height="16" aria-hidden="true"><use href="#i-tune"/></svg></a>
+    </div>
+    <p class="asof" id="asof">Loading…</p>
+    <p class="stale" id="stale" hidden></p>
+    <div class="controls">
+      <div class="segmented" role="tablist" aria-label="Filter">
+        <button role="tab" data-scope="all" class="on" aria-selected="true">All</button>
+        <button role="tab" data-scope="watch" aria-selected="false">Watchlist <span id="watch-count"></span></button>
+      </div>
+      <div class="selects">
+        <div class="sel"><span>Sector</span>
+          <button type="button" id="sector-btn" class="sel-btn" aria-haspopup="dialog" aria-expanded="false">
+            <span id="sector-value">All sectors</span>
+          </button>
+        </div>
+        <label class="sel"><span>Sort</span>
+          <select id="sort">
+            <option value="score">Score</option>
+            <option value="mktCap">Market cap</option>
+            <option value="symbol">Ticker A–Z</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <p class="count" id="count"></p>
+  <ol class="rows" id="rows"></ol>
+  <div id="sentinel"></div>
+  <p class="empty" id="empty" hidden>No matches.</p>
+  <footer class="foot">
+    <p>The score is a standing against peers across the S&amp;P&nbsp;500 and MidCap&nbsp;400 together, not a return forecast.</p>
+    <p id="gen"></p>
+  </footer>
+</main>
+
+<section id="detail-view" hidden></section>
+<section id="chart-view" hidden></section>
+<section id="settings-view" hidden>
+  <div class="dtop">
+    <button class="back" id="sback">‹ Back</button>
+    <span class="grow"><b>Settings</b><small>and how the score works</small></span>
+  </div>
+
+  <div class="card">
+    <h3>Score</h3>
+    <p class="sub">The score is the 9–1 return: the nine months ending one month ago, with the most
+      recent month skipped. Two switches change what is measured.</p>
+    <label class="switch">
+      <span class="grow"><b>Volatility adjustment</b>
+        <small>Divide the return by its own annualised volatility, so a steady climb outscores an
+        equally large but erratic one.</small></span>
+      <input type="checkbox" id="adj-vol" role="switch">
+    </label>
+    <label class="switch">
+      <span class="grow"><b>Market residualization
+          <button type="button" class="info" id="resid-info" aria-label="Show the formula"
+            aria-expanded="false" aria-controls="resid-formula">ⓘ</button></b>
+        <small>Residual momentum = momentum after removing the stock’s exposure to the
+        equal-weight market.</small>
+        <small class="formula" id="resid-formula" hidden>Daily residual return = Stock return −
+          (3-year rolling β × Equal-weight universe return)</small></span>
+      <input type="checkbox" id="adj-resid" role="switch">
+    </label>
+    <div class="choice">
+      <span class="grow"><b>Display</b><small id="display-note"></small></span>
+      <div class="segmented" id="display-seg" role="radiogroup" aria-label="Display">
+        <button type="button" role="radio" data-display="value">Score value</button>
+        <button type="button" role="radio" data-display="rank">Rank</button>
+        <button type="button" role="radio" data-display="pct">Percentile</button>
+      </div>
+    </div>
+    <p class="legend">One universe, one score, one window. These choices change how it is built and
+      how it is read, not which names are in it. The list, its order, the detail page and the score pane under
+      each price chart all use the same settings, so the same name on the same day reads the same
+      everywhere.</p>
+  </div>
+
+  <div class="card">
+    <h3>Data</h3>
+    <dl class="stats" id="data-stats"></dl>
+    <p class="legend">Refreshed each weekday morning from Financial Modeling Prep, after the previous
+      day's close. If it goes more than four days without a refresh the list says so.</p>
+  </div>
+
+  <div class="card">
+    <h3>How the score works</h3>
+    <ol class="method" id="method"></ol>
+  </div>
+
+  <div class="card">
+    <h3>Universe</h3>
+    <p class="fine">The S&amp;P&nbsp;500 and the S&amp;P MidCap&nbsp;400 together, the S&amp;P&nbsp;900:
+      roughly 900 names. The line between the two indices is an index committee's decision rather
+      than a fact about a company, so every name is measured against all the others, whichever
+      index happens to hold it.</p>
+    <p class="fine">Three things keep a member out of the day's ranking: fewer than two years of
+      trading history, so the window never starts inside a new listing's first months; a window
+      volatility under 8%, the mark of a name trading on a pending takeover rather than on
+      its own merits; and being the second share class of a company already in the list, where
+      only the Class A share is kept. Today's cases are on the data card above.</p>
+    <p class="fine">Membership is point-in-time: the score pane under each price chart re-runs the
+      full cross-section on every trading day using both indices as they stood that day. A name
+      that joined recently is scored
+      on earlier dates against that day's members — where it <em>would</em> have stood — without
+      being counted among them.</p>
+  </div>
+
+  <footer class="foot"><p>Data: Financial Modeling Prep. The score is a standing against peers, not a
+    return forecast. Not investment advice.</p></footer>
+</section>
+
+
+
+<div class="sheet-backdrop" id="sector-backdrop" hidden></div>
+<div class="sheet" id="sector-sheet" role="dialog" aria-modal="true" aria-label="Filter by sector" hidden>
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <h2>Sector</h2>
+    <button type="button" class="sheet-clear" id="sector-clear">Clear</button>
+  </div>
+  <ul class="sheet-list" id="sector-list"></ul>
+  <button type="button" class="sheet-done" id="sector-done">Done</button>
+</div>
+
+<script src="chart.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

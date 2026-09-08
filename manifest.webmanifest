@@ -1,0 +1,23 @@
+{
+  "name": "S&P 900 Momentum",
+  "short_name": "S&P 900",
+  "description": "Momentum ranking of the S&P 500 and S&P MidCap 400 together.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0d12",
+  "theme_color": "#0b0d12",
+  "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

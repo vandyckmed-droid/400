@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""Universe definition and point-in-time membership reconstruction.
+
+One universe, assembled from two sources:
+
+* the **S&P MidCap 400**. Current members come from Wikipedia (no FMP plan tier
+  exposes a MidCap 400 constituent endpoint); history comes from Wikipedia's
+  historical-components page, walked backwards from today.
+* the **S&P 500**, members and change log from FMP, sector and industry labels
+  from Wikipedia's S&P 500 list page.
+
+Together they are the S&P 900: roughly 900 names, each ranked against all the
+others whichever index happens to hold it, every one labelled with its GICS
+sector and sub-industry from the same source.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import html
+import json
+import re
+from bisect import bisect_right
+
+import build
+
+
+def strip_tags(fragment: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", fragment)).replace("\xa0", " ").strip()
+
+
+VALID = re.compile(r"[A-Z][A-Z0-9-]{0,6}")
+
+# FMP's S&P 500 endpoint labels sectors with the Yahoo/Morningstar taxonomy while
+# Wikipedia uses GICS names. Every S&P 500 name normally takes its sector and
+# sub-industry from Wikipedia's S&P 500 page (the same list the MidCap 400
+# labels come from); this sector map is the last resort for a name that page
+# does not carry. Its industry then stays in FMP's wording.
+GICS = {
+    "Technology": "Information Technology",
+    "Healthcare": "Health Care",
+    "Financial Services": "Financials",
+    "Consumer Cyclical": "Consumer Discretionary",
+    "Consumer Defensive": "Consumer Staples",
+    "Basic Materials": "Materials",
+}
+
+
+def gics(sector: str) -> str:
+    return GICS.get(sector, sector)
+
+
+def valid(symbol: str) -> bool:
+    return bool(VALID.fullmatch(symbol))
+
+
+# --- Loaders: fresh if possible, committed snapshot if not --------------------
+
+def load_core() -> tuple[list[dict], list[dict]]:
+    """MidCap 400 constituents and change log, from Wikipedia or data/universe.json.
+
+    An empty change log is treated as the source being down: without it every
+    historical cross-section would silently use today's membership. The log is
+    also used to correct the constituents table when an edit has rolled it back
+    past a change it records (as happened in September 2026)."""
+    def fetch():
+        changes = core_changes()
+        if not changes:
+            raise RuntimeError("no change log found on either Wikipedia page")
+        return {"constituents": reconcile(build.scrape_universe(), changes), "changes": changes}
+    payload = build.snapshot("universe", fetch, "MidCap 400 universe")
+    return payload["constituents"], payload.get("changes", [])
+
+
+def reconcile(constituents: list[dict], changes: list[dict]) -> list[dict]:
+    """Apply any logged change up to today that the constituents table has not
+    caught up with: the removed name still listed and the added one missing.
+    The added name's details come from the committed snapshot, if it has them;
+    otherwise the table is left alone and the mismatch logged."""
+    today = dt.date.today().isoformat()
+    listed = {c["symbol"]: c for c in constituents}
+    known = {}
+    path = build.DATA / "universe.json"
+    if path.exists():
+        known = {c["symbol"]: c for c in json.loads(path.read_text()).get("constituents", [])}
+    # Only a name's latest logged move counts: one removed years ago and since
+    # re-added is rightly in the table, whatever the older entry says.
+    latest = {}
+    for change in sorted((c for c in changes if c["date"] <= today), key=lambda c: c["date"], reverse=True):
+        for symbol, move in ((change.get("added"), "in"), (change.get("removed"), "out")):
+            if symbol and symbol not in latest:
+                latest[symbol] = (change["date"], move)
+    for change in changes:
+        added, removed = change.get("added"), change.get("removed")
+        if change["date"] > today or not added or not removed:
+            continue
+        if added in listed or removed not in listed:
+            continue
+        if latest.get(added) != (change["date"], "in") or latest.get(removed) != (change["date"], "out"):
+            continue
+        if added not in known:
+            build.log(f"universe: table still lists {removed} after {added} replaced it on "
+                      f"{change['date']}; no details for {added}, leaving it")
+            continue
+        build.log(f"universe: table still lists {removed}; applying {added} for {removed} "
+                  f"({change['date']}) from the change log")
+        del listed[removed]
+        listed[added] = known[added]
+    return sorted(listed.values(), key=lambda c: c["symbol"])
+
+
+def load_sp500() -> tuple[list[dict], list[dict]]:
+    """S&P 500 constituents and change log, from FMP or data/sp500.json."""
+    payload = build.snapshot(
+        "sp500",
+        lambda: {"constituents": gics_labelled(sp500_constituents()), "changes": sp500_changes()},
+        "S&P 500 universe",
+    )
+    return payload["constituents"], payload.get("changes", [])
+
+
+def gics_labelled(constituents: list[dict]) -> list[dict]:
+    """The same names carrying the GICS sector and sub-industry Wikipedia lists
+    for them. With Wikipedia down, the labels of the last successful run
+    (data/sp500.json) stand in; a name neither source knows keeps FMP's
+    mapped sector and its own industry wording, and is logged."""
+    try:
+        labels = {c["symbol"]: c for c in build.scrape_universe(build.WIKI_SP500)}
+    except Exception as exc:  # noqa: BLE001 - fall back to the previous run's labels
+        build.log(f"S&P 500 labels: Wikipedia failed ({exc}); using the last run's")
+        labels = {}
+        path = build.DATA / "sp500.json"
+        if path.exists():
+            labels = {c["symbol"]: c for c in json.loads(path.read_text()).get("constituents", [])}
+    out, unlabelled = [], []
+    for c in constituents:
+        found = labels.get(c["symbol"])
+        if found:
+            c = {**c, "sector": found["sector"], "industry": found["industry"]}
+        else:
+            unlabelled.append(c["symbol"])
+        out.append(c)
+    if unlabelled:
+        build.log(f"S&P 500 labels: no GICS labels for {', '.join(unlabelled)}; keeping FMP's")
+    return out
+
+
+# --- Current membership -------------------------------------------------------
+
+def sp500_constituents() -> list[dict]:
+    rows = build.fmp("sp500-constituent")
+    out = []
+    for r in rows:
+        symbol = build.normalise(r.get("symbol", ""))
+        if valid(symbol):
+            out.append(
+                {
+                    "symbol": symbol,
+                    "name": r.get("name", symbol),
+                    "sector": gics(r.get("sector", "")),
+                    "industry": r.get("subSector", ""),
+                }
+            )
+    return out
+
+
+# --- Change logs --------------------------------------------------------------
+
+def core_changes() -> list[dict]:
+    """S&P 400 additions/removals from Wikipedia, newest first: the historical
+    components page, or the list page itself if the table is (back) there."""
+    for url in (build.WIKI_CHANGES, build.WIKI):
+        try:
+            changes = changes_on(build.http_get(url).decode("utf-8", "replace"))
+        except Exception as exc:  # noqa: BLE001 - try the other page
+            build.log(f"change log: {url.rsplit('/', 1)[-1]} failed ({exc})")
+            continue
+        if changes:
+            return changes
+    return []
+
+
+def changes_on(page: str) -> list[dict]:
+    """The first wikitable on `page` with Added and Removed columns, as changes."""
+    tables = re.findall(r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', page, re.S)
+    changes = []
+    for table in tables:
+        headers = [strip_tags(h) for h in re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)]
+        if "Added" not in headers or "Removed" not in headers:
+            continue
+        for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S):
+            cells = [strip_tags(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+            if len(cells) < 5:
+                continue
+            try:
+                when = dt.datetime.strptime(cells[0], "%B %d, %Y").date().isoformat()
+            except ValueError:
+                continue
+            added, removed = build.normalise(cells[1]), build.normalise(cells[3])
+            changes.append(
+                {
+                    "date": when,
+                    "added": added if valid(added) else None,
+                    "removed": removed if valid(removed) else None,
+                }
+            )
+        break
+    changes.sort(key=lambda c: c["date"], reverse=True)
+    return changes
+
+
+def sp500_changes() -> list[dict]:
+    """S&P 500 additions/removals from FMP, newest first."""
+    changes = []
+    for r in build.fmp("historical-sp500-constituent"):
+        raw = r.get("date")
+        if not raw:
+            continue
+        try:
+            when = dt.date.fromisoformat(raw[:10]).isoformat()
+        except ValueError:
+            continue
+        added = build.normalise(r.get("symbol") or "")
+        removed = build.normalise(r.get("removedTicker") or "")
+        changes.append(
+            {
+                "date": when,
+                "added": added if valid(added) else None,
+                "removed": removed if valid(removed) else None,
+            }
+        )
+    changes.sort(key=lambda c: c["date"], reverse=True)
+    return changes
+
+
+def membership_history(current: set[str], changes: list[dict], dates: list[str]) -> dict[str, set[str]]:
+    """Membership at each date in `dates`, by undoing changes newer than it.
+    Dates are ISO strings throughout, which compare correctly as text."""
+    out: dict[str, set[str]] = {}
+    members = set(current)
+    cursor = 0
+    for date in sorted(dates, reverse=True):
+        while cursor < len(changes) and changes[cursor]["date"] > date:
+            change = changes[cursor]
+            if change["added"]:
+                members.discard(change["added"])
+            if change["removed"]:
+                members.add(change["removed"])
+            cursor += 1
+        out[date] = set(members)
+    return out
+
+
+# --- Share classes ------------------------------------------------------------
+
+CLASS_WORDS = re.compile(r"\s*\(class [a-c]\)|\bclass [a-c]\b|\b(common|ordinary) (stock|shares)\b", re.I)
+
+
+def company_key(name: str) -> str:
+    """A company's name with the share-class wording and corporate suffixes
+    stripped, so two classes of one company collide."""
+    base = CLASS_WORDS.sub("", name).lower()
+    base = re.sub(r"[.,'()-]", " ", base)
+    words = [w for w in base.split() if w not in ("inc", "corp", "corporation", "co", "ltd", "plc", "the", "company")]
+    return " ".join(words)
+
+
+def second_classes(constituents: list[dict]) -> set[str]:
+    """The symbols to leave out so each company appears once: where several
+    members share a company name, every class but the Class A share, or,
+    with no class named A, every symbol but the first alphabetically."""
+    by_company: dict[str, list[dict]] = {}
+    for c in constituents:
+        by_company.setdefault(company_key(c["name"]), []).append(c)
+    out = set()
+    for members in by_company.values():
+        symbols = sorted({m["symbol"] for m in members})
+        if len(symbols) < 2:
+            continue
+        class_a = sorted({m["symbol"] for m in members if re.search(r"class a\b", m["name"], re.I)})
+        keep = class_a[0] if class_a else symbols[0]
+        out.update(s for s in symbols if s != keep)
+    return out
